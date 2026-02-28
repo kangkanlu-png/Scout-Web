@@ -338,6 +338,7 @@ adminRoutes.get('/groups', authMiddleware, async (c) => {
         <span class="px-2 py-0.5 rounded-full text-xs ${g.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">${g.is_active ? '顯示中' : '已隱藏'}</span>
       </td>
       <td class="py-3 px-4">
+        <a href="/admin/groups/${g.id}/semesters" class="text-green-600 hover:text-green-800 text-sm font-medium mr-3">📂 學期/相片</a>
         <button onclick="editGroup(${g.id}, ${JSON.stringify(g).replace(/"/g, '&quot;')})" class="text-blue-600 hover:text-blue-800 text-sm font-medium mr-3">編輯</button>
         <button onclick="deleteGroup(${g.id})" class="text-red-500 hover:text-red-700 text-sm font-medium">刪除</button>
       </td>
@@ -358,10 +359,6 @@ adminRoutes.get('/groups', authMiddleware, async (c) => {
             <th class="py-3 px-4 text-left text-gray-600">年級範圍</th>
             <th class="py-3 px-4 text-left text-gray-600">狀態</th>
             <th class="py-3 px-4 text-left text-gray-600">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows || '<tr><td colspan="5" class="py-8 text-center text-gray-400">尚無分組資料</td></tr>'}
         </tbody>
       </table>
     </div>
@@ -396,6 +393,7 @@ adminRoutes.get('/groups', authMiddleware, async (c) => {
         document.getElementById('edit-group-id').value = id;
         document.getElementById('edit-name').value = data.name || '';
         document.getElementById('edit-name_en').value = data.name_en || '';
+        document.getElementById('edit-slug').value = data.slug || '';
         document.getElementById('edit-grade_range').value = data.grade_range || '';
         document.getElementById('edit-description').value = data.description || '';
         document.getElementById('edit-display_order').value = data.display_order || 0;
@@ -406,6 +404,7 @@ adminRoutes.get('/groups', authMiddleware, async (c) => {
         const data = {
           name: document.getElementById('add-name').value,
           name_en: document.getElementById('add-name_en').value,
+          slug: document.getElementById('add-slug').value,
           grade_range: document.getElementById('add-grade_range').value,
           description: document.getElementById('add-description').value,
           display_order: parseInt(document.getElementById('add-display_order').value) || 0,
@@ -420,6 +419,7 @@ adminRoutes.get('/groups', authMiddleware, async (c) => {
         const data = {
           name: document.getElementById('edit-name').value,
           name_en: document.getElementById('edit-name_en').value,
+          slug: document.getElementById('edit-slug').value,
           grade_range: document.getElementById('edit-grade_range').value,
           description: document.getElementById('edit-description').value,
           display_order: parseInt(document.getElementById('edit-display_order').value) || 0,
@@ -603,6 +603,318 @@ adminRoutes.get('/settings', authMiddleware, async (c) => {
   `))
 })
 
+// ===================== 分組學期管理 =====================
+adminRoutes.get('/groups/:id/semesters', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const groupId = c.req.param('id')
+  const group = await db.prepare(`SELECT * FROM scout_groups WHERE id=?`).bind(groupId).first() as any
+  if (!group) return c.redirect('/admin/groups')
+
+  const semesters = await db.prepare(`
+    SELECT gs.*, COUNT(si.id) as image_count
+    FROM group_semesters gs
+    LEFT JOIN semester_images si ON si.semester_id = gs.id
+    WHERE gs.group_id = ?
+    GROUP BY gs.id
+    ORDER BY gs.display_order ASC, gs.semester DESC
+  `).bind(groupId).all()
+
+  const rows = semesters.results.map((s: any) => `
+    <tr class="border-b hover:bg-gray-50">
+      <td class="py-3 px-4 font-medium font-mono">${s.semester}</td>
+      <td class="py-3 px-4 text-sm text-gray-600">${s.title || '-'}</td>
+      <td class="py-3 px-4 text-sm text-gray-500">${s.image_count} 張</td>
+      <td class="py-3 px-4 text-sm">
+        <span class="px-2 py-0.5 rounded-full text-xs ${s.is_published ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">${s.is_published ? '已發佈' : '草稿'}</span>
+      </td>
+      <td class="py-3 px-4">
+        <div class="flex gap-2">
+          <a href="/admin/semesters/${s.id}/images" class="text-purple-600 hover:text-purple-800 text-sm font-medium">相片管理</a>
+          <button onclick="editSem(${s.id}, ${JSON.stringify(s).replace(/"/g, '&quot;')})" class="text-blue-600 hover:text-blue-800 text-sm font-medium">編輯</button>
+          <button onclick="deleteSem(${s.id})" class="text-red-500 hover:text-red-700 text-sm font-medium">刪除</button>
+        </div>
+      </td>
+    </tr>
+  `).join('')
+
+  return c.html(adminLayout(`${group.name} - 學期管理`, `
+    <div class="flex justify-between items-center mb-6">
+      <div>
+        <h2 class="text-xl font-bold text-gray-800">${group.name} — 學期管理</h2>
+        <p class="text-gray-500 text-sm mt-0.5">${group.name_en || ''} ${group.grade_range || ''}</p>
+      </div>
+      <div class="flex gap-2">
+        <a href="/admin/groups" class="text-gray-500 hover:text-gray-700 text-sm py-2 px-3">← 返回分組</a>
+        <button onclick="document.getElementById('add-sem-modal').classList.remove('hidden')" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">➕ 新增學期</button>
+      </div>
+    </div>
+
+    <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-5 text-sm text-amber-800">
+      💡 <strong>提示：</strong>「學期」對應原網站的頁面層級，如 <code class="bg-amber-100 px-1 rounded">113-1</code>、<code class="bg-amber-100 px-1 rounded">112-2</code>。建立後可在「相片管理」中新增圖片。
+    </div>
+
+    <div class="bg-white rounded-xl shadow overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="py-3 px-4 text-left text-gray-600">學期代碼</th>
+            <th class="py-3 px-4 text-left text-gray-600">標題</th>
+            <th class="py-3 px-4 text-left text-gray-600">相片數</th>
+            <th class="py-3 px-4 text-left text-gray-600">狀態</th>
+            <th class="py-3 px-4 text-left text-gray-600">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="5" class="py-8 text-center text-gray-400">尚無學期資料</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 新增學期彈窗 -->
+    <div id="add-sem-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
+        <h3 class="text-lg font-bold mb-4">新增學期</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">學期代碼 * <span class="text-gray-400 font-normal">（如 113-1、112-2）</span></label>
+            <input type="text" id="add-sem-semester" placeholder="113-1" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">學期標題 <span class="text-gray-400 font-normal">（選填，如 113學年度 第1學期）</span></label>
+            <input type="text" id="add-sem-title" placeholder="113學年度 第1學期" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">說明</label>
+            <textarea id="add-sem-description" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="學期活動說明..."></textarea>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">封面圖片網址 <span class="text-gray-400">(選填)</span></label>
+            <input type="url" id="add-sem-cover" placeholder="https://..." class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">排序</label>
+              <input type="number" id="add-sem-order" value="0" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div class="flex items-end gap-2 pb-1">
+              <input type="checkbox" id="add-sem-published" checked class="w-4 h-4 text-green-600">
+              <label for="add-sem-published" class="text-sm text-gray-700">立即發佈</label>
+            </div>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button onclick="saveSem(${groupId})" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex-1">新增</button>
+          <button onclick="document.getElementById('add-sem-modal').classList.add('hidden')" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm flex-1">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 編輯學期彈窗 -->
+    <div id="edit-sem-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
+        <h3 class="text-lg font-bold mb-4">編輯學期</h3>
+        <input type="hidden" id="edit-sem-id">
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">學期代碼 *</label>
+            <input type="text" id="edit-sem-semester" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">學期標題</label>
+            <input type="text" id="edit-sem-title" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">說明</label>
+            <textarea id="edit-sem-description" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm"></textarea>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">封面圖片網址</label>
+            <input type="url" id="edit-sem-cover" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">排序</label>
+              <input type="number" id="edit-sem-order" value="0" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div class="flex items-end gap-2 pb-1">
+              <input type="checkbox" id="edit-sem-published" class="w-4 h-4 text-green-600">
+              <label for="edit-sem-published" class="text-sm text-gray-700">已發佈</label>
+            </div>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button onclick="updateSem()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex-1">更新</button>
+          <button onclick="document.getElementById('edit-sem-modal').classList.add('hidden')" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm flex-1">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function editSem(id, data) {
+        document.getElementById('edit-sem-id').value = id;
+        document.getElementById('edit-sem-semester').value = data.semester || '';
+        document.getElementById('edit-sem-title').value = data.title || '';
+        document.getElementById('edit-sem-description').value = data.description || '';
+        document.getElementById('edit-sem-cover').value = data.cover_image || '';
+        document.getElementById('edit-sem-order').value = data.display_order || 0;
+        document.getElementById('edit-sem-published').checked = data.is_published === 1;
+        document.getElementById('edit-sem-modal').classList.remove('hidden');
+      }
+      async function saveSem(groupId) {
+        const data = {
+          semester: document.getElementById('add-sem-semester').value,
+          title: document.getElementById('add-sem-title').value,
+          description: document.getElementById('add-sem-description').value,
+          cover_image: document.getElementById('add-sem-cover').value,
+          display_order: parseInt(document.getElementById('add-sem-order').value) || 0,
+          is_published: document.getElementById('add-sem-published').checked ? 1 : 0,
+        };
+        if (!data.semester) { alert('學期代碼為必填'); return; }
+        const res = await fetch('/api/groups/' + groupId + '/semesters', {
+          method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+        });
+        if (res.ok) location.reload(); else alert('儲存失敗');
+      }
+      async function updateSem() {
+        const id = document.getElementById('edit-sem-id').value;
+        const data = {
+          semester: document.getElementById('edit-sem-semester').value,
+          title: document.getElementById('edit-sem-title').value,
+          description: document.getElementById('edit-sem-description').value,
+          cover_image: document.getElementById('edit-sem-cover').value,
+          display_order: parseInt(document.getElementById('edit-sem-order').value) || 0,
+          is_published: document.getElementById('edit-sem-published').checked ? 1 : 0,
+        };
+        const res = await fetch('/api/semesters/' + id, {
+          method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+        });
+        if (res.ok) location.reload(); else alert('更新失敗');
+      }
+      async function deleteSem(id) {
+        if (!confirm('確定要刪除此學期嗎？（包含所有相片）')) return;
+        const res = await fetch('/api/semesters/' + id, { method: 'DELETE' });
+        if (res.ok) location.reload(); else alert('刪除失敗');
+      }
+    </script>
+  `))
+})
+
+// ===================== 學期相片管理 =====================
+adminRoutes.get('/semesters/:id/images', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const semId = c.req.param('id')
+  const semester = await db.prepare(`
+    SELECT gs.*, sg.name as group_name, sg.slug as group_slug, sg.id as group_id
+    FROM group_semesters gs
+    JOIN scout_groups sg ON sg.id = gs.group_id
+    WHERE gs.id=?
+  `).bind(semId).first() as any
+  if (!semester) return c.redirect('/admin/groups')
+
+  const images = await db.prepare(`SELECT * FROM semester_images WHERE semester_id=? ORDER BY display_order ASC`).bind(semId).all()
+
+  const imgCards = images.results.map((img: any) => `
+    <div class="bg-white border rounded-xl overflow-hidden shadow-sm" id="si-${img.id}">
+      <div class="aspect-video bg-gray-100 overflow-hidden">
+        <img src="${img.image_url}" alt="${img.caption || ''}" class="w-full h-full object-cover"
+          onerror="this.parentElement.innerHTML='<div class=\\'flex items-center justify-center h-full text-gray-400 text-sm\\'>圖片無法顯示</div>'">
+      </div>
+      <div class="p-3">
+        <p class="text-xs text-gray-500 break-all mb-1">${img.image_url.length > 60 ? img.image_url.substring(0,60) + '...' : img.image_url}</p>
+        <p class="text-xs text-gray-600">${img.caption || '（無說明）'}</p>
+        <button onclick="deleteSemImg(${img.id})" class="mt-2 text-red-500 hover:text-red-700 text-xs font-medium">🗑 刪除</button>
+      </div>
+    </div>
+  `).join('')
+
+  return c.html(adminLayout(`相片管理：${semester.group_name} ${semester.semester}`, `
+    <div class="flex justify-between items-center mb-6">
+      <div>
+        <h2 class="text-xl font-bold text-gray-800">相片管理</h2>
+        <p class="text-gray-500 text-sm">${semester.group_name} › ${semester.title || semester.semester}</p>
+      </div>
+      <div class="flex gap-2">
+        <a href="/admin/groups/${semester.group_id}/semesters" class="text-gray-500 hover:text-gray-700 text-sm py-2 px-3">← 返回學期列表</a>
+        <a href="/group/${semester.group_slug}/${semester.semester}" target="_blank" class="text-green-600 hover:text-green-800 text-sm py-2 px-3 border border-green-200 rounded-lg">🌐 預覽前台</a>
+      </div>
+    </div>
+
+    <!-- 批量新增 / 單一新增 -->
+    <div class="bg-white rounded-xl shadow p-6 mb-6">
+      <h3 class="font-bold text-gray-700 mb-1">➕ 新增相片</h3>
+      <p class="text-sm text-gray-400 mb-4">輸入圖片網址（可一次填入多個，每行一個）。建議先上傳至 Google Drive、Imgur 等圖床再貼上連結。</p>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">圖片網址（每行一個）</label>
+          <textarea id="bulk-urls" rows="5" class="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="https://example.com/photo1.jpg&#10;https://example.com/photo2.jpg&#10;..."></textarea>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">說明（批量時套用相同說明，可留空）</label>
+            <input type="text" id="bulk-caption" placeholder="圖片說明（選填）" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">起始排序</label>
+            <input type="number" id="bulk-order" value="${images.results.length}" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+        </div>
+        <div id="bulk-preview" class="hidden">
+          <p class="text-sm text-gray-600 mb-2">預覽（第一張）：</p>
+          <img id="bulk-preview-img" src="" class="max-h-40 rounded-lg border">
+        </div>
+        <div class="flex gap-2">
+          <button onclick="previewBulk()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm">預覽第一張</button>
+          <button onclick="addBulkImages(${semId})" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">新增相片</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 現有相片 -->
+    <div class="bg-white rounded-xl shadow p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-gray-700">現有相片（${images.results.length} 張）</h3>
+      </div>
+      <div id="images-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+        ${imgCards || '<p class="text-gray-400 text-sm col-span-full text-center py-8">尚無相片</p>'}
+      </div>
+    </div>
+
+    <script>
+      function previewBulk() {
+        const urls = document.getElementById('bulk-urls').value.trim().split('\\n').filter(u => u.trim());
+        if (!urls.length) return;
+        document.getElementById('bulk-preview-img').src = urls[0].trim();
+        document.getElementById('bulk-preview').classList.remove('hidden');
+      }
+      async function addBulkImages(semId) {
+        const urls = document.getElementById('bulk-urls').value.trim().split('\\n').map(u => u.trim()).filter(u => u);
+        const caption = document.getElementById('bulk-caption').value;
+        let startOrder = parseInt(document.getElementById('bulk-order').value) || 0;
+        if (!urls.length) { alert('請輸入至少一個圖片網址'); return; }
+        let success = 0;
+        for (const url of urls) {
+          const res = await fetch('/api/semesters/' + semId + '/images', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ image_url: url, caption: caption || null, display_order: startOrder++ })
+          });
+          if (res.ok) success++;
+        }
+        if (success > 0) {
+          alert('成功新增 ' + success + ' 張相片');
+          location.reload();
+        } else alert('新增失敗，請檢查網址是否正確');
+      }
+      async function deleteSemImg(id) {
+        if (!confirm('確定要刪除此相片嗎？')) return;
+        const res = await fetch('/api/semester-images/' + id, { method: 'DELETE' });
+        if (res.ok) document.getElementById('si-' + id).remove();
+        else alert('刪除失敗');
+      }
+    </script>
+  `))
+})
+
 // ===================== 輔助函式 =====================
 function activityForm(activity: any) {
   const isEdit = !!activity
@@ -719,6 +1031,10 @@ function groupFormFields(prefix: string) {
       <div>
         <label class="block text-xs font-medium text-gray-700 mb-1">英文名稱</label>
         <input type="text" id="${prefix}-name_en" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g. Scout Troop">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-700 mb-1">URL Slug <span class="text-gray-400 font-normal">（用於網址，英文小寫+連字號，如 scout-troop）</span></label>
+        <input type="text" id="${prefix}-slug" class="w-full border rounded-lg px-3 py-2 text-sm font-mono" placeholder="scout-troop">
       </div>
       <div>
         <label class="block text-xs font-medium text-gray-700 mb-1">年級範圍</label>

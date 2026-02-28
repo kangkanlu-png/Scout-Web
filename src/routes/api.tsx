@@ -136,12 +136,12 @@ apiRoutes.get('/groups', async (c) => {
 apiRoutes.post('/groups', async (c) => {
   const db = c.env.DB
   const body = await c.req.json()
-  const { name, name_en, grade_range, description, description_en, display_order } = body
+  const { name, name_en, slug, grade_range, description, description_en, display_order } = body
   if (!name) return c.json({ success: false, error: '名稱為必填' }, 400)
   const result = await db.prepare(`
-    INSERT INTO scout_groups (name, name_en, grade_range, description, description_en, display_order)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(name, name_en || null, grade_range || null, description || null, description_en || null, display_order || 0).run()
+    INSERT INTO scout_groups (name, name_en, slug, grade_range, description, description_en, display_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(name, name_en || null, slug || null, grade_range || null, description || null, description_en || null, display_order || 0).run()
   return c.json({ success: true, id: result.meta.last_row_id })
 })
 
@@ -149,11 +149,11 @@ apiRoutes.put('/groups/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { name, name_en, grade_range, description, description_en, display_order, is_active } = body
+  const { name, name_en, slug, grade_range, description, description_en, display_order, is_active } = body
   await db.prepare(`
-    UPDATE scout_groups SET name=?, name_en=?, grade_range=?, description=?, description_en=?, display_order=?, is_active=?
+    UPDATE scout_groups SET name=?, name_en=?, slug=?, grade_range=?, description=?, description_en=?, display_order=?, is_active=?
     WHERE id = ?
-  `).bind(name, name_en || null, grade_range || null, description || null, description_en || null, display_order || 0, is_active !== undefined ? is_active : 1, id).run()
+  `).bind(name, name_en || null, slug || null, grade_range || null, description || null, description_en || null, display_order || 0, is_active !== undefined ? is_active : 1, id).run()
   return c.json({ success: true })
 })
 
@@ -194,6 +194,88 @@ apiRoutes.delete('/announcements/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   await db.prepare(`DELETE FROM announcements WHERE id=?`).bind(id).run()
+  return c.json({ success: true })
+})
+
+// ==================== 分組學期 API ====================
+
+// 取得某分組的所有學期
+apiRoutes.get('/groups/:id/semesters', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const result = await db.prepare(`
+    SELECT gs.*, COUNT(si.id) as image_count
+    FROM group_semesters gs
+    LEFT JOIN semester_images si ON si.semester_id = gs.id
+    WHERE gs.group_id = ?
+    GROUP BY gs.id
+    ORDER BY gs.display_order ASC, gs.semester DESC
+  `).bind(id).all()
+  return c.json({ success: true, data: result.results })
+})
+
+// 新增學期
+apiRoutes.post('/groups/:id/semesters', async (c) => {
+  const db = c.env.DB
+  const groupId = c.req.param('id')
+  const body = await c.req.json()
+  const { semester, title, description, cover_image, display_order, is_published } = body
+  if (!semester) return c.json({ success: false, error: '學期為必填' }, 400)
+  const result = await db.prepare(`
+    INSERT INTO group_semesters (group_id, semester, title, description, cover_image, display_order, is_published)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(groupId, semester, title || null, description || null, cover_image || null, display_order || 0, is_published !== undefined ? is_published : 1).run()
+  return c.json({ success: true, id: result.meta.last_row_id })
+})
+
+// 更新學期
+apiRoutes.put('/semesters/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { semester, title, description, cover_image, display_order, is_published } = body
+  await db.prepare(`
+    UPDATE group_semesters SET semester=?, title=?, description=?, cover_image=?, display_order=?, is_published=?
+    WHERE id=?
+  `).bind(semester, title || null, description || null, cover_image || null, display_order || 0, is_published !== undefined ? is_published : 1, id).run()
+  return c.json({ success: true })
+})
+
+// 刪除學期
+apiRoutes.delete('/semesters/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  await db.prepare(`DELETE FROM group_semesters WHERE id=?`).bind(id).run()
+  return c.json({ success: true })
+})
+
+// 取得學期的圖片
+apiRoutes.get('/semesters/:id/images', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const result = await db.prepare(`SELECT * FROM semester_images WHERE semester_id=? ORDER BY display_order ASC`).bind(id).all()
+  return c.json({ success: true, data: result.results })
+})
+
+// 新增學期圖片
+apiRoutes.post('/semesters/:id/images', async (c) => {
+  const db = c.env.DB
+  const semId = c.req.param('id')
+  const body = await c.req.json()
+  const { image_url, caption, display_order } = body
+  if (!image_url) return c.json({ success: false, error: '圖片網址為必填' }, 400)
+  const result = await db.prepare(`
+    INSERT INTO semester_images (semester_id, image_url, caption, display_order)
+    VALUES (?, ?, ?, ?)
+  `).bind(semId, image_url, caption || null, display_order || 0).run()
+  return c.json({ success: true, id: result.meta.last_row_id })
+})
+
+// 刪除學期圖片
+apiRoutes.delete('/semester-images/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  await db.prepare(`DELETE FROM semester_images WHERE id=?`).bind(id).run()
   return c.json({ success: true })
 })
 
