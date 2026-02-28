@@ -36,6 +36,121 @@ frontendRoutes.get('/', async (c) => {
   return c.html(html)
 })
 
+// ===================== 榮譽榜（公開）=====================
+frontendRoutes.get('/honor', async (c) => {
+  const db = c.env.DB
+
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+
+  // 取得所有進程記錄，按類型分組
+  const rankRecords = await db.prepare(`
+    SELECT pr.*, m.chinese_name, m.section
+    FROM progress_records pr
+    JOIN members m ON m.id = pr.member_id
+    WHERE pr.record_type = 'rank'
+    ORDER BY pr.year_label DESC, pr.award_name, m.chinese_name
+  `).all()
+
+  const awardRecords = await db.prepare(`
+    SELECT pr.*, m.chinese_name, m.section
+    FROM progress_records pr
+    JOIN members m ON m.id = pr.member_id
+    WHERE pr.record_type IN ('achievement', 'award')
+    ORDER BY pr.year_label DESC, pr.award_name, m.chinese_name
+  `).all()
+
+  // 按獎項名稱分組
+  const grouped: Record<string, any[]> = {}
+  rankRecords.results.forEach((r: any) => {
+    if (!grouped[r.award_name]) grouped[r.award_name] = []
+    grouped[r.award_name].push(r)
+  })
+
+  const awardGrouped: Record<string, any[]> = {}
+  awardRecords.results.forEach((r: any) => {
+    if (!awardGrouped[r.award_name]) awardGrouped[r.award_name] = []
+    awardGrouped[r.award_name].push(r)
+  })
+
+  const rankOrder = ['初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮']
+  const rankCards = rankOrder.filter(r => grouped[r]?.length > 0).map(rankName => {
+    const members = grouped[rankName]
+    const memberChips = members.map(m => `
+      <div class="flex items-center gap-2 bg-white rounded-lg px-3 py-2 shadow-sm border border-green-100">
+        <span class="text-green-700 font-medium text-sm">${m.chinese_name}</span>
+        <span class="text-xs text-gray-400">${m.section}</span>
+        ${m.year_label ? `<span class="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded">${m.year_label}年</span>` : ''}
+      </div>
+    `).join('')
+    return `
+      <div class="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5">
+        <h3 class="font-bold text-green-800 text-lg mb-3 flex items-center gap-2">
+          🏅 ${rankName}
+          <span class="text-sm font-normal text-green-600 bg-white px-2 py-0.5 rounded-full">${members.length} 位</span>
+        </h3>
+        <div class="flex flex-wrap gap-2">${memberChips}</div>
+      </div>
+    `
+  }).join('')
+
+  const awardCards = Object.entries(awardGrouped).map(([awardName, members]) => {
+    const memberChips = members.map((m: any) => `
+      <div class="flex items-center gap-2 bg-white rounded-lg px-3 py-2 shadow-sm border border-amber-100">
+        <span class="text-amber-700 font-medium text-sm">${m.chinese_name}</span>
+        <span class="text-xs text-gray-400">${m.section}</span>
+        ${m.year_label ? `<span class="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">${m.year_label}年</span>` : ''}
+      </div>
+    `).join('')
+    return `
+      <div class="bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-5">
+        <h3 class="font-bold text-amber-800 text-lg mb-3 flex items-center gap-2">
+          🌟 ${awardName}
+          <span class="text-sm font-normal text-amber-600 bg-white px-2 py-0.5 rounded-full">${(members as any[]).length} 位</span>
+        </h3>
+        <div class="flex flex-wrap gap-2">${memberChips}</div>
+      </div>
+    `
+  }).join('')
+
+  return c.html(`${pageHead('榮譽榜 - 林口康橋童軍團')}
+<body class="bg-gray-50">
+  ${navBar(settings)}
+  <div class="hero-gradient text-white py-14 px-4">
+    <div class="max-w-5xl mx-auto text-center">
+      <h1 class="text-3xl md:text-4xl font-bold mb-3">🏅 童軍榮譽榜</h1>
+      <p class="text-green-200">Honor Roll · 記錄每一位童軍的成長與成就</p>
+    </div>
+  </div>
+  <div class="max-w-5xl mx-auto px-4 py-10">
+    ${rankCards || awardCards ? `
+      <h2 class="text-xl font-bold text-gray-800 mb-5 flex items-center gap-2">
+        <span class="text-green-700">📈</span> 晉級記錄
+      </h2>
+      <div class="grid md:grid-cols-2 gap-4 mb-10">
+        ${rankCards || '<p class="text-gray-400 col-span-2 py-4">尚無晉級記錄</p>'}
+      </div>
+      ${awardCards ? `
+        <h2 class="text-xl font-bold text-gray-800 mb-5 flex items-center gap-2">
+          <span class="text-amber-600">🌟</span> 榮譽與成就
+        </h2>
+        <div class="grid md:grid-cols-2 gap-4">
+          ${awardCards}
+        </div>
+      ` : ''}
+    ` : '<div class="text-center py-20 text-gray-400">尚無榮譽記錄</div>'}
+  </div>
+  <footer class="bg-[#1a472a] text-white py-8 mt-8">
+    <div class="max-w-6xl mx-auto px-4 text-center">
+      <div class="text-2xl mb-2">⚜️</div>
+      <p class="font-bold">${settings.site_title || 'KCISLK 林口康橋圓桌武士童軍團'}</p>
+      <a href="/" class="text-green-300 hover:text-white text-sm mt-2 inline-block">← 返回首頁</a>
+    </div>
+  </footer>
+</body></html>`)
+})
+
 // ===================== 分組首頁（學期列表）=====================
 frontendRoutes.get('/group/:slug', async (c) => {
   const db = c.env.DB
@@ -110,6 +225,7 @@ function navBar(settings: Record<string, string>, groups: any[] = []) {
       <div class="flex items-center gap-4 text-sm">
         <a href="/#groups" class="hover:text-amber-300 transition-colors hidden md:inline">分組</a>
         <a href="/#activities" class="hover:text-amber-300 transition-colors hidden md:inline">活動</a>
+        <a href="/honor" class="hover:text-amber-300 transition-colors hidden md:inline">🏅 榮譽榜</a>
         <a href="/#about" class="hover:text-amber-300 transition-colors hidden md:inline">關於我們</a>
         <a href="/admin" class="bg-amber-500 hover:bg-amber-400 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">⚙ 後台管理</a>
       </div>

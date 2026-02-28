@@ -102,36 +102,79 @@ adminRoutes.get('/', authMiddleware, async (c) => {
   const groupsCount = await db.prepare(`SELECT COUNT(*) as cnt FROM scout_groups`).first() as any
   const announcementsCount = await db.prepare(`SELECT COUNT(*) as cnt FROM announcements`).first() as any
   const imagesCount = await db.prepare(`SELECT COUNT(*) as cnt FROM activity_images`).first() as any
+  const membersCount = await db.prepare(`SELECT COUNT(*) as cnt FROM members WHERE membership_status='ACTIVE'`).first() as any
+  const coachesCount = await db.prepare(`SELECT COUNT(*) as cnt FROM coach_members`).first() as any
+  const sessionsCount = await db.prepare(`SELECT COUNT(*) as cnt FROM attendance_sessions`).first() as any
+  const progressCount = await db.prepare(`SELECT COUNT(*) as cnt FROM progress_records`).first() as any
+  
+  // 各組別人數
+  const sectionCounts = await db.prepare(`SELECT section, COUNT(*) as cnt FROM members WHERE membership_status='ACTIVE' GROUP BY section`).all()
+  const sectionRows = sectionCounts.results.map((s: any) => `
+    <div class="flex items-center justify-between py-1.5 border-b last:border-0">
+      <span class="text-sm text-gray-600">${s.section}</span>
+      <span class="font-semibold text-gray-800">${s.cnt}</span>
+    </div>
+  `).join('')
 
   return c.html(adminLayout('儀表板', `
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
       <div class="bg-green-50 border border-green-200 rounded-xl p-5 text-center">
         <div class="text-3xl font-bold text-green-700">${activitiesCount?.cnt || 0}</div>
         <div class="text-sm text-green-600 mt-1">活動記錄</div>
       </div>
       <div class="bg-blue-50 border border-blue-200 rounded-xl p-5 text-center">
-        <div class="text-3xl font-bold text-blue-700">${imagesCount?.cnt || 0}</div>
-        <div class="text-sm text-blue-600 mt-1">活動圖片</div>
+        <div class="text-3xl font-bold text-blue-700">${membersCount?.cnt || 0}</div>
+        <div class="text-sm text-blue-600 mt-1">在籍成員</div>
       </div>
       <div class="bg-purple-50 border border-purple-200 rounded-xl p-5 text-center">
-        <div class="text-3xl font-bold text-purple-700">${groupsCount?.cnt || 0}</div>
-        <div class="text-sm text-purple-600 mt-1">童軍分組</div>
+        <div class="text-3xl font-bold text-purple-700">${coachesCount?.cnt || 0}</div>
+        <div class="text-sm text-purple-600 mt-1">教練人數</div>
       </div>
       <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
-        <div class="text-3xl font-bold text-amber-700">${announcementsCount?.cnt || 0}</div>
-        <div class="text-sm text-amber-600 mt-1">公告訊息</div>
+        <div class="text-3xl font-bold text-amber-700">${progressCount?.cnt || 0}</div>
+        <div class="text-sm text-amber-600 mt-1">進程記錄</div>
       </div>
     </div>
+    
+    <div class="grid md:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white rounded-xl shadow p-5">
+        <h3 class="font-bold text-gray-700 mb-3">👥 組別人數統計</h3>
+        ${sectionRows || '<p class="text-sm text-gray-400">尚無成員資料</p>'}
+        <a href="/admin/members" class="mt-3 block text-sm text-green-600 hover:text-green-800">→ 查看所有成員</a>
+      </div>
+      <div class="bg-white rounded-xl shadow p-5">
+        <h3 class="font-bold text-gray-700 mb-3">📊 系統概覽</h3>
+        <div class="space-y-2">
+          <div class="flex justify-between text-sm"><span class="text-gray-500">出席場次</span><span class="font-medium">${sessionsCount?.cnt || 0} 場</span></div>
+          <div class="flex justify-between text-sm"><span class="text-gray-500">童軍分組</span><span class="font-medium">${groupsCount?.cnt || 0} 組</span></div>
+          <div class="flex justify-between text-sm"><span class="text-gray-500">活動圖片</span><span class="font-medium">${imagesCount?.cnt || 0} 張</span></div>
+          <div class="flex justify-between text-sm"><span class="text-gray-500">公告訊息</span><span class="font-medium">${announcementsCount?.cnt || 0} 則</span></div>
+        </div>
+      </div>
+    </div>
+
     <div class="bg-white rounded-xl shadow p-6">
       <h3 class="font-bold text-gray-700 mb-4">快速操作</h3>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <a href="/admin/members" class="flex flex-col items-center gap-2 p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors">
+          <span class="text-2xl">🪖</span>
+          <span class="text-sm text-blue-700 font-medium">成員管理</span>
+        </a>
+        <a href="/admin/attendance" class="flex flex-col items-center gap-2 p-4 bg-teal-50 hover:bg-teal-100 rounded-xl transition-colors">
+          <span class="text-2xl">📅</span>
+          <span class="text-sm text-teal-700 font-medium">出席管理</span>
+        </a>
+        <a href="/admin/progress" class="flex flex-col items-center gap-2 p-4 bg-yellow-50 hover:bg-yellow-100 rounded-xl transition-colors">
+          <span class="text-2xl">🏅</span>
+          <span class="text-sm text-yellow-700 font-medium">進程榮譽</span>
+        </a>
+        <a href="/admin/coaches" class="flex flex-col items-center gap-2 p-4 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors">
+          <span class="text-2xl">🧢</span>
+          <span class="text-sm text-emerald-700 font-medium">教練團</span>
+        </a>
         <a href="/admin/activities/new" class="flex flex-col items-center gap-2 p-4 bg-green-50 hover:bg-green-100 rounded-xl transition-colors">
           <span class="text-2xl">➕</span>
           <span class="text-sm text-green-700 font-medium">新增活動</span>
-        </a>
-        <a href="/admin/activities" class="flex flex-col items-center gap-2 p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors">
-          <span class="text-2xl">📋</span>
-          <span class="text-sm text-blue-700 font-medium">管理活動</span>
         </a>
         <a href="/admin/groups" class="flex flex-col items-center gap-2 p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors">
           <span class="text-2xl">👥</span>
@@ -140,6 +183,10 @@ adminRoutes.get('/', authMiddleware, async (c) => {
         <a href="/admin/announcements" class="flex flex-col items-center gap-2 p-4 bg-amber-50 hover:bg-amber-100 rounded-xl transition-colors">
           <span class="text-2xl">📢</span>
           <span class="text-sm text-amber-700 font-medium">管理公告</span>
+        </a>
+        <a href="/admin/leaves" class="flex flex-col items-center gap-2 p-4 bg-red-50 hover:bg-red-100 rounded-xl transition-colors">
+          <span class="text-2xl">📝</span>
+          <span class="text-sm text-red-700 font-medium">公假管理</span>
         </a>
       </div>
     </div>
@@ -1107,6 +1154,7 @@ function adminLayout(title: string, content: string) {
         <a href="/admin" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '儀表板' ? 'bg-green-700' : ''}">
           <span>🏠</span> 儀表板
         </a>
+        <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-1 mt-2">網站內容</div>
         <a href="/admin/activities" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('活動') ? 'bg-green-700' : ''}">
           <span>📋</span> 活動管理
         </a>
@@ -1116,6 +1164,23 @@ function adminLayout(title: string, content: string) {
         <a href="/admin/announcements" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '公告管理' ? 'bg-green-700' : ''}">
           <span>📢</span> 公告管理
         </a>
+        <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-1 mt-2">人員管理</div>
+        <a href="/admin/members" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('成員') ? 'bg-green-700' : ''}">
+          <span>🪖</span> 成員管理
+        </a>
+        <a href="/admin/attendance" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('出席') ? 'bg-green-700' : ''}">
+          <span>📅</span> 出席管理
+        </a>
+        <a href="/admin/progress" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('進程') || title.includes('榮譽') ? 'bg-green-700' : ''}">
+          <span>🏅</span> 進程/榮譽
+        </a>
+        <a href="/admin/leaves" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('公假') ? 'bg-green-700' : ''}">
+          <span>📝</span> 公假管理
+        </a>
+        <a href="/admin/coaches" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('教練') ? 'bg-green-700' : ''}">
+          <span>🧢</span> 教練團
+        </a>
+        <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-1 mt-2">系統</div>
         <a href="/admin/settings" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '網站設定' ? 'bg-green-700' : ''}">
           <span>⚙️</span> 網站設定
         </a>
@@ -1142,4 +1207,994 @@ function adminLayout(title: string, content: string) {
   </div>
 </body>
 </html>`
+}
+
+// ===================== 成員管理 =====================
+adminRoutes.get('/members', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const section = c.req.query('section') || ''
+  const search = c.req.query('search') || ''
+
+  let query = `SELECT * FROM members WHERE membership_status = 'ACTIVE'`
+  const params: any[] = []
+  if (section) { query += ` AND section = ?`; params.push(section) }
+  if (search) { query += ` AND (chinese_name LIKE ? OR english_name LIKE ?)`; params.push(`%${search}%`, `%${search}%`) }
+  query += ` ORDER BY section, unit_name, chinese_name`
+
+  const members = await db.prepare(query).bind(...params).all()
+  const total = await db.prepare(`SELECT COUNT(*) as c FROM members WHERE membership_status='ACTIVE'`).first() as any
+
+  const sectionCounts: Record<string, number> = {}
+  const sc = await db.prepare(`SELECT section, COUNT(*) as c FROM members WHERE membership_status='ACTIVE' GROUP BY section`).all()
+  sc.results.forEach((r: any) => { sectionCounts[r.section] = r.c })
+
+  const sectionList = ['童軍','行義童軍','羅浮童軍','服務員','幼童軍','稚齡童軍']
+  const sectionTabs = sectionList.map(s => `
+    <a href="/admin/members?section=${encodeURIComponent(s)}${search ? '&search='+encodeURIComponent(search) : ''}"
+      class="px-4 py-2 rounded-full text-sm font-medium transition ${section === s ? 'bg-green-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}">
+      ${s} <span class="ml-1 text-xs opacity-70">${sectionCounts[s] || 0}</span>
+    </a>
+  `).join('')
+
+  const rows = members.results.map((m: any) => `
+    <tr class="hover:bg-gray-50 border-b">
+      <td class="px-4 py-3">
+        <div class="font-medium text-gray-800">${m.chinese_name}</div>
+        ${m.english_name ? `<div class="text-xs text-gray-400">${m.english_name}</div>` : ''}
+      </td>
+      <td class="px-4 py-3 text-sm text-gray-600">${m.section}</td>
+      <td class="px-4 py-3 text-sm text-gray-600">${m.unit_name || '-'}</td>
+      <td class="px-4 py-3 text-sm text-gray-600">${m.role_name || '-'}</td>
+      <td class="px-4 py-3 text-sm text-gray-600">${m.rank_level || '-'}</td>
+      <td class="px-4 py-3 text-sm text-gray-500">${m.gender || '-'}</td>
+      <td class="px-4 py-3">
+        <button onclick="editMember('${m.id}')" class="text-blue-600 hover:text-blue-800 text-xs mr-3">✏️ 編輯</button>
+        <button onclick="deleteMember('${m.id}','${m.chinese_name}')" class="text-red-500 hover:text-red-700 text-xs">🗑 刪除</button>
+      </td>
+    </tr>
+  `).join('')
+
+  return c.html(adminLayout('成員管理', `
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <p class="text-sm text-gray-500">共 ${total?.c || 0} 位在籍成員</p>
+      </div>
+      <button onclick="document.getElementById('add-member-modal').classList.remove('hidden')"
+        class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">＋ 新增成員</button>
+    </div>
+
+    <!-- 搜尋 & 分類 -->
+    <div class="flex flex-wrap gap-2 mb-4 items-center">
+      <a href="/admin/members" class="px-4 py-2 rounded-full text-sm font-medium ${!section ? 'bg-green-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}">全部 <span class="ml-1 text-xs opacity-70">${total?.c || 0}</span></a>
+      ${sectionTabs}
+      <form class="ml-auto flex gap-2" method="get" action="/admin/members">
+        ${section ? `<input type="hidden" name="section" value="${section}">` : ''}
+        <input type="search" name="search" value="${search}" placeholder="搜尋姓名..." class="border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+        <button type="submit" class="bg-gray-200 hover:bg-gray-300 px-3 py-1.5 rounded-lg text-sm">搜尋</button>
+      </form>
+    </div>
+
+    <!-- 成員列表 -->
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">姓名</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">組別</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">小隊</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">職位</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">級別</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">性別</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="7" class="py-8 text-center text-gray-400">尚無成員資料</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 新增成員 Modal -->
+    <div id="add-member-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto p-6">
+        <h3 class="text-lg font-bold mb-4">新增成員</h3>
+        ${memberFormFields('add')}
+        <div class="flex gap-3 mt-4">
+          <button onclick="saveMember()" class="bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium">新增</button>
+          <button onclick="document.getElementById('add-member-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 編輯成員 Modal -->
+    <div id="edit-member-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto p-6">
+        <h3 class="text-lg font-bold mb-4">編輯成員</h3>
+        <input type="hidden" id="edit-member-id">
+        ${memberFormFields('edit')}
+        <div class="flex gap-3 mt-4">
+          <button onclick="updateMember()" class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium">更新</button>
+          <button onclick="document.getElementById('edit-member-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      async function editMember(id) {
+        const res = await fetch('/api/members/' + id);
+        const json = await res.json();
+        const m = json.data;
+        document.getElementById('edit-member-id').value = m.id;
+        document.getElementById('edit-chinese_name').value = m.chinese_name || '';
+        document.getElementById('edit-english_name').value = m.english_name || '';
+        document.getElementById('edit-gender').value = m.gender || '';
+        document.getElementById('edit-section').value = m.section || '';
+        document.getElementById('edit-rank_level').value = m.rank_level || '';
+        document.getElementById('edit-unit_name').value = m.unit_name || '';
+        document.getElementById('edit-role_name').value = m.role_name || '';
+        document.getElementById('edit-troop').value = m.troop || '';
+        document.getElementById('edit-phone').value = m.phone || '';
+        document.getElementById('edit-email').value = m.email || '';
+        document.getElementById('edit-parent_name').value = m.parent_name || '';
+        document.getElementById('edit-notes').value = m.notes || '';
+        document.getElementById('edit-member-modal').classList.remove('hidden');
+      }
+      async function saveMember() {
+        const data = getMemberFormData('add');
+        if (!data.chinese_name) { alert('姓名為必填'); return; }
+        const res = await fetch('/api/members', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+        if (res.ok) location.reload(); else alert('儲存失敗');
+      }
+      async function updateMember() {
+        const id = document.getElementById('edit-member-id').value;
+        const data = getMemberFormData('edit');
+        const res = await fetch('/api/members/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+        if (res.ok) location.reload(); else alert('更新失敗');
+      }
+      async function deleteMember(id, name) {
+        if (!confirm('確定要刪除成員「' + name + '」嗎？')) return;
+        const res = await fetch('/api/members/' + id, { method:'DELETE' });
+        if (res.ok) location.reload(); else alert('刪除失敗');
+      }
+      function getMemberFormData(prefix) {
+        return {
+          chinese_name: document.getElementById(prefix+'-chinese_name').value,
+          english_name: document.getElementById(prefix+'-english_name').value,
+          gender: document.getElementById(prefix+'-gender').value,
+          section: document.getElementById(prefix+'-section').value,
+          rank_level: document.getElementById(prefix+'-rank_level').value,
+          unit_name: document.getElementById(prefix+'-unit_name').value,
+          role_name: document.getElementById(prefix+'-role_name').value,
+          troop: document.getElementById(prefix+'-troop').value,
+          phone: document.getElementById(prefix+'-phone').value,
+          email: document.getElementById(prefix+'-email').value,
+          parent_name: document.getElementById(prefix+'-parent_name').value,
+          notes: document.getElementById(prefix+'-notes').value,
+        };
+      }
+    </script>
+  `))
+})
+
+// ===================== 出席管理 =====================
+adminRoutes.get('/attendance', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const section = c.req.query('section') || ''
+
+  let query = `
+    SELECT ats.*,
+      COUNT(ar.id) as total_count,
+      SUM(CASE WHEN ar.status = 'present' THEN 1 ELSE 0 END) as present_count
+    FROM attendance_sessions ats
+    LEFT JOIN attendance_records ar ON ar.session_id = ats.id
+    WHERE 1=1
+  `
+  const params: any[] = []
+  if (section) { query += ` AND ats.section = ?`; params.push(section) }
+  query += ` GROUP BY ats.id ORDER BY ats.date DESC`
+  const sessions = await db.prepare(query).bind(...params).all()
+
+  const rows = sessions.results.map((s: any) => {
+    const rate = s.total_count > 0 ? Math.round(s.present_count / s.total_count * 100) : 0
+    const sectionLabel: Record<string,string> = {junior:'童軍',senior:'行義童軍',rover:'羅浮童軍',all:'全體'}
+    return `
+      <tr class="hover:bg-gray-50 border-b">
+        <td class="px-4 py-3">
+          <div class="font-medium text-gray-800">${s.title}</div>
+          ${s.topic ? `<div class="text-xs text-gray-400">主題：${s.topic}</div>` : ''}
+        </td>
+        <td class="px-4 py-3 text-sm text-gray-600">${s.date}</td>
+        <td class="px-4 py-3 text-sm text-gray-600">${sectionLabel[s.section] || s.section}</td>
+        <td class="px-4 py-3 text-sm">
+          <span class="font-medium text-green-700">${s.present_count}</span>
+          <span class="text-gray-400">/${s.total_count}</span>
+          <span class="ml-1 text-xs ${rate >= 80 ? 'text-green-600' : rate >= 60 ? 'text-yellow-600' : 'text-red-500'}">(${rate}%)</span>
+        </td>
+        <td class="px-4 py-3">
+          <a href="/admin/attendance/${s.id}" class="text-blue-600 hover:text-blue-800 text-xs mr-3">📋 點名</a>
+          <button onclick="deleteSession('${s.id}')" class="text-red-500 hover:text-red-700 text-xs">🗑</button>
+        </td>
+      </tr>
+    `
+  }).join('')
+
+  const sectionTabs = [['','全部'],['junior','童軍'],['senior','行義童軍'],['rover','羅浮童軍'],['all','全體活動']].map(([v,l]) => `
+    <a href="/admin/attendance${v ? '?section='+v : ''}" class="px-4 py-2 rounded-full text-sm font-medium transition ${section === v ? 'bg-green-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}">${l}</a>
+  `).join('')
+
+  return c.html(adminLayout('出席管理', `
+    <div class="flex items-center justify-between mb-4">
+      <p class="text-sm text-gray-500">管理各組別社課與活動出席記錄</p>
+      <button onclick="document.getElementById('add-session-modal').classList.remove('hidden')"
+        class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">＋ 新增場次</button>
+    </div>
+    <div class="flex flex-wrap gap-2 mb-4">${sectionTabs}</div>
+
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">場次名稱</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">日期</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">組別</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">出席率</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="5" class="py-8 text-center text-gray-400">尚無出席記錄</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 新增場次 Modal -->
+    <div id="add-session-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-bold mb-4">新增出席場次</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">場次名稱 *</label>
+            <input type="text" id="add-ses-title" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：第一次社課">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">日期 *</label>
+              <input type="date" id="add-ses-date" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">組別</label>
+              <select id="add-ses-section" class="w-full border rounded-lg px-3 py-2 text-sm">
+                <option value="junior">童軍</option>
+                <option value="senior">行義童軍</option>
+                <option value="rover">羅浮童軍</option>
+                <option value="all">全體</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">課程主題</label>
+            <input type="text" id="add-ses-topic" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：繩結技術">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">場次編號</label>
+            <input type="number" id="add-ses-number" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="1">
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button onclick="saveSession()" class="bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium">新增（自動匯入成員）</button>
+          <button onclick="document.getElementById('add-session-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      async function saveSession() {
+        const data = {
+          title: document.getElementById('add-ses-title').value,
+          date: document.getElementById('add-ses-date').value,
+          section: document.getElementById('add-ses-section').value,
+          topic: document.getElementById('add-ses-topic').value,
+          session_number: parseInt(document.getElementById('add-ses-number').value) || null,
+        };
+        if (!data.title || !data.date) { alert('場次名稱和日期為必填'); return; }
+        const res = await fetch('/api/attendance/sessions', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+        const json = await res.json();
+        if (res.ok) { window.location.href = '/admin/attendance/' + json.id; }
+        else alert('新增失敗');
+      }
+      async function deleteSession(id) {
+        if (!confirm('確定要刪除此場次及所有出席記錄嗎？')) return;
+        const res = await fetch('/api/attendance/sessions/' + id, { method:'DELETE' });
+        if (res.ok) location.reload(); else alert('刪除失敗');
+      }
+    </script>
+  `))
+})
+
+// 出席點名頁面
+adminRoutes.get('/attendance/:id', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const sessionId = c.req.param('id')
+  const session = await db.prepare(`SELECT * FROM attendance_sessions WHERE id=?`).bind(sessionId).first() as any
+  if (!session) return c.redirect('/admin/attendance')
+
+  const records = await db.prepare(`
+    SELECT ar.*, m.chinese_name, m.english_name, m.section, m.unit_name, m.role_name
+    FROM attendance_records ar
+    JOIN members m ON m.id = ar.member_id
+    WHERE ar.session_id = ?
+    ORDER BY m.unit_name, m.chinese_name
+  `).bind(sessionId).all()
+
+  const sectionLabel: Record<string,string> = {junior:'童軍',senior:'行義童軍',rover:'羅浮童軍',all:'全體'}
+  const statusLabel: Record<string,string> = {present:'出席',absent:'缺席',leave:'公假',late:'遲到'}
+  const statusColor: Record<string,string> = {present:'bg-green-100 text-green-700',absent:'bg-red-100 text-red-700',leave:'bg-blue-100 text-blue-700',late:'bg-yellow-100 text-yellow-700'}
+
+  const rows = records.results.map((r: any) => `
+    <tr class="hover:bg-gray-50 border-b" id="row-${r.member_id}">
+      <td class="px-4 py-3">
+        <div class="font-medium text-sm">${r.chinese_name}</div>
+        ${r.english_name ? `<div class="text-xs text-gray-400">${r.english_name}</div>` : ''}
+      </td>
+      <td class="px-4 py-3 text-xs text-gray-500">${r.unit_name || '-'}</td>
+      <td class="px-4 py-3 text-xs text-gray-500">${r.role_name || '-'}</td>
+      <td class="px-4 py-3">
+        <select onchange="updateRecord('${sessionId}','${r.member_id}',this.value)"
+          class="border rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          ${['present','absent','leave','late'].map(s => `<option value="${s}" ${r.status===s?'selected':''}>${statusLabel[s]}</option>`).join('')}
+        </select>
+      </td>
+    </tr>
+  `).join('')
+
+  const presentCount = records.results.filter((r: any) => r.status === 'present').length
+  const total = records.results.length
+
+  return c.html(adminLayout('出席點名', `
+    <div class="mb-4">
+      <a href="/admin/attendance" class="text-sm text-gray-500 hover:text-gray-700">← 返回出席管理</a>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm p-5 mb-4">
+      <div class="flex items-start justify-between">
+        <div>
+          <h2 class="text-xl font-bold text-gray-800">${session.title}</h2>
+          <p class="text-sm text-gray-500 mt-1">
+            ${session.date} ｜ ${sectionLabel[session.section] || session.section}
+            ${session.topic ? ` ｜ 主題：${session.topic}` : ''}
+          </p>
+        </div>
+        <div class="text-right">
+          <div class="text-2xl font-bold text-green-700">${presentCount}</div>
+          <div class="text-sm text-gray-500">/ ${total} 出席</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex gap-2 mb-4">
+      <button onclick="markAll('present')" class="bg-green-100 text-green-700 hover:bg-green-200 px-4 py-2 rounded-lg text-sm font-medium">✅ 全部出席</button>
+      <button onclick="markAll('absent')" class="bg-red-100 text-red-700 hover:bg-red-200 px-4 py-2 rounded-lg text-sm font-medium">❌ 全部缺席</button>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">姓名</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">小隊</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">職位</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">狀態</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="4" class="py-8 text-center text-gray-400">尚無成員記錄</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <script>
+      async function updateRecord(sessionId, memberId, status) {
+        await fetch('/api/attendance/records/' + sessionId + '/' + memberId, {
+          method: 'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status})
+        });
+      }
+      async function markAll(status) {
+        const selects = document.querySelectorAll('select');
+        for (const sel of selects) {
+          sel.value = status;
+          const parts = sel.getAttribute('onchange').match(/'([^']+)'/g);
+          if (parts && parts.length >= 2) {
+            const sId = parts[0].replace(/'/g,''), mId = parts[1].replace(/'/g,'');
+            await updateRecord(sId, mId, status);
+          }
+        }
+      }
+    </script>
+  `))
+})
+
+// ===================== 進程/榮譽管理 =====================
+adminRoutes.get('/progress', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const type = c.req.query('type') || ''
+
+  let query = `
+    SELECT pr.*, m.chinese_name, m.section
+    FROM progress_records pr
+    JOIN members m ON m.id = pr.member_id
+    WHERE 1=1
+  `
+  const params: any[] = []
+  if (type) { query += ` AND pr.record_type = ?`; params.push(type) }
+  query += ` ORDER BY pr.awarded_at DESC`
+  const records = await db.prepare(query).bind(...params).all()
+
+  const members = await db.prepare(`SELECT id, chinese_name, section FROM members WHERE membership_status='ACTIVE' ORDER BY section, chinese_name`).all()
+
+  const rows = records.results.map((r: any) => `
+    <tr class="hover:bg-gray-50 border-b">
+      <td class="px-4 py-3 font-medium text-sm">${r.chinese_name}</td>
+      <td class="px-4 py-3 text-sm text-gray-600">${r.section}</td>
+      <td class="px-4 py-3 text-sm">
+        <span class="px-2 py-0.5 rounded-full text-xs ${r.record_type==='rank' ? 'bg-purple-100 text-purple-700' : r.record_type==='badge' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}">
+          ${r.record_type==='rank'?'晉級':r.record_type==='badge'?'徽章':'成就'}
+        </span>
+      </td>
+      <td class="px-4 py-3 text-sm font-medium">${r.award_name}</td>
+      <td class="px-4 py-3 text-sm text-gray-500">${r.year_label ? r.year_label + '學年' : '-'}</td>
+      <td class="px-4 py-3 text-sm text-gray-500">${r.awarded_at ? r.awarded_at.substring(0,10) : '-'}</td>
+      <td class="px-4 py-3">
+        <button onclick="deleteProgress('${r.id}')" class="text-red-500 hover:text-red-700 text-xs">🗑 刪除</button>
+      </td>
+    </tr>
+  `).join('')
+
+  const typeTabs = [['','全部'],['rank','晉級'],['badge','徽章'],['achievement','成就']].map(([v,l]) => `
+    <a href="/admin/progress${v ? '?type='+v : ''}" class="px-4 py-2 rounded-full text-sm font-medium transition ${type === v ? 'bg-green-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}">${l}</a>
+  `).join('')
+
+  const memberOptions = members.results.map((m: any) => `<option value="${m.id}">[${m.section}] ${m.chinese_name}</option>`).join('')
+
+  const rankOptions = ['初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮'].map(r => `<option value="${r}">${r}</option>`).join('')
+
+  return c.html(adminLayout('進程/榮譽管理', `
+    <div class="flex items-center justify-between mb-4">
+      <p class="text-sm text-gray-500">記錄成員的晉級、徽章與各項榮譽</p>
+      <button onclick="document.getElementById('add-progress-modal').classList.remove('hidden')"
+        class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">＋ 新增記錄</button>
+    </div>
+    <div class="flex flex-wrap gap-2 mb-4">${typeTabs}</div>
+
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">成員</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">組別</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">類型</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">獎項名稱</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">學年度</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">日期</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="7" class="py-8 text-center text-gray-400">尚無進程記錄</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 新增進程 Modal -->
+    <div id="add-progress-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-bold mb-4">新增進程/榮譽記錄</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">成員 *</label>
+            <select id="add-prog-member" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="">請選擇成員</option>
+              ${memberOptions}
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">類型</label>
+            <select id="add-prog-type" class="w-full border rounded-lg px-3 py-2 text-sm" onchange="updateAwardOptions()">
+              <option value="rank">晉級</option>
+              <option value="badge">徽章</option>
+              <option value="achievement">成就/榮譽</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">獎項名稱 *</label>
+            <select id="add-prog-rank-select" class="w-full border rounded-lg px-3 py-2 text-sm">
+              ${rankOptions}
+            </select>
+            <input type="text" id="add-prog-award-name" class="hidden w-full border rounded-lg px-3 py-2 text-sm mt-1" placeholder="輸入徽章或成就名稱">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">學年度</label>
+              <input type="text" id="add-prog-year" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="115">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">獲獎日期</label>
+              <input type="date" id="add-prog-date" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button onclick="saveProgress()" class="bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium">新增</button>
+          <button onclick="document.getElementById('add-progress-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function updateAwardOptions() {
+        const type = document.getElementById('add-prog-type').value;
+        const rankSel = document.getElementById('add-prog-rank-select');
+        const textInp = document.getElementById('add-prog-award-name');
+        if (type === 'rank') { rankSel.classList.remove('hidden'); textInp.classList.add('hidden'); }
+        else { rankSel.classList.add('hidden'); textInp.classList.remove('hidden'); }
+      }
+      async function saveProgress() {
+        const type = document.getElementById('add-prog-type').value;
+        const awardName = type === 'rank'
+          ? document.getElementById('add-prog-rank-select').value
+          : document.getElementById('add-prog-award-name').value;
+        const data = {
+          member_id: document.getElementById('add-prog-member').value,
+          record_type: type,
+          award_name: awardName,
+          year_label: document.getElementById('add-prog-year').value,
+          awarded_at: document.getElementById('add-prog-date').value || null,
+        };
+        if (!data.member_id || !data.award_name) { alert('成員和獎項名稱為必填'); return; }
+        const res = await fetch('/api/progress', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+        if (res.ok) location.reload(); else alert('儲存失敗');
+      }
+      async function deleteProgress(id) {
+        if (!confirm('確定要刪除此記錄嗎？')) return;
+        const res = await fetch('/api/progress/' + id, { method:'DELETE' });
+        if (res.ok) location.reload(); else alert('刪除失敗');
+      }
+    </script>
+  `))
+})
+
+// ===================== 公假管理 =====================
+adminRoutes.get('/leaves', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const status = c.req.query('status') || ''
+
+  let query = `
+    SELECT lr.*, m.chinese_name, m.section
+    FROM leave_requests lr
+    JOIN members m ON m.id = lr.member_id
+    WHERE 1=1
+  `
+  const params: any[] = []
+  if (status) { query += ` AND lr.status = ?`; params.push(status) }
+  query += ` ORDER BY lr.created_at DESC`
+  const leaves = await db.prepare(query).bind(...params).all()
+
+  const members = await db.prepare(`SELECT id, chinese_name, section FROM members WHERE membership_status='ACTIVE' ORDER BY section, chinese_name`).all()
+  const sessions = await db.prepare(`SELECT id, title, date FROM attendance_sessions ORDER BY date DESC LIMIT 20`).all()
+
+  const rows = leaves.results.map((l: any) => {
+    const statusLabel: Record<string,string> = {pending:'待審',approved:'已核准',rejected:'已拒絕'}
+    const statusColor: Record<string,string> = {pending:'bg-yellow-100 text-yellow-700',approved:'bg-green-100 text-green-700',rejected:'bg-red-100 text-red-700'}
+    const typeLabel: Record<string,string> = {official:'公假',personal:'事假',sick:'病假'}
+    return `
+      <tr class="hover:bg-gray-50 border-b">
+        <td class="px-4 py-3 font-medium text-sm">${l.chinese_name}</td>
+        <td class="px-4 py-3 text-sm text-gray-600">${l.section}</td>
+        <td class="px-4 py-3 text-sm text-gray-600">${typeLabel[l.leave_type] || l.leave_type}</td>
+        <td class="px-4 py-3 text-sm text-gray-600">${l.date}</td>
+        <td class="px-4 py-3 text-sm text-gray-600 max-w-xs">${l.reason || '-'}</td>
+        <td class="px-4 py-3">
+          <span class="px-2 py-0.5 rounded-full text-xs font-medium ${statusColor[l.status] || 'bg-gray-100 text-gray-700'}">
+            ${statusLabel[l.status] || l.status}
+          </span>
+        </td>
+        <td class="px-4 py-3">
+          ${l.status === 'pending' ? `
+            <button onclick="updateLeave('${l.id}','approved')" class="text-green-600 hover:text-green-800 text-xs mr-2">✅ 核准</button>
+            <button onclick="updateLeave('${l.id}','rejected')" class="text-red-500 hover:text-red-700 text-xs mr-2">❌ 拒絕</button>
+          ` : ''}
+          <button onclick="deleteLeave('${l.id}')" class="text-gray-400 hover:text-red-500 text-xs">🗑</button>
+        </td>
+      </tr>
+    `
+  }).join('')
+
+  const statusTabs = [['','全部'],['pending','待審'],['approved','已核准'],['rejected','已拒絕']].map(([v,l]) => `
+    <a href="/admin/leaves${v ? '?status='+v : ''}" class="px-4 py-2 rounded-full text-sm font-medium transition ${status === v ? 'bg-green-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}">${l}</a>
+  `).join('')
+
+  const memberOptions = members.results.map((m: any) => `<option value="${m.id}">[${m.section}] ${m.chinese_name}</option>`).join('')
+  const sessionOptions = sessions.results.map((s: any) => `<option value="${s.id}">${s.date} ${s.title}</option>`).join('')
+
+  return c.html(adminLayout('公假管理', `
+    <div class="flex items-center justify-between mb-4">
+      <p class="text-sm text-gray-500">管理成員的公假、事假與病假申請</p>
+      <button onclick="document.getElementById('add-leave-modal').classList.remove('hidden')"
+        class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">＋ 新增假單</button>
+    </div>
+    <div class="flex flex-wrap gap-2 mb-4">${statusTabs}</div>
+
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">成員</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">組別</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">假別</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">日期</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">原因</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">狀態</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="7" class="py-8 text-center text-gray-400">尚無假單記錄</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 新增假單 Modal -->
+    <div id="add-leave-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-bold mb-4">新增假單</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">成員 *</label>
+            <select id="add-leave-member" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="">請選擇成員</option>
+              ${memberOptions}
+            </select>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">假別</label>
+              <select id="add-leave-type" class="w-full border rounded-lg px-3 py-2 text-sm">
+                <option value="official">公假</option>
+                <option value="personal">事假</option>
+                <option value="sick">病假</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">日期 *</label>
+              <input type="date" id="add-leave-date" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">關聯場次（選填）</label>
+            <select id="add-leave-session" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="">不關聯特定場次</option>
+              ${sessionOptions}
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">請假原因</label>
+            <textarea id="add-leave-reason" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="請說明請假原因..."></textarea>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button onclick="saveLeave()" class="bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium">新增</button>
+          <button onclick="document.getElementById('add-leave-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      async function saveLeave() {
+        const data = {
+          member_id: document.getElementById('add-leave-member').value,
+          leave_type: document.getElementById('add-leave-type').value,
+          date: document.getElementById('add-leave-date').value,
+          session_id: document.getElementById('add-leave-session').value || null,
+          reason: document.getElementById('add-leave-reason').value,
+        };
+        if (!data.member_id || !data.date) { alert('成員和日期為必填'); return; }
+        const res = await fetch('/api/leaves', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+        if (res.ok) location.reload(); else alert('儲存失敗');
+      }
+      async function updateLeave(id, status) {
+        const res = await fetch('/api/leaves/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status}) });
+        if (res.ok) location.reload(); else alert('更新失敗');
+      }
+      async function deleteLeave(id) {
+        if (!confirm('確定要刪除此假單嗎？')) return;
+        const res = await fetch('/api/leaves/' + id, { method:'DELETE' });
+        if (res.ok) location.reload(); else alert('刪除失敗');
+      }
+    </script>
+  `))
+})
+
+// ===================== 教練團管理 =====================
+adminRoutes.get('/coaches', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const year = c.req.query('year') || ''
+
+  let query = `SELECT * FROM coach_members WHERE 1=1`
+  const params: any[] = []
+  if (year) { query += ` AND year_label = ?`; params.push(year) }
+  query += ` ORDER BY CASE coach_level WHEN '指導教練' THEN 1 WHEN '助理教練' THEN 2 WHEN '見習教練' THEN 3 WHEN '預備教練' THEN 4 ELSE 5 END, chinese_name`
+  const coaches = await db.prepare(query).bind(...params).all()
+
+  const levelCounts: Record<string,number> = {}
+  coaches.results.forEach((c: any) => { levelCounts[c.coach_level] = (levelCounts[c.coach_level] || 0) + 1 })
+
+  const levelBadge: Record<string,string> = {
+    '指導教練':'bg-red-100 text-red-700',
+    '助理教練':'bg-orange-100 text-orange-700',
+    '見習教練':'bg-blue-100 text-blue-700',
+    '預備教練':'bg-gray-100 text-gray-600'
+  }
+
+  const rows = coaches.results.map((c: any) => `
+    <tr class="hover:bg-gray-50 border-b">
+      <td class="px-4 py-3">
+        <div class="font-medium text-sm">${c.chinese_name}</div>
+        ${c.english_name ? `<div class="text-xs text-gray-400">${c.english_name}</div>` : ''}
+      </td>
+      <td class="px-4 py-3">
+        <span class="px-2 py-0.5 rounded-full text-xs font-medium ${levelBadge[c.coach_level] || 'bg-gray-100 text-gray-600'}">${c.coach_level}</span>
+      </td>
+      <td class="px-4 py-3 text-sm text-gray-600">${c.section_assigned || '-'}</td>
+      <td class="px-4 py-3 text-sm text-gray-500">${c.year_label ? c.year_label + '學年' : '-'}</td>
+      <td class="px-4 py-3 text-sm text-gray-500">${c.specialties || '-'}</td>
+      <td class="px-4 py-3">
+        <button onclick="editCoach('${c.id}')" class="text-blue-600 hover:text-blue-800 text-xs mr-3">✏️ 編輯</button>
+        <button onclick="deleteCoach('${c.id}','${c.chinese_name}')" class="text-red-500 hover:text-red-700 text-xs">🗑 刪除</button>
+      </td>
+    </tr>
+  `).join('')
+
+  const levelSummary = ['指導教練','助理教練','見習教練','預備教練'].map(l => `
+    <div class="bg-white rounded-xl p-4 shadow-sm text-center">
+      <div class="text-2xl font-bold text-green-700">${levelCounts[l] || 0}</div>
+      <div class="text-xs text-gray-500 mt-1">${l}</div>
+    </div>
+  `).join('')
+
+  return c.html(adminLayout('教練團管理', `
+    <div class="grid grid-cols-4 gap-4 mb-6">${levelSummary}</div>
+
+    <div class="flex items-center justify-between mb-4">
+      <form class="flex items-center gap-3" method="get" action="/admin/coaches">
+        <label class="text-sm text-gray-600">學年度：</label>
+        <select name="year" onchange="this.form.submit()" class="border rounded-lg px-3 py-1.5 text-sm">
+          <option value="">全部</option>
+          <option value="115" ${year==='115'?'selected':''}>115學年</option>
+          <option value="114" ${year==='114'?'selected':''}>114學年</option>
+          <option value="113" ${year==='113'?'selected':''}>113學年</option>
+        </select>
+      </form>
+      <button onclick="document.getElementById('add-coach-modal').classList.remove('hidden')"
+        class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">＋ 新增教練</button>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">姓名</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">等級</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">負責組別</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">學年度</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">專長</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="6" class="py-8 text-center text-gray-400">尚無教練資料</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 新增教練 Modal -->
+    <div id="add-coach-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-bold mb-4">新增教練</h3>
+        ${coachFormFields('add')}
+        <div class="flex gap-3 mt-4">
+          <button onclick="saveCoach()" class="bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium">新增</button>
+          <button onclick="document.getElementById('add-coach-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 編輯教練 Modal -->
+    <div id="edit-coach-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-bold mb-4">編輯教練</h3>
+        <input type="hidden" id="edit-coach-id">
+        ${coachFormFields('edit')}
+        <div class="flex gap-3 mt-4">
+          <button onclick="updateCoach()" class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium">更新</button>
+          <button onclick="document.getElementById('edit-coach-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      async function editCoach(id) {
+        const res = await fetch('/api/coaches');
+        const json = await res.json();
+        const coach = json.data.find(c => c.id === id);
+        if (!coach) return;
+        document.getElementById('edit-coach-id').value = coach.id;
+        document.getElementById('edit-coach-chinese_name').value = coach.chinese_name || '';
+        document.getElementById('edit-coach-english_name').value = coach.english_name || '';
+        document.getElementById('edit-coach-coach_level').value = coach.coach_level || '';
+        document.getElementById('edit-coach-section_assigned').value = coach.section_assigned || '';
+        document.getElementById('edit-coach-year_label').value = coach.year_label || '';
+        document.getElementById('edit-coach-specialties').value = coach.specialties || '';
+        document.getElementById('edit-coach-notes').value = coach.notes || '';
+        document.getElementById('edit-coach-modal').classList.remove('hidden');
+      }
+      function getCoachData(prefix) {
+        return {
+          chinese_name: document.getElementById(prefix+'-chinese_name').value,
+          english_name: document.getElementById(prefix+'-english_name').value,
+          coach_level: document.getElementById(prefix+'-coach_level').value,
+          section_assigned: document.getElementById(prefix+'-section_assigned').value,
+          year_label: document.getElementById(prefix+'-year_label').value,
+          specialties: document.getElementById(prefix+'-specialties').value,
+          notes: document.getElementById(prefix+'-notes').value,
+        };
+      }
+      async function saveCoach() {
+        const data = getCoachData('add-coach');
+        if (!data.chinese_name) { alert('姓名為必填'); return; }
+        const res = await fetch('/api/coaches', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+        if (res.ok) location.reload(); else alert('儲存失敗');
+      }
+      async function updateCoach() {
+        const id = document.getElementById('edit-coach-id').value;
+        const data = getCoachData('edit-coach');
+        const res = await fetch('/api/coaches/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+        if (res.ok) location.reload(); else alert('更新失敗');
+      }
+      async function deleteCoach(id, name) {
+        if (!confirm('確定要刪除教練「' + name + '」嗎？')) return;
+        const res = await fetch('/api/coaches/' + id, { method:'DELETE' });
+        if (res.ok) location.reload(); else alert('刪除失敗');
+      }
+    </script>
+  `))
+})
+
+// ===================== 輔助函式：成員表單 =====================
+function memberFormFields(prefix: string) {
+  const sections = ['童軍','行義童軍','羅浮童軍','服務員','幼童軍','稚齡童軍']
+  const ranks = ['','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮']
+  const roles = ['隊員','小隊長','副小隊長','群長','副群長','器材長','副器材長','行政長','副行政長','輔導長']
+  return `
+    <div class="space-y-3">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">中文姓名 *</label>
+          <input type="text" id="${prefix}-chinese_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="請輸入姓名">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">英文姓名</label>
+          <input type="text" id="${prefix}-english_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="English Name">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">性別</label>
+          <select id="${prefix}-gender" class="w-full border rounded-lg px-3 py-2 text-sm">
+            <option value="">未指定</option>
+            <option value="男">男</option>
+            <option value="女">女</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">所屬組別</label>
+          <select id="${prefix}-section" class="w-full border rounded-lg px-3 py-2 text-sm">
+            ${sections.map(s => `<option value="${s}">${s}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">小隊</label>
+          <input type="text" id="${prefix}-unit_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：台灣小隊">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">職位</label>
+          <select id="${prefix}-role_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+            ${roles.map(r => `<option value="${r}">${r}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">進程級別</label>
+          <select id="${prefix}-rank_level" class="w-full border rounded-lg px-3 py-2 text-sm">
+            ${ranks.map(r => `<option value="${r}">${r || '未設定'}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">所屬團</label>
+          <select id="${prefix}-troop" class="w-full border rounded-lg px-3 py-2 text-sm">
+            <option value="54團">54團</option>
+            <option value="404團">404團</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">電話</label>
+          <input type="tel" id="${prefix}-phone" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="0912-345-678">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Email</label>
+          <input type="email" id="${prefix}-email" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="email@example.com">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-700 mb-1">家長/緊急聯絡人</label>
+        <input type="text" id="${prefix}-parent_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="家長姓名">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-700 mb-1">備注</label>
+        <textarea id="${prefix}-notes" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="其他備注..."></textarea>
+      </div>
+    </div>
+  `
+}
+
+// ===================== 輔助函式：教練表單 =====================
+function coachFormFields(prefix: string) {
+  return `
+    <div class="space-y-3">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">中文姓名 *</label>
+          <input type="text" id="${prefix}-chinese_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="老師/教練姓名">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">英文姓名</label>
+          <input type="text" id="${prefix}-english_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="English Name">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">等級</label>
+          <select id="${prefix}-coach_level" class="w-full border rounded-lg px-3 py-2 text-sm">
+            <option value="指導教練">指導教練</option>
+            <option value="助理教練">助理教練</option>
+            <option value="見習教練">見習教練</option>
+            <option value="預備教練">預備教練</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">負責組別</label>
+          <select id="${prefix}-section_assigned" class="w-full border rounded-lg px-3 py-2 text-sm">
+            <option value="">未指定</option>
+            <option value="童軍">童軍</option>
+            <option value="行義童軍">行義童軍</option>
+            <option value="羅浮童軍">羅浮童軍</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-700 mb-1">學年度</label>
+        <input type="text" id="${prefix}-year_label" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="115">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-700 mb-1">專長</label>
+        <input type="text" id="${prefix}-specialties" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：繩結、急救、露營">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-700 mb-1">備注</label>
+        <textarea id="${prefix}-notes" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="其他備注..."></textarea>
+      </div>
+    </div>
+  `
 }
