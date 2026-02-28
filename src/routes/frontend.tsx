@@ -175,6 +175,75 @@ frontendRoutes.get('/group/:slug', async (c) => {
   return c.html(renderGroupPage(group, semesters.results, settings))
 })
 
+// ===================== 分組子頁面路由（必須在 :semester 路由之前）=====================
+
+// 組織架構頁
+frontendRoutes.get('/group/:slug/org', async (c) => {
+  const db = c.env.DB
+  const slug = c.req.param('slug')
+  const group = await db.prepare(`SELECT * FROM scout_groups WHERE slug=? AND is_active=1`).bind(slug).first() as any
+  if (!group) return c.notFound()
+  const org = await db.prepare(`SELECT * FROM group_org_chart WHERE group_id=?`).bind(group.id).first() as any
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+  return c.html(renderSubPage(group, 'org', org, settings))
+})
+
+// 現任幹部頁
+frontendRoutes.get('/group/:slug/cadres', async (c) => {
+  const db = c.env.DB
+  const slug = c.req.param('slug')
+  const group = await db.prepare(`SELECT * FROM scout_groups WHERE slug=? AND is_active=1`).bind(slug).first() as any
+  if (!group) return c.notFound()
+  const cadres = await db.prepare(`SELECT * FROM group_cadres WHERE group_id=? AND is_current=1 ORDER BY display_order`).bind(group.id).all()
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+  return c.html(renderSubPage(group, 'cadres', cadres.results, settings))
+})
+
+// 歷屆幹部頁
+frontendRoutes.get('/group/:slug/past-cadres', async (c) => {
+  const db = c.env.DB
+  const slug = c.req.param('slug')
+  const group = await db.prepare(`SELECT * FROM scout_groups WHERE slug=? AND is_active=1`).bind(slug).first() as any
+  if (!group) return c.notFound()
+  const cadres = await db.prepare(`SELECT * FROM group_cadres WHERE group_id=? AND is_current=0 ORDER BY year_label DESC, display_order`).bind(group.id).all()
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+  return c.html(renderSubPage(group, 'past-cadres', cadres.results, settings))
+})
+
+// 歷屆名單頁
+frontendRoutes.get('/group/:slug/alumni', async (c) => {
+  const db = c.env.DB
+  const slug = c.req.param('slug')
+  const group = await db.prepare(`SELECT * FROM scout_groups WHERE slug=? AND is_active=1`).bind(slug).first() as any
+  if (!group) return c.notFound()
+  const alumni = await db.prepare(`SELECT * FROM group_alumni WHERE group_id=? ORDER BY year_label DESC, display_order`).bind(group.id).all()
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+  return c.html(renderSubPage(group, 'alumni', alumni.results, settings))
+})
+
+// 教練團頁（行義團專用）
+frontendRoutes.get('/group/:slug/coaches-list', async (c) => {
+  const db = c.env.DB
+  const slug = c.req.param('slug')
+  const group = await db.prepare(`SELECT * FROM scout_groups WHERE slug=? AND is_active=1`).bind(slug).first() as any
+  if (!group) return c.notFound()
+  const coaches = await db.prepare(`
+    SELECT * FROM coach_members WHERE section_assigned=? OR section_assigned IS NULL ORDER BY year_label DESC, chinese_name ASC
+  `).bind(group.name).all()
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+  return c.html(renderCoachesList(group, coaches.results, settings))
+})
+
 // ===================== 學期相片頁 =====================
 frontendRoutes.get('/group/:slug/:semester', async (c) => {
   const db = c.env.DB
@@ -274,6 +343,37 @@ function renderGroupPage(group: any, semesters: any[], settings: Record<string, 
   }
   const icon = groupIcon[group.slug] || '⚜️'
 
+  // 子頁面按鈕（仿原始網站風格）
+  const subPageDefs: Record<string, { label: string; path: string; icon: string }[]> = {
+    'scout-troop': [
+      { label: '童軍團組織', path: 'org', icon: '🏛️' },
+      { label: '現任幹部', path: 'cadres', icon: '⭐' },
+      { label: '歷屆幹部', path: 'past-cadres', icon: '📜' },
+      { label: '歷屆名單', path: 'alumni', icon: '👥' },
+    ],
+    'senior-scout': [
+      { label: '行義團組織架構', path: 'org', icon: '🏛️' },
+      { label: '教練團', path: 'coaches-list', icon: '🧢' },
+      { label: '行義團現任幹部', path: 'cadres', icon: '⭐' },
+      { label: '行義團歷屆幹部', path: 'past-cadres', icon: '📜' },
+      { label: '行義團歷屆名單', path: 'alumni', icon: '👥' },
+    ],
+    'rover-scout': [
+      { label: '羅浮群組織', path: 'org', icon: '🏛️' },
+      { label: '現任幹部', path: 'cadres', icon: '⭐' },
+      { label: '歷屆幹部', path: 'past-cadres', icon: '📜' },
+      { label: '歷屆名單', path: 'alumni', icon: '👥' },
+    ],
+  }
+  const subPages = subPageDefs[group.slug] || []
+  const subPageButtons = subPages.map(p => `
+    <a href="/group/${group.slug}/${p.path}"
+      class="flex items-center justify-center gap-3 w-full bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-bold text-lg py-4 px-6 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5">
+      <span class="text-2xl">${p.icon}</span>
+      <span>${p.label}</span>
+    </a>
+  `).join('')
+
   const semCards = semesters.length === 0
     ? `<div class="col-span-full text-center py-16 text-gray-400">
         <div class="text-5xl mb-4">📂</div>
@@ -326,15 +426,23 @@ function renderGroupPage(group: any, semesters: any[], settings: Record<string, 
     </div>
   </div>
 
-  <!-- 學期列表 -->
-  <div class="max-w-6xl mx-auto px-4 py-10">
+  <div class="max-w-3xl mx-auto px-4 py-10">
+    <!-- 子頁面按鈕（仿原始網站）-->
+    ${subPageButtons ? `
+    <div class="mb-10 space-y-3">
+      ${subPageButtons}
+    </div>
+    <hr class="border-gray-200 mb-10">
+    ` : ''}
+
+    <!-- 學期列表 -->
     <div class="flex items-center justify-between mb-6">
       <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2">
         <i class="fas fa-folder-open text-amber-500"></i> 學期相片集
       </h2>
       <span class="text-sm text-gray-400">${semesters.length} 個學期</span>
     </div>
-    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
       ${semCards}
     </div>
   </div>
@@ -592,4 +700,301 @@ function renderHomePage(activities: any[], groups: any[], settings: Record<strin
     </div>
   </footer>
 </body></html>`
+}
+
+// ===================== 子頁面通用渲染（組織/幹部/名單）=====================
+function renderSubPage(group: any, pageType: string, data: any, settings: Record<string, string>) {
+  const groupIcon: Record<string, string> = {
+    'scout-troop': '🏕️',
+    'senior-scout': '⛺',
+    'rover-scout': '🧭',
+  }
+  const icon = groupIcon[group.slug] || '⚜️'
+
+  const pageTitleMap: Record<string, string> = {
+    'org': '組織架構',
+    'cadres': '現任幹部',
+    'past-cadres': '歷屆幹部',
+    'alumni': '歷屆名單',
+  }
+  const pageTitle = pageTitleMap[pageType] || pageType
+
+  const subNavDefs: Record<string, { label: string; path: string }[]> = {
+    'scout-troop': [
+      { label: '童軍團組織', path: 'org' },
+      { label: '現任幹部', path: 'cadres' },
+      { label: '歷屆幹部', path: 'past-cadres' },
+      { label: '歷屆名單', path: 'alumni' },
+    ],
+    'senior-scout': [
+      { label: '行義團組織架構', path: 'org' },
+      { label: '教練團', path: 'coaches-list' },
+      { label: '行義團現任幹部', path: 'cadres' },
+      { label: '行義團歷屆幹部', path: 'past-cadres' },
+      { label: '行義團歷屆名單', path: 'alumni' },
+    ],
+    'rover-scout': [
+      { label: '羅浮群組織', path: 'org' },
+      { label: '現任幹部', path: 'cadres' },
+      { label: '歷屆幹部', path: 'past-cadres' },
+      { label: '歷屆名單', path: 'alumni' },
+    ],
+  }
+  const subNav = subNavDefs[group.slug] || []
+  const subNavHtml = subNav.map(n => {
+    const isActive = n.path === pageType
+    return `<a href="/group/${group.slug}/${n.path}"
+      class="${isActive
+        ? 'bg-green-700 text-white font-bold'
+        : 'bg-white text-green-800 hover:bg-green-50'} border border-green-200 px-4 py-2 rounded-lg text-sm transition-colors">${n.label}</a>`
+  }).join('')
+
+  let contentHtml = ''
+
+  if (pageType === 'org') {
+    const org = data as any
+    if (!org) {
+      contentHtml = `<div class="text-center py-20 text-gray-400">
+        <div class="text-5xl mb-4">🏛️</div>
+        <p class="text-lg">尚無組織架構資料</p>
+        <p class="text-sm mt-1 text-gray-300">請至後台管理介面新增</p>
+      </div>`
+    } else {
+      contentHtml = `
+        <div class="bg-white rounded-xl shadow-md p-8">
+          ${org.image_url ? `
+            <div class="mb-6 text-center">
+              <img src="${org.image_url}" alt="組織架構圖" class="max-w-full mx-auto rounded-lg shadow-md">
+            </div>
+          ` : ''}
+          ${org.content ? `
+            <div class="prose max-w-none text-gray-700 leading-relaxed">
+              ${org.content}
+            </div>
+          ` : '<p class="text-gray-400 text-center py-8">尚無說明內容</p>'}
+        </div>`
+    }
+
+  } else if (pageType === 'cadres' || pageType === 'past-cadres') {
+    const cadres = data as any[]
+    if (!cadres || cadres.length === 0) {
+      contentHtml = `<div class="text-center py-20 text-gray-400">
+        <div class="text-5xl mb-4">⭐</div>
+        <p class="text-lg">尚無${pageType === 'cadres' ? '現任' : '歷屆'}幹部資料</p>
+      </div>`
+    } else if (pageType === 'cadres') {
+      const cards = cadres.map((c: any) => `
+        <div class="bg-white rounded-xl shadow-sm border border-green-100 p-5 flex items-start gap-4">
+          ${c.photo_url
+            ? `<img src="${c.photo_url}" alt="${c.chinese_name}" class="w-16 h-16 rounded-full object-cover flex-shrink-0 border-2 border-green-200" onerror="this.style.display='none'">`
+            : `<div class="w-16 h-16 rounded-full bg-gradient-to-br from-green-100 to-green-200 flex items-center justify-center flex-shrink-0 text-2xl">⭐</div>`
+          }
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-bold text-gray-800 text-lg">${c.chinese_name}</span>
+              ${c.english_name ? `<span class="text-gray-400 text-sm">${c.english_name}</span>` : ''}
+            </div>
+            <span class="inline-block mt-1 bg-green-100 text-green-800 text-xs font-medium px-2.5 py-1 rounded-full">${c.role}</span>
+            ${c.notes ? `<p class="text-gray-500 text-sm mt-2">${c.notes}</p>` : ''}
+          </div>
+        </div>
+      `).join('')
+      contentHtml = `<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${cards}</div>`
+    } else {
+      const byYear: Record<string, any[]> = {}
+      cadres.forEach((c: any) => {
+        if (!byYear[c.year_label]) byYear[c.year_label] = []
+        byYear[c.year_label].push(c)
+      })
+      const yearBlocks = Object.entries(byYear).sort((a, b) => b[0].localeCompare(a[0])).map(([year, members]) => {
+        const memberCards = members.map((c: any) => `
+          <div class="bg-white rounded-lg border border-gray-100 p-3 flex items-center gap-3">
+            ${c.photo_url
+              ? `<img src="${c.photo_url}" alt="${c.chinese_name}" class="w-10 h-10 rounded-full object-cover flex-shrink-0" onerror="this.style.display='none'">`
+              : `<div class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg flex-shrink-0">👤</div>`
+            }
+            <div>
+              <div class="font-medium text-gray-800 text-sm">${c.chinese_name}</div>
+              <div class="text-xs text-green-600">${c.role}</div>
+            </div>
+          </div>
+        `).join('')
+        return `
+          <div class="mb-6">
+            <h3 class="text-lg font-bold text-green-800 mb-3 flex items-center gap-2">
+              <span class="w-8 h-8 bg-green-700 text-white rounded-full flex items-center justify-center text-sm font-bold">${year.slice(-2)}</span>
+              民國 ${year} 學年度
+            </h3>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">${memberCards}</div>
+          </div>`
+      }).join('')
+      contentHtml = yearBlocks
+    }
+
+  } else if (pageType === 'alumni') {
+    const alumni = data as any[]
+    if (!alumni || alumni.length === 0) {
+      contentHtml = `<div class="text-center py-20 text-gray-400">
+        <div class="text-5xl mb-4">👥</div>
+        <p class="text-lg">尚無歷屆名單資料</p>
+      </div>`
+    } else {
+      const byYear: Record<string, any[]> = {}
+      alumni.forEach((a: any) => {
+        if (!byYear[a.year_label]) byYear[a.year_label] = []
+        byYear[a.year_label].push(a)
+      })
+      const yearBlocks = Object.entries(byYear).sort((a, b) => b[0].localeCompare(a[0])).map(([year, members]) => {
+        const byUnit: Record<string, any[]> = {}
+        members.forEach((m: any) => {
+          const unit = m.unit_name || '未分隊'
+          if (!byUnit[unit]) byUnit[unit] = []
+          byUnit[unit].push(m)
+        })
+        const unitBlocks = Object.entries(byUnit).map(([unit, unitMembers]) => {
+          const chips = unitMembers.map((m: any) => `
+            <div class="inline-flex items-center gap-1.5 bg-white border border-green-100 rounded-lg px-3 py-1.5">
+              <span class="font-medium text-gray-800 text-sm">${m.member_name}</span>
+              ${m.role_name ? `<span class="text-xs text-green-600">${m.role_name}</span>` : ''}
+              ${m.rank_level ? `<span class="text-xs text-gray-400">${m.rank_level}</span>` : ''}
+            </div>
+          `).join('')
+          return `
+            <div class="mb-3">
+              <h4 class="text-sm font-semibold text-gray-500 mb-2 flex items-center gap-1">
+                <span class="text-green-500">▸</span> ${unit}
+              </h4>
+              <div class="flex flex-wrap gap-2">${chips}</div>
+            </div>`
+        }).join('')
+        return `
+          <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-5">
+            <h3 class="text-lg font-bold text-green-800 mb-4 flex items-center gap-2 pb-3 border-b border-green-100">
+              <span class="w-8 h-8 bg-green-700 text-white rounded-full flex items-center justify-center text-sm font-bold">${year.slice(-2)}</span>
+              民國 ${year} 學年度
+              <span class="text-sm font-normal text-gray-400 ml-auto">${members.length} 位成員</span>
+            </h3>
+            ${unitBlocks}
+          </div>`
+      }).join('')
+      contentHtml = yearBlocks
+    }
+  }
+
+  return `${pageHead(`${pageTitle} - ${group.name} - 林口康橋童軍團`)}
+<body class="bg-gray-50">
+  ${navBar(settings)}
+  <div class="hero-gradient text-white py-12 px-4">
+    <div class="max-w-4xl mx-auto">
+      <div class="flex items-center gap-2 text-green-300 text-sm mb-4 flex-wrap">
+        <a href="/" class="hover:text-white transition-colors">首頁</a>
+        <span>›</span>
+        <a href="/group/${group.slug}" class="hover:text-white transition-colors">${group.name}</a>
+        <span>›</span>
+        <span class="text-white">${pageTitle}</span>
+      </div>
+      <div class="flex items-center gap-4">
+        <span class="text-4xl">${icon}</span>
+        <div>
+          <h1 class="text-2xl md:text-3xl font-bold">${group.name} · ${pageTitle}</h1>
+          ${group.name_en ? `<p class="text-green-200 mt-1">${group.name_en}</p>` : ''}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="max-w-4xl mx-auto px-4 py-8">
+    <div class="flex flex-wrap gap-2 mb-8">
+      <a href="/group/${group.slug}" class="bg-white text-gray-600 hover:bg-gray-50 border border-gray-200 px-4 py-2 rounded-lg text-sm transition-colors">← 相片集</a>
+      ${subNavHtml}
+    </div>
+    ${contentHtml}
+  </div>
+  ${pageFooter(settings)}
+`
+}
+
+// ===================== 教練團頁（行義團）=====================
+function renderCoachesList(group: any, coaches: any[], settings: Record<string, string>) {
+  const subNavHtml = `
+    <a href="/group/${group.slug}" class="bg-white text-gray-600 hover:bg-gray-50 border border-gray-200 px-4 py-2 rounded-lg text-sm transition-colors">← 相片集</a>
+    <a href="/group/${group.slug}/org" class="bg-white text-green-800 hover:bg-green-50 border border-green-200 px-4 py-2 rounded-lg text-sm transition-colors">行義團組織架構</a>
+    <a href="/group/${group.slug}/coaches-list" class="bg-green-700 text-white font-bold border border-green-700 px-4 py-2 rounded-lg text-sm">教練團</a>
+    <a href="/group/${group.slug}/cadres" class="bg-white text-green-800 hover:bg-green-50 border border-green-200 px-4 py-2 rounded-lg text-sm transition-colors">行義團現任幹部</a>
+    <a href="/group/${group.slug}/past-cadres" class="bg-white text-green-800 hover:bg-green-50 border border-green-200 px-4 py-2 rounded-lg text-sm transition-colors">行義團歷屆幹部</a>
+    <a href="/group/${group.slug}/alumni" class="bg-white text-green-800 hover:bg-green-50 border border-green-200 px-4 py-2 rounded-lg text-sm transition-colors">行義團歷屆名單</a>
+  `
+  let contentHtml = ''
+  if (!coaches || coaches.length === 0) {
+    contentHtml = `<div class="text-center py-20 text-gray-400">
+      <div class="text-5xl mb-4">🧢</div>
+      <p class="text-lg">尚無教練團資料</p>
+      <p class="text-sm mt-1 text-gray-300">請至後台管理介面新增</p>
+    </div>`
+  } else {
+    const byYear: Record<string, any[]> = {}
+    coaches.forEach((c: any) => {
+      const y = c.year_label || '未知年度'
+      if (!byYear[y]) byYear[y] = []
+      byYear[y].push(c)
+    })
+    const yearBlocks = Object.entries(byYear).sort((a, b) => b[0].localeCompare(a[0])).map(([year, members]) => {
+      const cards = members.map((c: any) => `
+        <div class="bg-white rounded-xl shadow-sm border border-blue-100 p-5 flex items-start gap-4">
+          ${c.photo_url
+            ? `<img src="${c.photo_url}" alt="${c.chinese_name}" class="w-16 h-16 rounded-full object-cover flex-shrink-0 border-2 border-blue-200" onerror="this.style.display='none'">`
+            : `<div class="w-16 h-16 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center flex-shrink-0 text-2xl">🧢</div>`
+          }
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-bold text-gray-800 text-lg">${c.chinese_name}</span>
+              ${c.english_name ? `<span class="text-gray-400 text-sm">${c.english_name}</span>` : ''}
+            </div>
+            <span class="inline-block mt-1 bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-1 rounded-full">${c.coach_level || '教練'}</span>
+            ${c.specialties ? `<p class="text-gray-500 text-sm mt-1">專長：${c.specialties}</p>` : ''}
+            ${c.notes ? `<p class="text-gray-400 text-xs mt-1">${c.notes}</p>` : ''}
+          </div>
+        </div>
+      `).join('')
+      return `
+        <div class="mb-8">
+          <h3 class="text-lg font-bold text-blue-800 mb-4 flex items-center gap-2">
+            <span class="w-8 h-8 bg-blue-700 text-white rounded-full flex items-center justify-center text-sm font-bold">${year.slice(-2)}</span>
+            民國 ${year} 學年度教練團
+            <span class="text-sm font-normal text-gray-400 ml-auto">${members.length} 位教練</span>
+          </h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${cards}</div>
+        </div>`
+    }).join('')
+    contentHtml = yearBlocks
+  }
+
+  return `${pageHead(`教練團 - ${group.name} - 林口康橋童軍團`)}
+<body class="bg-gray-50">
+  ${navBar(settings)}
+  <div class="hero-gradient text-white py-12 px-4">
+    <div class="max-w-4xl mx-auto">
+      <div class="flex items-center gap-2 text-green-300 text-sm mb-4 flex-wrap">
+        <a href="/" class="hover:text-white transition-colors">首頁</a>
+        <span>›</span>
+        <a href="/group/${group.slug}" class="hover:text-white transition-colors">${group.name}</a>
+        <span>›</span>
+        <span class="text-white">教練團</span>
+      </div>
+      <div class="flex items-center gap-4">
+        <span class="text-4xl">⛺</span>
+        <div>
+          <h1 class="text-2xl md:text-3xl font-bold">${group.name} · 教練團</h1>
+          ${group.name_en ? `<p class="text-green-200 mt-1">${group.name_en}</p>` : ''}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="max-w-4xl mx-auto px-4 py-8">
+    <div class="flex flex-wrap gap-2 mb-8">
+      ${subNavHtml}
+    </div>
+    ${contentHtml}
+  </div>
+  ${pageFooter(settings)}
+`
 }
