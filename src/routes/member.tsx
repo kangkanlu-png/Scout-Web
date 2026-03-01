@@ -414,14 +414,14 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
     SELECT * FROM progress_records WHERE member_id = ? ORDER BY awarded_at DESC
   `).bind(memberId).all()
 
-  // 取得晉升條件（依據目前階級）
+  // 取得本組全部啟用的晉升條件（按 rank_to 分組，顯示「升到哪個階段需要做什麼」）
   const requirements = await db.prepare(`
     SELECT * FROM advancement_requirements
     WHERE section = ? AND is_active = 1
-    ORDER BY rank_from, display_order
+    ORDER BY rank_from, display_order, id
   `).bind(member.section).all()
 
-  // 取得個人晉升進度
+  // 取得個人晉升進度回報
   const advProgress = await db.prepare(`
     SELECT ap.*, ar.title as req_title, ar.required_count, ar.unit, ar.requirement_type
     FROM advancement_progress ap
@@ -429,155 +429,340 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
     WHERE ap.member_id = ?
   `).bind(memberId).all()
 
-  // 建立進度 Map
   const progressMap: Record<string, any> = {}
-  advProgress.results.forEach((p: any) => {
-    progressMap[p.requirement_id] = p
-  })
+  advProgress.results.forEach((p: any) => { progressMap[p.requirement_id] = p })
 
-  // 計算出席數量（給進度條用）
+  // 計算出席場次（給 attendance 類型使用）
   const attendCount = await db.prepare(`
     SELECT COUNT(*) as cnt FROM attendance_records WHERE member_id = ? AND status = 'present'
   `).bind(memberId).first() as any
+  const myAttend = attendCount?.cnt || 0
 
-  // 依照 rank_from 分組
-  const reqByRank: Record<string, any[]> = {}
-  requirements.results.forEach((req: any) => {
-    const key = `${req.rank_from} → ${req.rank_to}`
-    if (!reqByRank[key]) reqByRank[key] = []
-    reqByRank[key].push(req)
-  })
-
-  const reqTypeIcon: Record<string, string> = {
-    attendance: 'fas fa-calendar-check text-green-500',
-    service: 'fas fa-hands-helping text-blue-500',
-    badge: 'fas fa-certificate text-yellow-500',
-    test: 'fas fa-clipboard-check text-purple-500',
-    camp: 'fas fa-campground text-orange-500',
-    other: 'fas fa-star text-gray-500'
+  // 各條件達成判斷函式
+  function isReqDone(req: any): boolean {
+    if (req.requirement_type === 'attendance') return myAttend >= req.required_count
+    const prog = progressMap[req.id]
+    return prog && (prog.achieved_count >= req.required_count || prog.status === 'approved')
+  }
+  function getAchieved(req: any): number {
+    if (req.requirement_type === 'attendance') return myAttend
+    return progressMap[req.id]?.achieved_count || 0
   }
 
-  const rankSections = Object.entries(reqByRank).map(([rankTitle, reqs]) => {
-    const completedCount = reqs.filter(req => {
-      const prog = progressMap[req.id]
-      // 自動從實際記錄推算
-      if (req.requirement_type === 'attendance') {
-        return (attendCount?.cnt || 0) >= req.required_count
-      }
-      return prog && (prog.achieved_count >= req.required_count || prog.status === 'approved')
-    }).length
-    const totalMandatory = reqs.filter(r => r.is_mandatory).length
-    const completedMandatory = reqs.filter(req => {
-      if (!req.is_mandatory) return false
-      const prog = progressMap[req.id]
-      if (req.requirement_type === 'attendance') {
-        return (attendCount?.cnt || 0) >= req.required_count
-      }
-      return prog && (prog.achieved_count >= req.required_count || prog.status === 'approved')
-    }).length
-    const pct = totalMandatory > 0 ? Math.round((completedMandatory / totalMandatory) * 100) : 0
+  // 按 rank_to（目標階段）分組
+  const groupsByTarget: Record<string, any[]> = {}
+  requirements.results.forEach((req: any) => {
+    const k = req.rank_to
+    if (!groupsByTarget[k]) groupsByTarget[k] = []
+    groupsByTarget[k].push(req)
+  })
+
+  // 取得晉升申請中的進行中申請
+  const activeApp = await db.prepare(`
+    SELECT * FROM advancement_applications
+    WHERE member_id = ? AND status IN ('pending','reviewing')
+    ORDER BY created_at DESC LIMIT 1
+  `).bind(memberId).first() as any
+
+  const reqTypeIcon: Record<string, string> = {
+    attendance: 'fas fa-calendar-check',
+    service:    'fas fa-hands-helping',
+    badge:      'fas fa-certificate',
+    test:       'fas fa-clipboard-check',
+    camp:       'fas fa-campground',
+    other:      'fas fa-star'
+  }
+  const reqTypeColor: Record<string, string> = {
+    attendance: 'text-green-500',
+    service:    'text-blue-500',
+    badge:      'text-yellow-500',
+    test:       'text-purple-500',
+    camp:       'text-orange-500',
+    other:      'text-gray-400'
+  }
+  const rankTypeLabel: Record<string, string> = {
+    rank: '🏅 階級', badge: '📛 技能章', achievement: '🏆 成就', award: '⭐ 獎項'
+  }
+
+  // 計算整體進度（只算必填）
+  const allMandatory = requirements.results.filter((r: any) => r.is_mandatory)
+  const allCompleted = allMandatory.filter((r: any) => isReqDone(r))
+  const overallPct = allMandatory.length > 0
+    ? Math.round((allCompleted.length / allMandatory.length) * 100) : 0
+
+  // 各階段卡片 HTML
+  const stageSections = Object.entries(groupsByTarget).map(([targetRank, reqs]) => {
+    const mandatory = reqs.filter((r: any) => r.is_mandatory)
+    const completedMandatory = mandatory.filter((r: any) => isReqDone(r))
+    const pct = mandatory.length > 0
+      ? Math.round((completedMandatory.length / mandatory.length) * 100) : 0
+    const isCurrentTarget = !member.rank_level || member.rank_level === '' ||
+      (reqs[0]?.rank_from === member.rank_level)
+    const isFuture = !isCurrentTarget
 
     return `
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 mb-4">
-      <div class="p-4 border-b border-gray-100">
-        <div class="flex items-center justify-between mb-2">
-          <h3 class="font-semibold text-gray-800 flex items-center gap-2">
-            <i class="fas fa-level-up-alt text-green-600"></i>${rankTitle}
-          </h3>
-          <span class="text-sm font-medium ${pct >= 100 ? 'text-green-600' : 'text-orange-500'}">${pct}% 完成</span>
-        </div>
-        <div class="w-full bg-gray-200 rounded-full h-2">
-          <div class="progress-bar bg-gradient-to-r from-green-500 to-emerald-400 h-2 rounded-full" style="width:${pct}%"></div>
-        </div>
-        <p class="text-xs text-gray-400 mt-1">必填條件 ${completedMandatory}/${totalMandatory} 已完成</p>
-      </div>
-      <div class="p-4 space-y-2">
-        ${reqs.map(req => {
-          const prog = progressMap[req.id]
-          let achieved = prog?.achieved_count || 0
-          if (req.requirement_type === 'attendance') achieved = attendCount?.cnt || 0
-          const isCompleted = achieved >= req.required_count || prog?.status === 'approved'
-          const pctReq = Math.min(100, Math.round((achieved / req.required_count) * 100))
-          return `
-          <div class="flex items-start gap-3 p-2 rounded-lg ${isCompleted ? 'bg-green-50' : 'bg-gray-50'}">
-            <div class="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${isCompleted ? 'bg-green-500' : 'bg-gray-300'}">
-              <i class="fas ${isCompleted ? 'fa-check' : 'fa-clock'} text-white text-xs"></i>
+    <div class="bg-white rounded-2xl shadow-sm border ${isCurrentTarget ? 'border-green-200' : 'border-gray-100'} mb-4 overflow-hidden">
+      <!-- 階段標題 -->
+      <div class="${isCurrentTarget ? 'bg-gradient-to-r from-green-600 to-emerald-500 text-white' : 'bg-gray-50 text-gray-700'} px-5 py-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full ${isCurrentTarget ? 'bg-white/20' : 'bg-gray-200'} flex items-center justify-center text-sm font-bold">
+              ${pct >= 100 ? '✓' : pct > 0 ? `${pct}%` : '—'}
             </div>
+            <div>
+              <h3 class="font-bold text-base">${targetRank}</h3>
+              <p class="${isCurrentTarget ? 'text-green-100' : 'text-gray-400'} text-xs">
+                ${reqs[0]?.rank_from ? `${reqs[0].rank_from} → ${targetRank}` : `升至 ${targetRank}`} ·
+                ${completedMandatory.length}/${mandatory.length} 必填完成
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            ${pct >= 100 && !activeApp ? `
+            <a href="/member/advancement" class="${isCurrentTarget ? 'bg-white text-green-700' : 'bg-green-600 text-white'} text-xs font-medium px-3 py-1.5 rounded-full hover:opacity-90 transition-opacity">
+              🚀 可申請晉升
+            </a>` : ''}
+            ${pct < 100 ? `
+            <div class="w-24 bg-white/30 rounded-full h-1.5">
+              <div class="${isCurrentTarget ? 'bg-white' : 'bg-green-500'} h-1.5 rounded-full transition-all" style="width:${pct}%"></div>
+            </div>` : ''}
+          </div>
+        </div>
+      </div>
+
+      <!-- 標準清單 -->
+      <div class="divide-y divide-gray-50">
+        ${reqs.map((req: any) => {
+          const done = isReqDone(req)
+          const achieved = getAchieved(req)
+          const prog = progressMap[req.id]
+          const pctReq = Math.min(100, req.required_count > 0
+            ? Math.round((achieved / req.required_count) * 100) : 0)
+          const icon = reqTypeIcon[req.requirement_type] || reqTypeIcon.other
+          const iconColor = reqTypeColor[req.requirement_type] || reqTypeColor.other
+
+          return `
+          <div class="flex items-start gap-3 px-5 py-3.5 ${done ? 'bg-green-50/50' : ''} hover:bg-gray-50 transition-colors">
+            <!-- 完成狀態圖示 -->
+            <div class="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${done ? 'bg-green-500 shadow-sm' : 'bg-gray-200'}">
+              <i class="fas ${done ? 'fa-check' : 'fa-clock'} text-white text-xs"></i>
+            </div>
+
+            <!-- 條件內容 -->
             <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 mb-0.5">
-                <i class="${reqTypeIcon[req.requirement_type] || reqTypeIcon.other} text-xs"></i>
-                <span class="text-sm font-medium text-gray-800">${req.title}</span>
-                ${!req.is_mandatory ? `<span class="text-xs text-gray-400 bg-gray-100 px-1 rounded">選填</span>` : ''}
+              <div class="flex items-center gap-2 mb-1 flex-wrap">
+                <i class="${icon} ${iconColor} text-xs"></i>
+                <span class="text-sm font-medium ${done ? 'text-green-800' : 'text-gray-800'}">${req.title}</span>
+                ${!req.is_mandatory ? `<span class="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded">選填</span>` : ''}
+                ${prog?.status === 'approved' ? `<span class="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">✓ 已審核</span>` :
+                  prog?.status === 'submitted' ? `<span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">⏳ 審核中</span>` : ''}
               </div>
               ${req.description ? `<p class="text-xs text-gray-400 mb-1">${req.description}</p>` : ''}
+
+              <!-- 進度條 -->
+              ${req.required_count > 1 ? `
               <div class="flex items-center gap-2">
-                <div class="flex-1 bg-gray-200 rounded-full h-1.5">
-                  <div class="bg-green-500 h-1.5 rounded-full" style="width:${pctReq}%"></div>
+                <div class="flex-1 bg-gray-200 rounded-full h-1.5 max-w-xs">
+                  <div class="${done ? 'bg-green-500' : 'bg-blue-400'} h-1.5 rounded-full progress-bar" style="width:${pctReq}%"></div>
                 </div>
-                <span class="text-xs font-medium ${isCompleted ? 'text-green-600' : 'text-gray-500'}">
+                <span class="text-xs font-medium ${done ? 'text-green-600' : 'text-gray-500'} whitespace-nowrap">
                   ${achieved}/${req.required_count} ${req.unit}
                 </span>
-              </div>
-              ${prog?.evidence_note ? `<p class="text-xs text-blue-500 mt-1"><i class="fas fa-paperclip mr-1"></i>${prog.evidence_note}</p>` : ''}
+              </div>` : `
+              <div class="text-xs text-gray-400">需完成 ${req.required_count} ${req.unit}</div>`}
+
+              ${prog?.evidence_note ? `
+              <p class="text-xs text-blue-500 mt-1 flex items-center gap-1">
+                <i class="fas fa-paperclip"></i>${prog.evidence_note}
+              </p>` : ''}
+
+              <!-- 回報進度按鈕（未完成且非出席類型） -->
+              ${!done && req.requirement_type !== 'attendance' && prog?.status !== 'submitted' ? `
+              <button onclick="openReportForm('${req.id}', '${req.title.replace(/'/g, "\\'")}', ${req.required_count}, '${req.unit}')"
+                class="mt-1.5 text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 hover:underline">
+                <i class="fas fa-edit"></i>回報達成進度
+              </button>` : ''}
             </div>
-            ${prog?.status === 'approved' ? `<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex-shrink-0">✓ 審核通過</span>` :
-              prog?.status === 'submitted' ? `<span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full flex-shrink-0">⏳ 待審核</span>` : ''}
           </div>`
         }).join('')}
       </div>
     </div>`
   }).join('')
 
-  // 進度紀錄（全部）
-  const rankTypeLabel: Record<string, string> = { rank: '🏅 階級', badge: '📛 技能章', achievement: '🏆 成就', award: '⭐ 獎項' }
-
   return c.html(`${memberHead('晉升進度')}
 <body class="bg-gray-50 min-h-screen">
   ${memberNav(member.chinese_name, member.section)}
-  <div class="max-w-4xl mx-auto px-4 py-6 fade-in">
-    <div class="flex items-center justify-between mb-6">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-800">晉升進度追蹤</h1>
-        <p class="text-gray-500 text-sm">目前階級：<strong class="text-green-700">${member.rank_level || '未設定'}</strong></p>
+  <div class="max-w-3xl mx-auto px-4 py-6 fade-in">
+
+    <!-- 頁面標題 + 整體進度 -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+            <i class="fas fa-chart-line text-green-600"></i>晉升進度
+          </h1>
+          <p class="text-gray-500 text-sm mt-0.5">
+            目前階級：<strong class="text-green-700">${member.rank_level || '見習'}</strong>
+            · ${member.section}
+          </p>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="text-center">
+            <div class="text-3xl font-bold ${overallPct >= 100 ? 'text-green-600' : 'text-blue-500'}">${overallPct}%</div>
+            <div class="text-xs text-gray-400">整體完成</div>
+          </div>
+          <a href="/member/advancement"
+            class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-xl transition-colors flex items-center gap-2 shadow-sm">
+            <i class="fas fa-arrow-up"></i>申請晉升
+          </a>
+        </div>
       </div>
-      <a href="/member/advancement" class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
-        <i class="fas fa-arrow-up"></i>申請晉升
-      </a>
+
+      <!-- 整體進度條 -->
+      <div class="mt-4">
+        <div class="flex justify-between text-xs text-gray-400 mb-1">
+          <span>必填條件進度 ${allCompleted.length}/${allMandatory.length}</span>
+          <span>${overallPct}%</span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-3">
+          <div class="progress-bar ${overallPct >= 100 ? 'bg-gradient-to-r from-green-500 to-emerald-400' : 'bg-gradient-to-r from-blue-500 to-blue-400'} h-3 rounded-full"
+            style="width:${overallPct}%"></div>
+        </div>
+      </div>
+
+      ${activeApp ? `
+      <div class="mt-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm">
+        <i class="fas fa-spinner fa-spin text-blue-500"></i>
+        <span class="text-blue-700">晉升申請進行中：<strong>${activeApp.rank_from} → ${activeApp.rank_to}</strong>（${activeApp.status === 'pending' ? '待審核' : '審核中'}）</span>
+      </div>` : ''}
     </div>
 
-    <!-- 晉升條件追蹤 -->
-    <h2 class="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
-      <i class="fas fa-tasks text-green-600"></i>晉升條件完成情況
-    </h2>
-    ${rankSections || `<div class="bg-white rounded-xl p-8 text-center text-gray-400">
-      <i class="fas fa-clipboard-list text-4xl mb-3"></i>
-      <p>目前階段尚無晉升條件設定</p>
-      <p class="text-sm mt-1">請聯繫管理員新增晉升條件</p>
+    <!-- 各階段晉升標準 -->
+    ${stageSections || `
+    <div class="bg-white rounded-2xl p-10 text-center border border-gray-100 shadow-sm">
+      <div class="text-5xl mb-4">📋</div>
+      <h3 class="text-lg font-semibold text-gray-600 mb-2">尚未設定進程標準</h3>
+      <p class="text-gray-400 text-sm">請聯繫管理員設定 ${member.section} 的晉升條件</p>
     </div>`}
 
+    <!-- 出席資訊提醒 -->
+    <div class="bg-blue-50 rounded-2xl p-4 mb-6 flex items-start gap-3 border border-blue-100">
+      <i class="fas fa-info-circle text-blue-500 mt-0.5 flex-shrink-0"></i>
+      <div class="text-sm text-blue-700">
+        <strong>出席場次：</strong>目前已記錄出席 <strong>${myAttend} 場</strong>。
+        出席類型的標準會自動從出席記錄計算，無需手動回報。
+        <a href="/member/attendance" class="underline ml-1">查看出席記錄</a>
+      </div>
+    </div>
+
     <!-- 已獲得紀錄 -->
-    <h2 class="text-lg font-semibold text-gray-700 mb-3 mt-6 flex items-center gap-2">
+    <h2 class="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
       <i class="fas fa-history text-yellow-500"></i>已取得紀錄
     </h2>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100">
-      ${progressRecords.results.length === 0 ? `<div class="p-8 text-center text-gray-400"><i class="fas fa-medal text-4xl mb-3"></i><p>尚無進度記錄</p></div>` :
-        `<div class="divide-y divide-gray-50">
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100">
+      ${progressRecords.results.length === 0
+        ? `<div class="p-8 text-center text-gray-400"><i class="fas fa-medal text-4xl mb-3 block"></i>尚無進度記錄</div>`
+        : `<div class="divide-y divide-gray-50">
           ${progressRecords.results.map((p: any) => `
-          <div class="flex items-center gap-3 p-4 hover:bg-gray-50 transition-colors">
-            <div class="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center flex-shrink-0">
-              <i class="fas fa-award text-yellow-600"></i>
+          <div class="flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors">
+            <div class="w-9 h-9 rounded-full bg-yellow-100 flex items-center justify-center flex-shrink-0">
+              <i class="fas fa-award text-yellow-600 text-sm"></i>
             </div>
-            <div class="flex-1">
-              <div class="font-medium text-gray-800">${p.award_name}</div>
-              <div class="text-xs text-gray-400">${rankTypeLabel[p.record_type] || p.record_type} · ${p.year_label || ''} · ${p.awarded_at?.substring(0,10) || ''}</div>
+            <div class="flex-1 min-w-0">
+              <div class="font-medium text-gray-800 text-sm truncate">${p.award_name}</div>
+              <div class="text-xs text-gray-400">
+                ${rankTypeLabel[p.record_type] || p.record_type}
+                ${p.year_label ? ` · ${p.year_label}` : ''}
+                · ${p.awarded_at?.substring(0,10) || ''}
+              </div>
               ${p.notes ? `<div class="text-xs text-gray-500 mt-0.5">${p.notes}</div>` : ''}
             </div>
           </div>`).join('')}
         </div>`}
     </div>
   </div>
+
+  <!-- 回報進度 Modal -->
+  <div id="reportModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+      <div class="bg-gradient-to-r from-blue-600 to-blue-500 px-5 py-4 text-white">
+        <h3 class="font-bold flex items-center gap-2"><i class="fas fa-edit"></i>回報達成進度</h3>
+        <p id="reportTitle" class="text-blue-100 text-xs mt-0.5"></p>
+      </div>
+      <div class="p-5 space-y-4">
+        <input type="hidden" id="reportReqId">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
+            已達成數量 <span id="reportUnit" class="text-gray-400 font-normal text-xs"></span>
+          </label>
+          <input id="reportCount" type="number" min="0"
+            class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none text-center text-lg font-bold">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">佐證說明（選填）</label>
+          <textarea id="reportNote" rows="2" placeholder="例：第三次服務學習活動，2025/01/15"
+            class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none resize-none"></textarea>
+        </div>
+        <div id="reportMsg"></div>
+        <div class="flex gap-3">
+          <button onclick="submitReport()"
+            class="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-xl text-sm font-medium transition-colors">
+            送出回報
+          </button>
+          <button onclick="document.getElementById('reportModal').classList.add('hidden')"
+            class="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl text-sm transition-colors">
+            取消
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  function openReportForm(reqId, title, requiredCount, unit) {
+    document.getElementById('reportReqId').value = reqId;
+    document.getElementById('reportTitle').textContent = title;
+    document.getElementById('reportUnit').textContent = '需 ' + requiredCount + ' ' + unit;
+    document.getElementById('reportCount').value = '';
+    document.getElementById('reportCount').max = requiredCount;
+    document.getElementById('reportNote').value = '';
+    document.getElementById('reportMsg').innerHTML = '';
+    document.getElementById('reportModal').classList.remove('hidden');
+    document.getElementById('reportCount').focus();
+  }
+
+  async function submitReport() {
+    const reqId = document.getElementById('reportReqId').value;
+    const count = parseInt(document.getElementById('reportCount').value) || 0;
+    const note = document.getElementById('reportNote').value.trim();
+    const msg = document.getElementById('reportMsg');
+    if (count < 0) { msg.innerHTML = '<p class="text-red-500 text-sm">請輸入正確數量</p>'; return; }
+    msg.innerHTML = '<p class="text-gray-400 text-sm">送出中...</p>';
+    try {
+      const res = await fetch('/api/member/advancement-progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requirement_id: reqId, achieved_count: count, evidence_note: note })
+      });
+      const r = await res.json();
+      if (r.success) {
+        msg.innerHTML = '<p class="text-green-600 text-sm">✅ 已送出，等待管理員審核</p>';
+        setTimeout(() => location.reload(), 1200);
+      } else {
+        msg.innerHTML = '<p class="text-red-500 text-sm">失敗：' + (r.error || '未知錯誤') + '</p>';
+      }
+    } catch(e) {
+      msg.innerHTML = '<p class="text-red-500 text-sm">網路錯誤</p>';
+    }
+  }
+
+  document.getElementById('reportModal').addEventListener('click', function(e) {
+    if (e.target === this) this.classList.add('hidden');
+  });
+  </script>
 </body></html>`)
 })
+
 
 // ===================== 出席記錄頁面 =====================
 memberRoutes.get('/attendance', memberAuthMiddleware, async (c) => {

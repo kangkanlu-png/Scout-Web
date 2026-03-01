@@ -3693,179 +3693,467 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
   const db = c.env.DB
   const sectionFilter = c.req.query('section') || '童軍'
 
+  // 取得該組別所有啟用條件（按 rank_to 分組顯示，仿截圖設計）
   const requirements = await db.prepare(`
     SELECT * FROM advancement_requirements
     WHERE section = ? AND is_active = 1
-    ORDER BY rank_from, display_order
+    ORDER BY rank_from, display_order, id
   `).bind(sectionFilter).all()
 
-  const reqTypeIcon: Record<string, string> = {
-    attendance: '📅', service: '🤝', badge: '🏅', test: '📋', camp: '🏕️', other: '⭐'
-  }
-
-  // 依 rank_from → rank_to 分組
-  const groups: Record<string, any[]> = {}
+  // 按 rank_to（目標階級）分組 — 顯示「要到達這個階段需要做什麼」
+  const groupsByTarget: Record<string, any[]> = {}
   requirements.results.forEach((r: any) => {
-    const key = `${r.rank_from}→${r.rank_to}`
-    if (!groups[key]) groups[key] = []
-    groups[key].push(r)
+    const key = r.rank_to
+    if (!groupsByTarget[key]) groupsByTarget[key] = []
+    groupsByTarget[key].push(r)
   })
 
-  return c.html(adminLayout('晉升條件管理', `
-    <div class="flex items-center justify-between mb-6">
+  // 從各條件取得所有不重複的 rank_from / rank_to 組合（給新增表單的下拉選單用）
+  const rankPairs = await db.prepare(`
+    SELECT DISTINCT rank_from, rank_to FROM advancement_requirements
+    WHERE section = ? AND is_active = 1 ORDER BY rank_from
+  `).bind(sectionFilter).all()
+
+  // 各組別預設的階級名稱
+  const sectionRanks: Record<string, string[]> = {
+    '童軍':    ['初級童軍','中級童軍','高級童軍','獅級童軍'],
+    '行義童軍': ['初級行義','中級行義','高級行義','資深行義'],
+    '羅浮童軍': ['初級羅浮','中級羅浮','高級羅浮','資深羅浮'],
+  }
+  const targetRanks = sectionRanks[sectionFilter] || []
+
+  // 所有目標階段（已有條件 + 預設）
+  const allTargets = [...new Set([...Object.keys(groupsByTarget), ...targetRanks])]
+
+  const reqTypeOptions = [
+    { value: 'attendance', label: '出席', icon: '📅' },
+    { value: 'service',    label: '服務', icon: '🤝' },
+    { value: 'badge',      label: '技能章', icon: '🏅' },
+    { value: 'test',       label: '測驗考核', icon: '📋' },
+    { value: 'camp',       label: '露營', icon: '🏕️' },
+    { value: 'other',      label: '其他', icon: '⭐' },
+  ]
+
+  const reqTypeMap: Record<string, { label: string; icon: string }> = {}
+  reqTypeOptions.forEach(t => { reqTypeMap[t.value] = { label: t.label, icon: t.icon } })
+
+  // 計算各組統計
+  const totalCount = requirements.results.length
+
+  return c.html(adminLayout('進程標準設定', `
+    <style>
+      .req-card { transition: box-shadow .15s; }
+      .req-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+      .edit-form { display:none; }
+      .edit-form.active { display:block; }
+      .stage-header { background: linear-gradient(135deg, #f0fdf4, #dcfce7); }
+    </style>
+
+    <!-- 頁面標題區 -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
       <div>
-        <h1 class="text-2xl font-bold text-gray-800">晉升條件管理</h1>
-        <a href="/admin/advancement" class="text-sm text-green-600 hover:underline">← 返回晉升申請</a>
+        <div class="flex items-center gap-2 text-sm text-gray-500 mb-1">
+          <a href="/admin/advancement" class="hover:text-green-600">晉升管理</a>
+          <span>/</span>
+          <span class="text-gray-700 font-medium">進程標準設定</span>
+        </div>
+        <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+          <i class="fas fa-tasks text-green-600"></i>進程標準設定
+        </h1>
+        <p class="text-gray-500 text-sm mt-0.5">設定各階段升級所需達成的標準項目，會員可在個人頁面查看升級進度</p>
       </div>
-      <button onclick="showAddForm()"
-        class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
-        <i class="fas fa-plus"></i>新增條件
+      <button onclick="toggleNewStageForm()"
+        class="bg-green-600 hover:bg-green-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 shadow-sm">
+        <i class="fas fa-plus"></i>新增標準
       </button>
     </div>
 
-    <!-- 組別 tabs -->
-    <div class="flex gap-2 mb-4 border-b">
+    <!-- 組別切換 tabs -->
+    <div class="flex gap-1 mb-5 bg-gray-100 rounded-xl p-1 w-fit">
       ${['童軍','行義童軍','羅浮童軍'].map(s => `
       <a href="/admin/advancement/requirements?section=${encodeURIComponent(s)}"
-        class="px-4 py-2 text-sm font-medium ${sectionFilter === s ? 'border-b-2 border-green-600 text-green-700' : 'text-gray-500 hover:text-gray-700'}">
-        ${s}
+        class="px-5 py-2 rounded-lg text-sm font-medium transition-all ${sectionFilter === s
+          ? 'bg-white text-green-700 shadow-sm font-semibold'
+          : 'text-gray-500 hover:text-gray-700'}">
+        ${s === '童軍' ? '🏕️' : s === '行義童軍' ? '🔰' : '⚜️'} ${s}
       </a>`).join('')}
     </div>
 
-    <!-- 新增表單（預設隱藏） -->
-    <div id="addForm" class="hidden bg-white rounded-xl shadow-sm border border-green-200 p-5 mb-4">
-      <h3 class="font-semibold text-gray-800 mb-4">新增晉升條件</h3>
-      <div class="grid sm:grid-cols-2 gap-4">
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">組別</label>
-          <select id="new_section" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
-            <option value="童軍" ${sectionFilter==='童軍'?'selected':''}>童軍</option>
-            <option value="行義童軍" ${sectionFilter==='行義童軍'?'selected':''}>行義童軍</option>
-            <option value="羅浮童軍" ${sectionFilter==='羅浮童軍'?'selected':''}>羅浮童軍</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">類型</label>
-          <select id="new_type" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
-            <option value="attendance">📅 出席</option>
-            <option value="service">🤝 服務</option>
-            <option value="badge">🏅 技能章</option>
-            <option value="test">📋 測驗</option>
-            <option value="camp">🏕️ 露營</option>
-            <option value="other">⭐ 其他</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">目前階級</label>
-          <input id="new_from" type="text" placeholder="例：見習童軍" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">目標階級</label>
-          <input id="new_to" type="text" placeholder="例：初級童軍" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
-        </div>
-        <div class="sm:col-span-2">
-          <label class="block text-xs font-medium text-gray-600 mb-1">條件名稱</label>
-          <input id="new_title" type="text" placeholder="例：例會出席" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
-        </div>
-        <div class="sm:col-span-2">
-          <label class="block text-xs font-medium text-gray-600 mb-1">描述（選填）</label>
-          <input id="new_desc" type="text" placeholder="詳細說明" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">需達到數量</label>
-          <input id="new_count" type="number" value="1" min="1" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">單位</label>
-          <input id="new_unit" type="text" value="次" placeholder="次/小時/章" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
-        </div>
-        <div class="flex items-center gap-2">
-          <input id="new_mandatory" type="checkbox" checked class="w-4 h-4">
-          <label class="text-sm text-gray-700">必填條件</label>
-        </div>
+    <!-- 新增標準表單 (頂部大表單) -->
+    <div id="newStageForm" class="hidden mb-5 bg-white rounded-2xl shadow-sm border-2 border-green-200 overflow-hidden">
+      <div class="bg-gradient-to-r from-green-600 to-emerald-500 px-6 py-4 text-white">
+        <h3 class="font-bold text-lg flex items-center gap-2">
+          <i class="fas fa-plus-circle"></i>新增進程標準
+        </h3>
+        <p class="text-green-100 text-sm">為 <strong>${sectionFilter}</strong> 新增一項晉升標準</p>
       </div>
-      <div id="addFormMsg" class="mt-3"></div>
-      <div class="flex gap-2 mt-4">
-        <button onclick="submitNewReq()" class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-lg transition-colors">
-          新增
-        </button>
-        <button onclick="document.getElementById('addForm').classList.add('hidden')"
-          class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-lg transition-colors">
-          取消
-        </button>
+      <div class="p-6">
+        <div class="grid sm:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">目標階段 <span class="text-red-500">*</span></label>
+            <select id="new_rank_to" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-green-500 focus:outline-none transition-colors bg-white">
+              <option value="">選擇進程階段...</option>
+              ${allTargets.map(t => `<option value="${t}">${t}</option>`).join('')}
+              <option value="__custom__">＋ 自訂階段名稱</option>
+            </select>
+            <input id="new_rank_to_custom" type="text" placeholder="輸入自訂階段名稱"
+              class="hidden w-full mt-2 border-2 border-green-300 rounded-xl px-4 py-2.5 text-sm focus:border-green-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">前置階段（選填）</label>
+            <input id="new_rank_from" type="text" placeholder="例：見習童軍（可空白）"
+              class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-green-500 focus:outline-none transition-colors">
+          </div>
+        </div>
+        <div class="mb-4">
+          <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">進程標準 <span class="text-red-500">*</span></label>
+          <input id="new_title" type="text" placeholder="標準標題（例如：參加露營）..."
+            class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-green-500 focus:outline-none transition-colors">
+        </div>
+        <div class="mb-4">
+          <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">細部描述（選填）</label>
+          <textarea id="new_desc" rows="2" placeholder="詳細說明（選填）..."
+            class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-green-500 focus:outline-none transition-colors resize-none"></textarea>
+        </div>
+        <div class="grid grid-cols-3 gap-4 mb-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">類型</label>
+            <select id="new_type" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-green-500 focus:outline-none bg-white">
+              ${reqTypeOptions.map(t => `<option value="${t.value}">${t.icon} ${t.label}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">需達到次數</label>
+            <input id="new_count" type="number" value="1" min="1"
+              class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-green-500 focus:outline-none text-center">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">單位</label>
+            <input id="new_unit" type="text" value="次" placeholder="次/小時/章"
+              class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-green-500 focus:outline-none">
+          </div>
+        </div>
+        <div class="flex items-center gap-2 mb-4">
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input id="new_mandatory" type="checkbox" checked class="sr-only peer">
+            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+          </label>
+          <span class="text-sm text-gray-700 font-medium">必填條件（未達成不可晉升）</span>
+        </div>
+        <div id="newFormMsg" class="mb-3"></div>
+        <div class="flex gap-3">
+          <button onclick="submitNewStandard()"
+            class="bg-green-600 hover:bg-green-500 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center gap-2">
+            <i class="fas fa-plus"></i>新增標準
+          </button>
+          <button onclick="toggleNewStageForm()"
+            class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-2.5 rounded-xl text-sm transition-colors">
+            取消
+          </button>
+        </div>
       </div>
     </div>
 
-    <!-- 條件列表 -->
-    ${Object.entries(groups).length === 0 ? `
-    <div class="bg-white rounded-xl p-8 text-center text-gray-400">
-      <i class="fas fa-tasks text-4xl mb-3"></i>
-      <p>${sectionFilter} 尚無晉升條件</p>
-    </div>` : Object.entries(groups).map(([rankTitle, reqs]) => `
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 mb-4">
-      <div class="p-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-        <h3 class="font-semibold text-gray-800">${rankTitle.replace('→', ' → ')}</h3>
-        <span class="text-xs text-gray-400">${reqs.length} 條件</span>
+    <!-- 進程標準列表（按階段分組） -->
+    ${allTargets.length === 0 ? `
+    <div class="bg-white rounded-2xl p-12 text-center">
+      <div class="text-6xl mb-4">📋</div>
+      <h3 class="text-lg font-semibold text-gray-700 mb-2">尚未設定進程標準</h3>
+      <p class="text-gray-400 mb-4">點擊右上角「新增標準」開始設定 ${sectionFilter} 的升級條件</p>
+    </div>` : allTargets.map(targetRank => {
+      const reqs = groupsByTarget[targetRank] || []
+      return `
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 mb-4 overflow-hidden req-card" id="stage-${targetRank.replace(/\s/g,'_')}">
+      <!-- 階段標題列 -->
+      <div class="stage-header px-5 py-4 flex items-center justify-between border-b border-green-100">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white text-xs font-bold shadow-sm">
+            ${allTargets.indexOf(targetRank) + 1}
+          </div>
+          <div>
+            <h3 class="font-bold text-gray-800 text-base">${targetRank}</h3>
+            <p class="text-xs text-gray-500">${reqs.length > 0 ? `${reqs.length} 項標準` : '尚未設定標準'}</p>
+          </div>
+        </div>
+        <button onclick="showInlineAdd('${targetRank}')"
+          class="text-green-600 hover:text-green-800 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-green-50 transition-colors flex items-center gap-1 border border-green-200">
+          <i class="fas fa-plus"></i>新增
+        </button>
       </div>
-      <div class="divide-y divide-gray-50">
-        ${reqs.map((r: any) => `
-        <div class="flex items-center justify-between p-4 hover:bg-gray-50">
-          <div class="flex items-center gap-3">
-            <span class="text-lg">${reqTypeIcon[r.requirement_type] || '⭐'}</span>
+
+      <!-- 內嵌新增表單（初始隱藏） -->
+      <div id="inline-add-${targetRank.replace(/\s/g,'_')}" class="hidden bg-green-50 border-b border-green-100 px-5 py-4">
+        <div class="grid sm:grid-cols-2 gap-3 mb-3">
+          <div class="sm:col-span-2">
+            <input type="text" id="ia_title_${targetRank.replace(/\s/g,'_')}" placeholder="進程標準標題 *"
+              class="w-full border border-green-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-500">
+          </div>
+          <div class="sm:col-span-2">
+            <textarea id="ia_desc_${targetRank.replace(/\s/g,'_')}" rows="2" placeholder="細部描述（選填）..."
+              class="w-full border border-green-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-500 resize-none"></textarea>
+          </div>
+          <div>
+            <select id="ia_type_${targetRank.replace(/\s/g,'_')}"
+              class="w-full border border-green-300 rounded-lg px-3 py-2 text-sm focus:outline-none bg-white">
+              ${reqTypeOptions.map(t => `<option value="${t.value}">${t.icon} ${t.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="flex gap-2">
+            <input id="ia_count_${targetRank.replace(/\s/g,'_')}" type="number" value="1" min="1" placeholder="次數"
+              class="w-20 border border-green-300 rounded-lg px-3 py-2 text-sm focus:outline-none text-center">
+            <input id="ia_unit_${targetRank.replace(/\s/g,'_')}" type="text" value="次" placeholder="單位"
+              class="flex-1 border border-green-300 rounded-lg px-3 py-2 text-sm focus:outline-none">
+            <label class="flex items-center gap-1 text-xs text-gray-600 whitespace-nowrap">
+              <input id="ia_mandatory_${targetRank.replace(/\s/g,'_')}" type="checkbox" checked class="rounded">必填
+            </label>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="submitInlineAdd('${targetRank}')"
+            class="bg-green-600 hover:bg-green-500 text-white text-xs px-4 py-1.5 rounded-lg transition-colors">
+            <i class="fas fa-check mr-1"></i>新增
+          </button>
+          <button onclick="document.getElementById('inline-add-${targetRank.replace(/\s/g,'_')}').classList.add('hidden')"
+            class="bg-white text-gray-500 text-xs px-4 py-1.5 rounded-lg border hover:bg-gray-50 transition-colors">
+            取消
+          </button>
+        </div>
+      </div>
+
+      <!-- 標準項目列表 -->
+      <div id="reqs-${targetRank.replace(/\s/g,'_')}">
+        ${reqs.length === 0 ? `
+        <div class="py-6 text-center text-gray-400 text-sm" id="empty-${targetRank.replace(/\s/g,'_')}">
+          <i class="fas fa-clipboard-list mr-1"></i>點擊「新增」來設定此階段的晉升標準
+        </div>` : reqs.map((r: any) => renderReqRow(r, reqTypeMap)).join('')}
+      </div>
+    </div>`
+    }).join('')}
+
+    <!-- 編輯 Modal -->
+    <div id="editModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+        <div class="bg-gradient-to-r from-blue-600 to-blue-500 px-6 py-4 text-white flex items-center justify-between">
+          <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-edit"></i>編輯標準</h3>
+          <button onclick="closeEdit()" class="text-white/70 hover:text-white"><i class="fas fa-times text-lg"></i></button>
+        </div>
+        <div class="p-6 space-y-4">
+          <input type="hidden" id="edit_id">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">標準標題 <span class="text-red-500">*</span></label>
+            <input id="edit_title" type="text" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">細部描述</label>
+            <textarea id="edit_desc" rows="3" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none resize-none"></textarea>
+          </div>
+          <div class="grid grid-cols-3 gap-3">
             <div>
-              <div class="font-medium text-gray-800 text-sm">${r.title}
-                ${!r.is_mandatory ? `<span class="ml-1 text-xs text-gray-400 bg-gray-100 px-1 rounded">選填</span>` : ''}
-              </div>
-              <div class="text-xs text-gray-400">${r.description || ''} · 需 ${r.required_count} ${r.unit}</div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">類型</label>
+              <select id="edit_type" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none bg-white">
+                ${reqTypeOptions.map(t => `<option value="${t.value}">${t.icon} ${t.label}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">數量</label>
+              <input id="edit_count" type="number" min="1" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none text-center">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">單位</label>
+              <input id="edit_unit" type="text" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none">
             </div>
           </div>
-          <button onclick="deleteReq('${r.id}')" class="text-red-400 hover:text-red-600 text-xs px-2 py-1 hover:bg-red-50 rounded transition-colors">
-            <i class="fas fa-trash"></i>
-          </button>
-        </div>`).join('')}
+          <label class="flex items-center gap-3 cursor-pointer">
+            <div class="relative">
+              <input id="edit_mandatory" type="checkbox" class="sr-only peer">
+              <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+            </div>
+            <span class="text-sm text-gray-700 font-medium">必填條件</span>
+          </label>
+          <div id="editMsg"></div>
+          <div class="flex gap-3 pt-2">
+            <button onclick="saveEdit()"
+              class="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-xl text-sm font-medium transition-colors">
+              <i class="fas fa-save mr-1"></i>儲存變更
+            </button>
+            <button onclick="closeEdit()"
+              class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl text-sm transition-colors">
+              取消
+            </button>
+          </div>
+        </div>
       </div>
-    </div>`).join('')}
+    </div>
 
     <script>
-    function showAddForm() {
-      document.getElementById('addForm').classList.remove('hidden')
-      document.getElementById('new_title').focus()
+    // ===== 資料（Server-rendered）=====
+    const SECTION = '${sectionFilter}';
+    const RANK_PAIRS = ${JSON.stringify(rankPairs.results)};
+
+    // ===== 頂部新增表單 =====
+    function toggleNewStageForm() {
+      const f = document.getElementById('newStageForm');
+      f.classList.toggle('hidden');
+      if (!f.classList.contains('hidden')) document.getElementById('new_title').focus();
     }
-    async function submitNewReq() {
-      const msg = document.getElementById('addFormMsg')
+
+    document.getElementById('new_rank_to').addEventListener('change', function() {
+      const custom = document.getElementById('new_rank_to_custom');
+      if (this.value === '__custom__') {
+        custom.classList.remove('hidden');
+        custom.focus();
+      } else { custom.classList.add('hidden'); }
+    });
+
+    async function submitNewStandard() {
+      const msg = document.getElementById('newFormMsg');
+      const rankToSel = document.getElementById('new_rank_to').value;
+      const rankToCustom = document.getElementById('new_rank_to_custom').value.trim();
+      const rank_to = rankToSel === '__custom__' ? rankToCustom : rankToSel;
       const data = {
-        section: document.getElementById('new_section').value,
-        rank_from: document.getElementById('new_from').value.trim(),
-        rank_to: document.getElementById('new_to').value.trim(),
+        section: SECTION,
+        rank_from: document.getElementById('new_rank_from').value.trim() || '',
+        rank_to: rank_to,
         requirement_type: document.getElementById('new_type').value,
         title: document.getElementById('new_title').value.trim(),
         description: document.getElementById('new_desc').value.trim(),
         required_count: parseInt(document.getElementById('new_count').value) || 1,
         unit: document.getElementById('new_unit').value.trim() || '次',
         is_mandatory: document.getElementById('new_mandatory').checked
-      }
-      if (!data.rank_from || !data.rank_to || !data.title) {
-        msg.innerHTML = '<p class="text-red-500 text-sm">請填寫所有必填欄位</p>'; return
-      }
-      msg.innerHTML = '<p class="text-gray-400 text-sm">送出中...</p>'
+      };
+      if (!rank_to) { showMsg('newFormMsg', '請選擇目標階段', 'red'); return; }
+      if (!data.title) { showMsg('newFormMsg', '請填寫標準標題', 'red'); return; }
+      showMsg('newFormMsg', '送出中...', 'gray');
       const res = await fetch('/api/admin/advancement-requirements', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      })
-      const r = await res.json()
-      if (r.success) { location.reload() }
-      else { msg.innerHTML = '<p class="text-red-500 text-sm">失敗：' + r.error + '</p>' }
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)
+      });
+      const r = await res.json();
+      if (r.success) location.reload();
+      else showMsg('newFormMsg', '失敗：' + r.error, 'red');
     }
-    async function deleteReq(id) {
-      if (!confirm('確定要刪除此晉升條件？')) return
-      const res = await fetch('/api/admin/advancement-requirements/' + id, { method: 'DELETE' })
-      const r = await res.json()
-      if (r.success) location.reload()
-      else alert('刪除失敗：' + r.error)
+
+    // ===== 各階段內嵌快速新增 =====
+    function showInlineAdd(rank) {
+      const key = rank.replace(/\\s/g,'_');
+      const el = document.getElementById('inline-add-' + key);
+      el.classList.remove('hidden');
+      document.getElementById('ia_title_' + key).focus();
     }
+
+    async function submitInlineAdd(rank) {
+      const key = rank.replace(/\\s/g,'_');
+      const title = document.getElementById('ia_title_' + key).value.trim();
+      if (!title) { alert('請填寫標準標題'); return; }
+      const data = {
+        section: SECTION,
+        rank_from: '', rank_to: rank,
+        requirement_type: document.getElementById('ia_type_' + key).value,
+        title: title,
+        description: document.getElementById('ia_desc_' + key).value.trim(),
+        required_count: parseInt(document.getElementById('ia_count_' + key).value) || 1,
+        unit: document.getElementById('ia_unit_' + key).value.trim() || '次',
+        is_mandatory: document.getElementById('ia_mandatory_' + key).checked
+      };
+      const res = await fetch('/api/admin/advancement-requirements', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)
+      });
+      const r = await res.json();
+      if (r.success) location.reload();
+      else alert('新增失敗：' + r.error);
+    }
+
+    // ===== 編輯 Modal =====
+    function openEdit(id, title, desc, type, count, unit, mandatory) {
+      document.getElementById('edit_id').value = id;
+      document.getElementById('edit_title').value = title;
+      document.getElementById('edit_desc').value = desc || '';
+      document.getElementById('edit_type').value = type;
+      document.getElementById('edit_count').value = count;
+      document.getElementById('edit_unit').value = unit;
+      document.getElementById('edit_mandatory').checked = mandatory == 1 || mandatory === true;
+      document.getElementById('editMsg').innerHTML = '';
+      document.getElementById('editModal').classList.remove('hidden');
+    }
+
+    function closeEdit() { document.getElementById('editModal').classList.add('hidden'); }
+
+    async function saveEdit() {
+      const id = document.getElementById('edit_id').value;
+      const data = {
+        title: document.getElementById('edit_title').value.trim(),
+        description: document.getElementById('edit_desc').value.trim(),
+        requirement_type: document.getElementById('edit_type').value,
+        required_count: parseInt(document.getElementById('edit_count').value) || 1,
+        unit: document.getElementById('edit_unit').value.trim() || '次',
+        is_mandatory: document.getElementById('edit_mandatory').checked,
+        is_active: true
+      };
+      if (!data.title) { showMsg('editMsg', '請填寫標準標題', 'red'); return; }
+      showMsg('editMsg', '儲存中...', 'gray');
+      const res = await fetch('/api/admin/advancement-requirements/' + id, {
+        method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)
+      });
+      const r = await res.json();
+      if (r.success) location.reload();
+      else showMsg('editMsg', '失敗：' + r.error, 'red');
+    }
+
+    // ===== 刪除 =====
+    async function deleteReq(id, title) {
+      if (!confirm('確定要刪除「' + title + '」？\\n此操作無法復原')) return;
+      const res = await fetch('/api/admin/advancement-requirements/' + id, { method:'DELETE' });
+      const r = await res.json();
+      if (r.success) {
+        const row = document.getElementById('req-' + id);
+        if (row) row.remove();
+      } else alert('刪除失敗：' + r.error);
+    }
+
+    // ===== 工具函數 =====
+    function showMsg(elId, msg, color) {
+      const colors = { red: 'text-red-500', green: 'text-green-600', gray: 'text-gray-400' };
+      document.getElementById(elId).innerHTML = '<p class="text-sm ' + (colors[color]||'text-gray-500') + '">' + msg + '</p>';
+    }
+
+    // 點擊 Modal 外部關閉
+    document.getElementById('editModal').addEventListener('click', function(e) {
+      if (e.target === this) closeEdit();
+    });
     </script>
   `))
 })
+
+// 輔助函數：渲染一行標準項目
+function renderReqRow(r: any, reqTypeMap: Record<string, { label: string; icon: string }>) {
+  const typeInfo = reqTypeMap[r.requirement_type] || { label: r.requirement_type, icon: '⭐' }
+  const countText = r.required_count > 1 ? `${r.required_count} ${r.unit}` : `1 ${r.unit}`
+  return `
+  <div class="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 border-b border-gray-50 last:border-0 group" id="req-${r.id}">
+    <div class="flex items-center gap-3 min-w-0 flex-1">
+      <span class="text-lg flex-shrink-0">${typeInfo.icon}</span>
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-sm font-medium text-gray-800">${r.title}</span>
+          ${r.required_count > 1 ? `<span class="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium">${countText}</span>` : ''}
+          ${!r.is_mandatory ? `<span class="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded">選填</span>` : ''}
+        </div>
+        ${r.description ? `<div class="text-xs text-gray-400 mt-0.5 truncate max-w-sm">${r.description}</div>` : ''}
+      </div>
+    </div>
+    <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-3">
+      <button onclick="openEdit('${r.id}', ${JSON.stringify(r.title)}, ${JSON.stringify(r.description || '')}, '${r.requirement_type}', ${r.required_count}, '${r.unit}', ${r.is_mandatory})"
+        class="text-blue-500 hover:text-blue-700 text-xs px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors font-medium">
+        編輯
+      </button>
+      <button onclick="deleteReq('${r.id}', ${JSON.stringify(r.title)})"
+        class="text-red-400 hover:text-red-600 text-xs px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors font-medium">
+        刪除
+      </button>
+    </div>
+  </div>`
+}
+
+
 
 // ===================== 會員帳號管理 =====================
 adminRoutes.get('/member-accounts', authMiddleware, async (c) => {

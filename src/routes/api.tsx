@@ -1167,8 +1167,8 @@ apiRoutes.post('/admin/advancement-requirements', async (c) => {
   const db = c.env.DB
   const body = await c.req.json()
   const { section, rank_from, rank_to, requirement_type, title, description, required_count, unit, is_mandatory, display_order } = body
-  if (!section || !rank_from || !rank_to || !title) {
-    return c.json({ success: false, error: '缺少必填欄位' }, 400)
+  if (!section || !rank_to || !title) {
+    return c.json({ success: false, error: '缺少必填欄位（需要 section, rank_to, title）' }, 400)
   }
   const id = `req-${Date.now()}-${Math.random().toString(36).substring(2,7)}`
   await db.prepare(`

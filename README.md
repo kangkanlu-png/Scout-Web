@@ -3,7 +3,7 @@
 ## 專案概覽
 - **名稱**：林口康橋圓桌武士童軍團管理系統
 - **原始網站**：https://sites.google.com/view/kcislk54
-- **目標**：提供完整的童軍團網站與會員管理平台
+- **目標**：提供完整的童軍團網站與會員管理平台，包含前台公告展示、會員入口、後台管理等功能
 
 ## 存取 URL
 
@@ -22,7 +22,7 @@
 
 ### 前台公開頁面
 - 首頁（活動/分組/公告/精彩回顧預覽）
-- 分組頁面（童軍/行義童軍/羅浮童軍各子頁）
+- 分組頁面（童軍/行義童軍/羅浮童軍各子頁、組織架構、幹部名單、校友專區）
 - 精彩回顧相冊（`/highlights`、`/highlights/:id`）
 - 榮譽榜（`/honor`）
 - 教練團（`/coaches`）
@@ -33,9 +33,13 @@
 - **會員登入** `/member/login` — 帳號密碼驗證（Cookie Session，7天有效）
 - **個人總覽** `/member` — 出席率、請假紀錄、進度記錄、晉升申請狀態卡片
 - **晉升進度** `/member/progress` — 視覺化條件完成率（進度條、達成/未達成標記）
+  - 依各階段（初級/中級/高級…）顯示所有升級標準
+  - 自動判斷必填/選填是否已完成
+  - 出席類型自動計算出席次數
+  - 未完成可點擊「回報達成進度」送出佐證
 - **出席記錄** `/member/attendance` — 個人歷史出席表，快速請假連結
 - **請假申請** `/member/leave` — 申請記錄列表
-- **新增請假** `/member/leave/new` — 關聯例會選擇、假別、原因表單
+- **新增請假** `/member/leave/new` — 關聯例會選擇、假別（公假/病假/私假）、原因表單
 - **晉升申請** `/member/advancement` — 提交晉升申請、查看歷史申請狀態
 
 ### 後台管理（`/admin`）
@@ -46,9 +50,15 @@
 - 進程/榮譽記錄
 - 教練團管理
 - 📊 統計報表
-- 🆕 **請假審核** `/admin/leaves` — 一覽請假申請、一鍵核准/拒絕
+- 🆕 **請假審核** `/admin/leaves` — 一覽請假申請、一鍵核准/拒絕、填寫備註
 - 🆕 **晉升審核** `/admin/advancement` — 審核晉升申請、更新成員階級
-- 🆕 **晉升條件管理** `/admin/advancement/requirements` — 設定各組晉升條件
+- 🆕 **進程標準設定** `/admin/advancement/requirements` — **設定各組各階段晉升條件**
+  - 支援三種組別：童軍 / 行義童軍 / 羅浮童軍
+  - 按目標階段（rank_to）分組顯示（初級→中級→高級…）
+  - 每個條件有：標題、細部描述、類型（出席/服務/技能章/測驗/露營/其他）、需達到次數與單位、必填/選填設定
+  - 各階段內嵌快速新增表單
+  - 頂部大表單可新增到任意目標階段
+  - 支援編輯（Modal 彈窗）與刪除（軟刪除）操作
 - 🆕 **會員帳號管理** `/admin/member-accounts` — 建立/重設密碼/啟停用帳號
 
 ## 預設帳號
@@ -73,9 +83,9 @@
 | **member_accounts** | 🆕 會員帳號（登入用） |
 | attendance_sessions | 例會場次 |
 | attendance_records | 出席記錄 |
-| leave_requests | 請假申請 |
+| leave_requests | 請假申請（含審核狀態） |
 | progress_records | 進程/榮譽記錄 |
-| **advancement_requirements** | 🆕 晉升條件定義 |
+| **advancement_requirements** | 🆕 晉升條件定義（按組別/階段分組） |
 | **advancement_applications** | 🆕 晉升申請記錄 |
 | **advancement_progress** | 🆕 晉升條件個人達成記錄 |
 | activities | 活動 |
@@ -91,27 +101,48 @@
 ### 主要 API
 
 ```
-POST /api/member/leave          -- 提交請假申請
-DELETE /api/member/leave/:id    -- 取消請假申請
-POST /api/member/advancement    -- 提交晉升申請
-POST /api/member/advancement-progress -- 提交條件進度
+# 會員端
+POST /api/member/leave                   -- 提交請假申請
+DELETE /api/member/leave/:id             -- 取消請假申請
+POST /api/member/advancement             -- 提交晉升申請
+POST /api/member/advancement-progress    -- 提交條件達成進度
 
-GET  /api/admin/leaves          -- 取得請假申請列表
-PUT  /api/admin/leaves/:id      -- 審核請假申請
-GET  /api/admin/advancement     -- 取得晉升申請列表
-PUT  /api/admin/advancement/:id -- 審核晉升申請
-GET/POST /api/admin/advancement-requirements -- 晉升條件管理
-GET/POST /api/admin/member-accounts          -- 會員帳號管理
-PUT /api/admin/member-accounts/:id/password  -- 重設密碼
-PUT /api/admin/member-accounts/:id/status    -- 啟停用帳號
+# 後台端
+GET  /api/admin/leaves                   -- 取得請假申請列表
+PUT  /api/admin/leaves/:id               -- 審核請假申請
+GET  /api/admin/advancement              -- 取得晉升申請列表
+PUT  /api/admin/advancement/:id          -- 審核晉升申請
+
+GET  /api/admin/advancement-requirements          -- 取得晉升條件
+POST /api/admin/advancement-requirements          -- 新增晉升條件
+PUT  /api/admin/advancement-requirements/:id      -- 更新晉升條件
+DELETE /api/admin/advancement-requirements/:id    -- 刪除晉升條件（軟刪除）
+
+GET  /api/admin/member-accounts                   -- 取得會員帳號列表
+POST /api/admin/member-accounts                   -- 建立帳號
+PUT  /api/admin/member-accounts/:id/password      -- 重設密碼
+PUT  /api/admin/member-accounts/:id/status        -- 啟停用帳號
 ```
 
 ## 技術堆疊
 - **後端**：Hono + TypeScript（Cloudflare Workers/Pages）
 - **前端**：純 HTML + Tailwind CSS + Font Awesome（CDN）
 - **資料庫**：Cloudflare D1（SQLite）
-- **認證**：Cookie Session（SHA-256 密碼雜湊，Base64 JWT-like）
+- **認證**：Cookie Session（SHA-256 密碼雜湊，TextEncoder Base64 JWT-like，支援 Unicode）
 - **部署**：Cloudflare Pages
+
+## 資料庫 Migration 說明
+
+| Migration | 內容 |
+|-----------|------|
+| 0001_initial_schema.sql | 基本成員/出席/進程/請假表 |
+| 0002_group_semesters.sql | 分組學期資料 |
+| 0003_add_slug.sql | 網址 slug 欄位 |
+| 0004_members_system.sql | 成員系統擴充 |
+| 0005_group_subpages.sql | 分組子頁面 |
+| 0006_leader_awards.sql | 領袖獎項系統 |
+| 0007_activity_highlights.sql | 精彩活動回顧 |
+| **0008_member_portal.sql** | 🆕 會員入口：帳號、晉升申請、晉升條件、晉升進度 |
 
 ## 本地開發
 
@@ -119,10 +150,10 @@ PUT /api/admin/member-accounts/:id/status    -- 啟停用帳號
 # 安裝依賴
 npm install
 
-# 套用資料庫遷移
+# 套用資料庫遷移（首次執行）
 npm run db:migrate:local
 
-# 載入種子資料
+# 載入種子資料（選用）
 npm run db:seed
 
 # 建置
@@ -130,6 +161,9 @@ npm run build
 
 # 啟動（PM2）
 pm2 start ecosystem.config.cjs
+
+# 測試
+curl http://localhost:3000
 ```
 
 ## 部署資訊
