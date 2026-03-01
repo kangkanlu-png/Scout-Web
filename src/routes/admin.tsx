@@ -1162,6 +1162,18 @@ function adminLayout(title: string, content: string) {
         <a href="/admin/groups" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '分組管理' ? 'bg-green-700' : ''}">
           <span>👥</span> 童軍分組
         </a>
+        <!-- 分組子選單（組織/幹部/名單快速入口）-->
+        <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
+          <a href="/admin/groups/1/subpages" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('童軍團') ? 'bg-green-700' : 'text-green-200'}">
+            🏕️ 童軍團
+          </a>
+          <a href="/admin/groups/2/subpages" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('深資') ? 'bg-green-700' : 'text-green-200'}">
+            ⛺ 深資童軍團
+          </a>
+          <a href="/admin/groups/3/subpages" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('羅浮') ? 'bg-green-700' : 'text-green-200'}">
+            🧭 羅浮童軍群
+          </a>
+        </div>
         <a href="/admin/announcements" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '公告管理' ? 'bg-green-700' : ''}">
           <span>📢</span> 公告管理
         </a>
