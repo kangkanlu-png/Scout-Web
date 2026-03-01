@@ -71,6 +71,16 @@ frontendRoutes.get('/honor', async (c) => {
     ORDER BY pr.year_label DESC, pr.award_name, m.chinese_name
   `).all()
 
+  // 取得公告的榮譽小隊記錄（最新20筆）
+  const honorPatrolRecords = await db.prepare(`
+    SELECT hp.*, ats.title as session_title, ats.date as session_date
+    FROM honor_patrol_records hp
+    JOIN attendance_sessions ats ON ats.id = hp.session_id
+    WHERE hp.announced = 1
+    ORDER BY hp.announced_at DESC
+    LIMIT 20
+  `).all()
+
   // 按獎項名稱分組
   const grouped: Record<string, any[]> = {}
   rankRecords.results.forEach((r: any) => {
@@ -91,7 +101,7 @@ frontendRoutes.get('/honor', async (c) => {
       <div class="flex items-center gap-2 bg-white rounded-lg px-3 py-2 shadow-sm border border-green-100">
         <span class="text-green-700 font-medium text-sm">${m.chinese_name}</span>
         <span class="text-xs text-gray-400">${m.section}</span>
-        ${m.year_label ? `<span class="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded">${m.year_label}年</span>` : ''}
+        ${m.year_label ? '<span class="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded">' + m.year_label + '年</span>' : ''}
       </div>
     `).join('')
     return `
@@ -110,7 +120,7 @@ frontendRoutes.get('/honor', async (c) => {
       <div class="flex items-center gap-2 bg-white rounded-lg px-3 py-2 shadow-sm border border-amber-100">
         <span class="text-amber-700 font-medium text-sm">${m.chinese_name}</span>
         <span class="text-xs text-gray-400">${m.section}</span>
-        ${m.year_label ? `<span class="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">${m.year_label}年</span>` : ''}
+        ${m.year_label ? '<span class="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">' + m.year_label + '年</span>' : ''}
       </div>
     `).join('')
     return `
@@ -120,6 +130,24 @@ frontendRoutes.get('/honor', async (c) => {
           <span class="text-sm font-normal text-amber-600 bg-white px-2 py-0.5 rounded-full">${(members as any[]).length} 位</span>
         </h3>
         <div class="flex flex-wrap gap-2">${memberChips}</div>
+      </div>
+    `
+  }).join('')
+
+  // 榮譽小隊公告卡片
+  const honorPatrolCards = (honorPatrolRecords.results as any[]).map((h: any) => {
+    const sectionLabel: Record<string,string> = {junior:'童軍',senior:'行義童軍',rover:'羅浮童軍',all:'全體'}
+    return `
+      <div class="bg-gradient-to-br from-yellow-50 to-amber-50 border border-yellow-300 rounded-xl p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">🏆</span>
+          <div>
+            <div class="font-bold text-amber-900 text-lg">${h.patrol_name}</div>
+            <div class="text-xs text-amber-600">${sectionLabel[h.section] || h.section}${h.year_label ? ' · ' + h.year_label + '學年' : ''}</div>
+          </div>
+        </div>
+        ${h.reason ? '<p class="text-sm text-gray-600 mt-1">' + h.reason + '</p>' : ''}
+        <div class="text-xs text-gray-400 mt-2">場次：${h.session_title} · ${h.session_date}</div>
       </div>
     `
   }).join('')
@@ -134,6 +162,14 @@ frontendRoutes.get('/honor', async (c) => {
     </div>
   </div>
   <div class="max-w-5xl mx-auto px-4 py-10">
+    ${honorPatrolCards ? `
+      <h2 class="text-xl font-bold text-gray-800 mb-5 flex items-center gap-2">
+        <span class="text-amber-600">🏆</span> 榮譽小隊公告
+      </h2>
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-10">
+        ${honorPatrolCards}
+      </div>
+    ` : ''}
     ${rankCards || awardCards ? `
       <h2 class="text-xl font-bold text-gray-800 mb-5 flex items-center gap-2">
         <span class="text-green-700">📈</span> 晉級記錄
@@ -149,7 +185,7 @@ frontendRoutes.get('/honor', async (c) => {
           ${awardCards}
         </div>
       ` : ''}
-    ` : '<div class="text-center py-20 text-gray-400">尚無榮譽記錄</div>'}
+    ` : (!honorPatrolCards ? '<div class="text-center py-20 text-gray-400">尚無榮譽記錄</div>' : '')}
   </div>
   <footer class="bg-[#1a472a] text-white py-8 mt-8">
     <div class="max-w-6xl mx-auto px-4 text-center">

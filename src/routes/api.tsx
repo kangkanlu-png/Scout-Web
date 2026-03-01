@@ -472,11 +472,115 @@ apiRoutes.post('/attendance/sessions', async (c) => {
   for (const member of members.results as any[]) {
     await db.prepare(`
       INSERT OR IGNORE INTO attendance_records (session_id, member_id, status)
-      VALUES (?, ?, 'absent')
+      VALUES (?, ?, 'present')
     `).bind(sessionId, member.id).run()
   }
   
   return c.json({ success: true, id: sessionId })
+})
+
+// 確認送出點名（鎖定場次）
+apiRoutes.post('/attendance/sessions/:id/submit', async (c) => {
+  const db = c.env.DB
+  const sessionId = c.req.param('id')
+  const session = await db.prepare(`SELECT * FROM attendance_sessions WHERE id=?`).bind(sessionId).first()
+  if (!session) return c.json({ success: false, error: '找不到場次' }, 404)
+  await db.prepare(`
+    UPDATE attendance_sessions SET submitted=1, submitted_at=CURRENT_TIMESTAMP WHERE id=?
+  `).bind(sessionId).run()
+  return c.json({ success: true })
+})
+
+// 榮譽小隊 - 取得某場次的榮譽小隊記錄
+apiRoutes.get('/attendance/sessions/:id/honor-patrol', async (c) => {
+  const db = c.env.DB
+  const sessionId = c.req.param('id')
+  const records = await db.prepare(`
+    SELECT * FROM honor_patrol_records WHERE session_id=? ORDER BY created_at DESC
+  `).bind(sessionId).all()
+  return c.json({ success: true, data: records.results })
+})
+
+// 榮譽小隊 - 新增榮譽小隊記錄
+apiRoutes.post('/attendance/sessions/:id/honor-patrol', async (c) => {
+  const db = c.env.DB
+  const sessionId = c.req.param('id')
+  const session = await db.prepare(`SELECT * FROM attendance_sessions WHERE id=?`).bind(sessionId).first() as any
+  if (!session) return c.json({ success: false, error: '找不到場次' }, 404)
+  const body = await c.req.json()
+  const { patrol_name, reason, year_label, announce } = body
+  if (!patrol_name) return c.json({ success: false, error: '小隊名稱為必填' }, 400)
+  const id = `hp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  await db.prepare(`
+    INSERT INTO honor_patrol_records (id, session_id, patrol_name, section, reason, year_label, announced, announced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, sessionId, patrol_name, session.section, reason || null, year_label || null,
+    announce ? 1 : 0, announce ? new Date().toISOString() : null).run()
+  // 如果選擇公告到榮譽榜，同時對小隊成員新增成就記錄
+  if (announce) {
+    const membersList = await db.prepare(`
+      SELECT id FROM members WHERE unit_name=? AND membership_status='ACTIVE'
+    `).bind(patrol_name).all()
+    const prBase = `pr-hp-${Date.now()}`
+    for (const m of membersList.results as any[]) {
+      const prId = prBase + '-' + m.id.slice(-5)
+      await db.prepare(`
+        INSERT OR IGNORE INTO progress_records (id, member_id, record_type, award_name, year_label, notes)
+        VALUES (?, ?, 'achievement', ?, ?, ?)
+      `).bind(prId, m.id, '榮譽小隊：' + patrol_name, year_label || null, reason || null).run()
+    }
+  }
+  return c.json({ success: true, id })
+})
+
+// 榮譽小隊 - 刪除
+apiRoutes.delete('/honor-patrol/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  await db.prepare(`DELETE FROM honor_patrol_records WHERE id=?`).bind(id).run()
+  return c.json({ success: true })
+})
+
+// 榮譽小隊 - 公告到榮譽榜
+apiRoutes.post('/honor-patrol/:id/announce', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const record = await db.prepare(`SELECT * FROM honor_patrol_records WHERE id=?`).bind(id).first() as any
+  if (!record) return c.json({ success: false, error: '找不到記錄' }, 404)
+  if (record.announced) return c.json({ success: false, error: '已公告過' }, 400)
+  const body = await c.req.json().catch(() => ({}))
+  const year_label = (body as any).year_label || record.year_label
+  await db.prepare(`
+    UPDATE honor_patrol_records SET announced=1, announced_at=CURRENT_TIMESTAMP WHERE id=?
+  `).bind(id).run()
+  // 對 unit_name = patrol_name 的所有 ACTIVE 成員新增成就記錄
+  const membersList = await db.prepare(`
+    SELECT id FROM members WHERE unit_name=? AND membership_status='ACTIVE'
+  `).bind(record.patrol_name).all()
+  const prBase = `pr-hp-${Date.now()}`
+  for (const m of membersList.results as any[]) {
+    const prId = prBase + '-' + m.id.slice(-5)
+    await db.prepare(`
+      INSERT OR IGNORE INTO progress_records (id, member_id, record_type, award_name, year_label, notes)
+      VALUES (?, ?, 'achievement', ?, ?, ?)
+    `).bind(prId, m.id, '榮譽小隊：' + record.patrol_name, year_label || null, record.reason || null).run()
+  }
+  return c.json({ success: true })
+})
+
+// 取得所有榮譽小隊記錄（公開，用於榮譽榜）
+apiRoutes.get('/honor-patrol', async (c) => {
+  const db = c.env.DB
+  const section = c.req.query('section')
+  let query = `SELECT hp.*, ats.title as session_title, ats.date as session_date
+    FROM honor_patrol_records hp
+    JOIN attendance_sessions ats ON ats.id = hp.session_id
+    WHERE 1=1`
+  const params: any[] = []
+  if (section) { query += ` AND hp.section=?`; params.push(section) }
+  query += ` ORDER BY hp.created_at DESC`
+  const records = await db.prepare(query).bind(...params).all()
+  return c.json({ success: true, data: records.results })
 })
 
 // 更新出席狀態

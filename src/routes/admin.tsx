@@ -1567,29 +1567,54 @@ adminRoutes.get('/attendance/:id', authMiddleware, async (c) => {
     ORDER BY m.unit_name, m.chinese_name
   `).bind(sessionId).all()
 
+  // 取得榮譽小隊記錄
+  const honorPatrols = await db.prepare(`
+    SELECT * FROM honor_patrol_records WHERE session_id=? ORDER BY created_at DESC
+  `).bind(sessionId).all()
+
+  // 取得小隊清單（from members）
+  const unitsRes = await db.prepare(`
+    SELECT DISTINCT unit_name FROM members WHERE unit_name IS NOT NULL AND unit_name != '' ORDER BY unit_name
+  `).all()
+  const unitOptions = (unitsRes.results as any[]).map((u: any) => `<option value="${u.unit_name}">${u.unit_name}</option>`).join('')
+
   const sectionLabel: Record<string,string> = {junior:'童軍',senior:'行義童軍',rover:'羅浮童軍',all:'全體'}
   const statusLabel: Record<string,string> = {present:'出席',absent:'缺席',leave:'公假',late:'遲到'}
-  const statusColor: Record<string,string> = {present:'bg-green-100 text-green-700',absent:'bg-red-100 text-red-700',leave:'bg-blue-100 text-blue-700',late:'bg-yellow-100 text-yellow-700'}
+  const isSubmitted = session.submitted === 1
 
   const rows = records.results.map((r: any) => `
     <tr class="hover:bg-gray-50 border-b" id="row-${r.member_id}">
       <td class="px-4 py-3">
         <div class="font-medium text-sm">${r.chinese_name}</div>
-        ${r.english_name ? `<div class="text-xs text-gray-400">${r.english_name}</div>` : ''}
+        ${r.english_name ? '<div class="text-xs text-gray-400">' + r.english_name + '</div>' : ''}
       </td>
       <td class="px-4 py-3 text-xs text-gray-500">${r.unit_name || '-'}</td>
       <td class="px-4 py-3 text-xs text-gray-500">${r.role_name || '-'}</td>
       <td class="px-4 py-3">
-        <select onchange="updateRecord('${sessionId}','${r.member_id}',this.value)"
-          class="border rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
-          ${['present','absent','leave','late'].map(s => `<option value="${s}" ${r.status===s?'selected':''}>${statusLabel[s]}</option>`).join('')}
-        </select>
+        ${isSubmitted
+          ? '<span class="px-2 py-1 rounded text-xs font-medium ' + (r.status === 'present' ? 'bg-green-100 text-green-700' : r.status === 'absent' ? 'bg-red-100 text-red-700' : r.status === 'leave' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700') + '">' + (statusLabel[r.status] || r.status) + '</span>'
+          : '<select data-session="' + sessionId + '" data-member="' + r.member_id + '" onchange="updateRecord(this)" class="border rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"><option value="present" ' + (r.status === 'present' ? 'selected' : '') + '>出席</option><option value="absent" ' + (r.status === 'absent' ? 'selected' : '') + '>缺席</option><option value="leave" ' + (r.status === 'leave' ? 'selected' : '') + '>公假</option><option value="late" ' + (r.status === 'late' ? 'selected' : '') + '>遲到</option></select>'
+        }
       </td>
     </tr>
   `).join('')
 
   const presentCount = records.results.filter((r: any) => r.status === 'present').length
   const total = records.results.length
+
+  const honorRows = (honorPatrols.results as any[]).map((h: any) => `
+    <div class="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+      <div>
+        <span class="font-bold text-amber-800">🏆 ${h.patrol_name}</span>
+        ${h.reason ? '<span class="ml-2 text-sm text-gray-500">' + h.reason + '</span>' : ''}
+        ${h.year_label ? '<span class="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded">' + h.year_label + '學年</span>' : ''}
+      </div>
+      <div class="flex items-center gap-2">
+        ${h.announced ? '<span class="text-xs text-green-600 font-medium">✅ 已公告</span>' : '<button onclick="announceHonor(\'' + h.id + '\')" class="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700">📢 公告到榮譽榜</button>'}
+        <button onclick="deleteHonor('${h.id}')" class="text-xs text-red-400 hover:text-red-600 ml-1">🗑</button>
+      </div>
+    </div>
+  `).join('')
 
   return c.html(adminLayout('出席點名', `
     <div class="mb-4">
@@ -1601,8 +1626,9 @@ adminRoutes.get('/attendance/:id', authMiddleware, async (c) => {
           <h2 class="text-xl font-bold text-gray-800">${session.title}</h2>
           <p class="text-sm text-gray-500 mt-1">
             ${session.date} ｜ ${sectionLabel[session.section] || session.section}
-            ${session.topic ? ` ｜ 主題：${session.topic}` : ''}
+            ${session.topic ? ' ｜ 主題：' + session.topic : ''}
           </p>
+          ${isSubmitted ? '<span class="inline-block mt-2 text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">✅ 已送出（點名完成）</span>' : '<span class="inline-block mt-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full font-medium">⏳ 點名中</span>'}
         </div>
         <div class="text-right">
           <div class="text-2xl font-bold text-green-700">${presentCount}</div>
@@ -1611,12 +1637,19 @@ adminRoutes.get('/attendance/:id', authMiddleware, async (c) => {
       </div>
     </div>
 
-    <div class="flex gap-2 mb-4">
+    ${!isSubmitted ? `
+    <div class="flex flex-wrap gap-2 mb-4">
       <button onclick="markAll('present')" class="bg-green-100 text-green-700 hover:bg-green-200 px-4 py-2 rounded-lg text-sm font-medium">✅ 全部出席</button>
       <button onclick="markAll('absent')" class="bg-red-100 text-red-700 hover:bg-red-200 px-4 py-2 rounded-lg text-sm font-medium">❌ 全部缺席</button>
+      <button onclick="submitAttendance()" class="ml-auto bg-green-700 text-white hover:bg-green-600 px-5 py-2 rounded-lg text-sm font-bold shadow">📋 確認送出點名</button>
     </div>
+    ` : `
+    <div class="flex gap-2 mb-4">
+      <span class="text-sm text-gray-400">點名已完成。如需修改請聯繫管理員。</span>
+    </div>
+    `}
 
-    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
       <table class="w-full">
         <thead class="bg-gray-50 border-b">
           <tr>
@@ -1632,22 +1665,159 @@ adminRoutes.get('/attendance/:id', authMiddleware, async (c) => {
       </table>
     </div>
 
+    <!-- 榮譽小隊區塊 -->
+    <div class="bg-white rounded-xl shadow-sm p-5 mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-base font-bold text-gray-800">🏆 本次榮譽小隊</h3>
+        <button onclick="document.getElementById('add-honor-modal').classList.remove('hidden')"
+          class="bg-amber-500 hover:bg-amber-400 text-white px-4 py-1.5 rounded-lg text-sm font-medium">＋ 記錄榮譽小隊</button>
+      </div>
+      <div id="honor-list" class="space-y-2">
+        ${honorRows || '<p class="text-sm text-gray-400 text-center py-4">本次尚未記錄榮譽小隊</p>'}
+      </div>
+    </div>
+
+    <!-- 新增榮譽小隊 Modal -->
+    <div id="add-honor-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-bold mb-4">🏆 記錄榮譽小隊</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">小隊名稱 *</label>
+            <select id="honor-patrol-name" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="">請選擇小隊</option>
+              ${unitOptions}
+            </select>
+            <input type="text" id="honor-patrol-custom" class="w-full border rounded-lg px-3 py-2 text-sm mt-1 hidden" placeholder="或手動輸入小隊名稱">
+            <button onclick="toggleCustomPatrol()" class="text-xs text-blue-600 mt-1">手動輸入小隊名稱</button>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">得獎理由</label>
+            <input type="text" id="honor-reason" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：全員出席、表現優異">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">學年度標籤</label>
+            <input type="text" id="honor-year" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：114">
+          </div>
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="honor-announce" class="rounded">
+            <label for="honor-announce" class="text-sm text-gray-700">同時公告到榮譽榜（為小隊成員新增成就記錄）</label>
+          </div>
+        </div>
+        <div id="honor-msg" class="hidden mt-2 text-sm"></div>
+        <div class="flex gap-3 mt-4">
+          <button onclick="saveHonorPatrol()" class="bg-amber-500 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-amber-400">新增榮譽小隊</button>
+          <button onclick="document.getElementById('add-honor-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
     <script>
-      async function updateRecord(sessionId, memberId, status) {
-        await fetch('/api/attendance/records/' + sessionId + '/' + memberId, {
+      const SESSION_ID = '${sessionId}';
+      const IS_SUBMITTED = ${isSubmitted ? 'true' : 'false'};
+
+      async function updateRecord(sel) {
+        if (IS_SUBMITTED) return;
+        const sId = sel.dataset.session;
+        const mId = sel.dataset.member;
+        const status = sel.value;
+        await fetch('/api/attendance/records/' + sId + '/' + mId, {
           method: 'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status})
         });
+        updateCounter();
       }
+
+      function updateCounter() {
+        const selects = document.querySelectorAll('select[data-member]');
+        let cnt = 0;
+        selects.forEach(s => { if (s.value === 'present') cnt++; });
+        const el = document.querySelector('.text-2xl.font-bold.text-green-700');
+        if (el) el.textContent = cnt;
+      }
+
       async function markAll(status) {
-        const selects = document.querySelectorAll('select');
-        for (const sel of selects) {
+        if (IS_SUBMITTED) return;
+        const selects = document.querySelectorAll('select[data-member]');
+        const promises = [];
+        selects.forEach(sel => {
           sel.value = status;
-          const parts = sel.getAttribute('onchange').match(/'([^']+)'/g);
-          if (parts && parts.length >= 2) {
-            const sId = parts[0].replace(/'/g,''), mId = parts[1].replace(/'/g,'');
-            await updateRecord(sId, mId, status);
-          }
+          promises.push(fetch('/api/attendance/records/' + sel.dataset.session + '/' + sel.dataset.member, {
+            method: 'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status})
+          }));
+        });
+        await Promise.all(promises);
+        updateCounter();
+      }
+
+      async function submitAttendance() {
+        if (!confirm('確定要送出本次點名結果？送出後將無法修改。')) return;
+        const btn = document.querySelector('button[onclick="submitAttendance()"]');
+        if (btn) { btn.disabled = true; btn.textContent = '送出中...'; }
+        const res = await fetch('/api/attendance/sessions/' + SESSION_ID + '/submit', { method: 'POST' });
+        const json = await res.json();
+        if (res.ok && json.success) {
+          location.reload();
+        } else {
+          alert('送出失敗：' + (json.error || '未知錯誤'));
+          if (btn) { btn.disabled = false; btn.textContent = '📋 確認送出點名'; }
         }
+      }
+
+      let useCustomPatrol = false;
+      function toggleCustomPatrol() {
+        useCustomPatrol = !useCustomPatrol;
+        document.getElementById('honor-patrol-name').classList.toggle('hidden', useCustomPatrol);
+        document.getElementById('honor-patrol-custom').classList.toggle('hidden', !useCustomPatrol);
+      }
+
+      async function saveHonorPatrol() {
+        const patrolName = useCustomPatrol
+          ? document.getElementById('honor-patrol-custom').value.trim()
+          : document.getElementById('honor-patrol-name').value;
+        const reason = document.getElementById('honor-reason').value.trim();
+        const yearLabel = document.getElementById('honor-year').value.trim();
+        const announce = document.getElementById('honor-announce').checked;
+        const msg = document.getElementById('honor-msg');
+
+        if (!patrolName) { msg.textContent = '請填寫小隊名稱'; msg.className = 'mt-2 text-sm text-red-600'; msg.classList.remove('hidden'); return; }
+
+        const res = await fetch('/api/attendance/sessions/' + SESSION_ID + '/honor-patrol', {
+          method: 'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ patrol_name: patrolName, reason, year_label: yearLabel || null, announce })
+        });
+        const json = await res.json();
+        if (res.ok && json.success) {
+          msg.textContent = '已新增榮譽小隊' + (announce ? '，並同步公告到榮譽榜' : '');
+          msg.className = 'mt-2 text-sm text-green-600';
+          msg.classList.remove('hidden');
+          setTimeout(() => location.reload(), 1200);
+        } else {
+          msg.textContent = '新增失敗：' + (json.error || '未知錯誤');
+          msg.className = 'mt-2 text-sm text-red-600';
+          msg.classList.remove('hidden');
+        }
+      }
+
+      async function announceHonor(id) {
+        if (!confirm('確定要公告此榮譽小隊到榮譽榜？這將為小隊成員新增成就記錄。')) return;
+        const yearLabel = prompt('請輸入學年度標籤（例：114），留空則不填：') || '';
+        const res = await fetch('/api/honor-patrol/' + id + '/announce', {
+          method: 'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ year_label: yearLabel || null })
+        });
+        const json = await res.json();
+        if (res.ok && json.success) {
+          alert('已公告到榮譽榜！');
+          location.reload();
+        } else {
+          alert('公告失敗：' + (json.error || '未知錯誤'));
+        }
+      }
+
+      async function deleteHonor(id) {
+        if (!confirm('確定要刪除此榮譽小隊記錄？')) return;
+        const res = await fetch('/api/honor-patrol/' + id, { method: 'DELETE' });
+        if (res.ok) location.reload(); else alert('刪除失敗');
       }
     </script>
   `))
