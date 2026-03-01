@@ -112,6 +112,9 @@ function memberNav(memberName: string, section: string) {
       <a href="/member/advancement" class="text-xs whitespace-nowrap px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
         <i class="fas fa-arrow-up mr-1"></i>晉升申請
       </a>
+      <a href="/member/official-leave" class="text-xs whitespace-nowrap px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
+        <i class="fas fa-calendar-alt mr-1"></i>公假行事曆
+      </a>
     </div>
   </div>
 </nav>`
@@ -1208,6 +1211,371 @@ memberRoutes.get('/advancement', memberAuthMiddleware, async (c) => {
         msg.innerHTML = '<p class="text-red-500 text-sm">網路錯誤，請稍後再試</p>'
       }
     })
+  </script>
+</body></html>`)
+})
+
+// =====================================================================
+// 公假行事曆系統
+// =====================================================================
+
+function weekdayLabel(dow: number): string {
+  return ['日','一','二','三','四','五','六'][dow] || ''
+}
+
+// ===== 公假行事曆首頁 =====
+memberRoutes.get('/official-leave', memberAuthMiddleware, async (c) => {
+  const db = c.env.DB
+  const sess = c.get('memberSession') as any
+
+  const settingRows = await db.prepare(
+    `SELECT key, value FROM site_settings WHERE key LIKE 'official_leave%'`
+  ).all()
+  const sMap: Record<string,string> = {}
+  settingRows.results.forEach((r: any) => { sMap[r.key] = r.value })
+
+  const semStart = sMap['official_leave_semester_start'] || ''
+  const semEnd   = sMap['official_leave_semester_end'] || ''
+  let recurringRules: any[] = []
+  try { recurringRules = JSON.parse(sMap['official_leave_recurring_rules'] || '[]') } catch {}
+
+  const weekParam = c.req.query('week')
+  let weekStart: Date
+  if (weekParam) {
+    weekStart = new Date(weekParam + 'T12:00:00')
+  } else {
+    const today = new Date()
+    const dow = today.getDay()
+    const diff = dow === 0 ? -6 : 1 - dow
+    weekStart = new Date(today)
+    weekStart.setDate(today.getDate() + diff)
+  }
+  weekStart.setHours(12,0,0,0)
+
+  const fmtDate = (d: Date) => d.toISOString().substring(0,10)
+  const weekDays: Date[] = []
+  for (let i=0; i<7; i++) {
+    const d = new Date(weekStart); d.setDate(weekStart.getDate()+i); weekDays.push(d)
+  }
+  const weekEnd = weekDays[6]
+  const wStart = fmtDate(weekStart), wEnd = fmtDate(weekEnd)
+
+  const prevWeek = new Date(weekStart); prevWeek.setDate(weekStart.getDate()-7)
+  const nextWeek = new Date(weekStart); nextWeek.setDate(weekStart.getDate()+7)
+  const today2 = new Date(); today2.setHours(12,0,0,0)
+  const todayStr = fmtDate(today2)
+  const cmDiff = today2.getDay()===0?-6:1-today2.getDay()
+  const curMon = new Date(today2); curMon.setDate(today2.getDate()+cmDiff)
+  const curMonStr = fmtDate(curMon)
+
+  const weekEvents = await db.prepare(
+    `SELECT * FROM leave_calendar_events WHERE date >= ? AND date <= ? ORDER BY date`
+  ).bind(wStart, wEnd).all()
+
+  const approvedLeaves = await db.prepare(`
+    SELECT ola.leave_date, ola.timeslots, m.chinese_name, m.section
+    FROM official_leave_applications ola
+    JOIN members m ON m.id = ola.member_id
+    WHERE ola.status='approved' AND ola.leave_date>=? AND ola.leave_date<=?
+    ORDER BY ola.leave_date
+  `).bind(wStart, wEnd).all()
+
+  const semEvents = semStart ? await db.prepare(
+    `SELECT * FROM leave_calendar_events WHERE date>=? AND date<=? ORDER BY date`
+  ).bind(semStart, semEnd).all() : { results: [] }
+
+  const blockedDates = new Set(weekEvents.results.filter((e:any)=>e.type==='blocked').map((e:any)=>e.date))
+
+  const evTypeStyle: Record<string,string> = {
+    blocked: 'bg-gray-100 border-l-4 border-gray-500 text-gray-700',
+    holiday: 'bg-red-50 border-l-4 border-red-400 text-red-800',
+    exam:    'bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800',
+    event:   'bg-purple-50 border-l-4 border-purple-400 text-purple-800'
+  }
+  const evTypeIcon: Record<string,string> = { blocked:'⛔', holiday:'🔴', exam:'📋', event:'📌' }
+
+  const dayColumns = weekDays.map(d => {
+    const dStr = fmtDate(d)
+    const isToday = dStr===todayStr, isWeekend = d.getDay()===0||d.getDay()===6
+    const dayEv = weekEvents.results.filter((e:any)=>e.date===dStr)
+    const dayRules = recurringRules.filter((r:any)=>r.dayOfWeek===d.getDay())
+    const dayLeaves = approvedLeaves.results.filter((l:any)=>l.leave_date===dStr)
+    const isBlocked = blockedDates.has(dStr)
+
+    const evHtml = dayEv.map((e:any)=>{
+      const s = evTypeStyle[e.type]||evTypeStyle.event
+      const icon = evTypeIcon[e.type]||'📌'
+      return `<div class="p-1.5 rounded text-xs font-medium ${s}">${icon} ${e.title}${e.description?`<div class="text-xs opacity-70 font-normal">${e.description}</div>`:''}</div>`
+    }).join('')
+
+    const ruleHtml = dayRules.map((r:any)=>
+      `<div class="p-1.5 rounded text-xs font-medium bg-indigo-50 border-l-4 border-indigo-400 text-indigo-800">🔄 ${r.title}${r.description?`<div class="text-xs opacity-70 font-normal">${r.description}</div>`:''}</div>`
+    ).join('')
+
+    const leaveHtml = dayLeaves.length>0 ? `<div class="mt-1"><div class="text-xs font-bold text-gray-500 border-b pb-0.5 mb-1">公假名單 (${dayLeaves.length})</div>${dayLeaves.map((l:any)=>{const ts=(() => { try{return JSON.parse(l.timeslots)}catch{return[]} })();return `<div class="bg-green-50 text-green-800 text-xs p-1 rounded border border-green-100"><span class="font-bold">${l.chinese_name}</span><div class="text-gray-400 text-[10px]">${ts.join(', ')}</div></div>`}).join('')}</div>` : ''
+
+    const isEmpty = dayEv.length===0&&dayRules.length===0&&dayLeaves.length===0
+
+    return `<div class="${isToday?'ring-2 ring-blue-500':''} ${isWeekend?'bg-gray-50':'bg-white'} rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-[200px]">
+      <div class="${isToday?'bg-blue-500 text-white':'bg-gray-100 text-gray-700'} px-3 py-2 rounded-t-xl text-center border-b">
+        <div class="font-bold text-sm">星期${weekdayLabel(d.getDay())}</div>
+        <div class="text-xs">${dStr.substring(5).replace('-','/')}</div>
+        ${isBlocked?`<div class="text-xs text-red-500 mt-0.5">🔒 封鎖</div>`:''}
+      </div>
+      <div class="p-2 flex-1 space-y-1 text-sm">
+        ${evHtml}${ruleHtml}${leaveHtml}
+        ${isEmpty?'<p class="text-gray-300 text-xs text-center mt-6">無事項</p>':''}
+      </div>
+    </div>`
+  }).join('')
+
+  // 學期視圖
+  let semMonthsHtml = ''
+  if (semStart && semEnd) {
+    const s2 = new Date(semStart+'T12:00:00'), e2 = new Date(semEnd+'T12:00:00')
+    const months: string[] = []
+    const cur = new Date(s2.getFullYear(), s2.getMonth(), 1)
+    while (cur <= e2) {
+      months.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`)
+      cur.setMonth(cur.getMonth()+1)
+    }
+    const evStyles: Record<string,string> = {
+      blocked:'bg-gray-100 text-gray-600', holiday:'bg-red-50 text-red-800',
+      exam:'bg-yellow-50 text-yellow-800', event:'bg-blue-50 text-blue-800'
+    }
+    semMonthsHtml = months.map(m => {
+      const mEv = (semEvents.results as any[]).filter(e=>e.date.startsWith(m))
+      const mLabel = `${m.substring(0,4)} 年 ${parseInt(m.substring(5))} 月`
+      const eRows = mEv.length===0
+        ? '<div class="text-center text-gray-400 text-xs py-4">無特殊活動</div>'
+        : mEv.map(e=>{
+            const day = parseInt(e.date.substring(8))
+            return `<div class="flex gap-2 items-start text-xs p-1.5 rounded ${evStyles[e.type]||evStyles.event}"><span class="font-mono font-bold w-5 shrink-0">${String(day).padStart(2,'0')}</span><div><div class="font-bold">${e.title}</div>${e.description?`<div class="opacity-70">${e.description}</div>`:''}</div></div>`
+          }).join('')
+      return `<div class="border rounded-lg overflow-hidden"><div class="bg-gray-200 py-1.5 text-center text-sm font-bold text-gray-700">${mLabel}</div><div class="p-2 space-y-1.5">${eRows}</div></div>`
+    }).join('')
+  }
+
+  return c.html(`${memberHead('公假行事曆')}
+<body class="bg-gray-50 min-h-screen">
+  ${memberNav(sess.memberName, sess.section)}
+  <div class="max-w-7xl mx-auto px-4 py-6 fade-in">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-calendar-alt text-blue-600"></i>單週公假行事曆</h1>
+        <p class="text-gray-500 text-sm mt-0.5">顯示本週已核准之公假與當週活動</p>
+      </div>
+      <div class="flex gap-2 flex-wrap">
+        <a href="/member/official-leave/apply" class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2 shadow-sm"><i class="fas fa-edit"></i>申請公假</a>
+        <a href="/member/official-leave/my" class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2"><i class="fas fa-list"></i>我的申請</a>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 px-5 py-3 mb-4 flex items-center gap-4 flex-wrap">
+      <a href="/member/official-leave?week=${fmtDate(prevWeek)}" class="flex items-center gap-1 text-gray-600 hover:text-blue-600 font-medium text-sm"><i class="fas fa-chevron-left"></i>上一週</a>
+      <h2 class="text-base font-bold text-gray-800 flex-1 text-center">${wStart.substring(0,4)}/${wStart.substring(5,7)}/${wStart.substring(8,10)} - ${wEnd.substring(5,7)}/${wEnd.substring(8,10)}</h2>
+      <a href="/member/official-leave?week=${fmtDate(nextWeek)}" class="flex items-center gap-1 text-gray-600 hover:text-blue-600 font-medium text-sm">下一週<i class="fas fa-chevron-right"></i></a>
+      ${wStart!==curMonStr?`<a href="/member/official-leave?week=${curMonStr}" class="text-blue-600 hover:underline text-sm">回到今天</a>`:''}
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-8">${dayColumns}</div>
+    ${semStart?`
+    <div class="bg-white rounded-2xl shadow-sm border-t-4 border-indigo-600 p-5 mb-6">
+      <h2 class="text-xl font-bold text-indigo-900 flex items-center gap-2 mb-4"><i class="fas fa-school text-indigo-600"></i>童軍團學期行事曆 <span class="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">${semStart} ～ ${semEnd}</span></h2>
+      ${recurringRules.length>0?`<div class="mb-4 bg-indigo-50 p-3 rounded-lg border border-indigo-100"><h3 class="font-bold text-indigo-800 text-xs uppercase tracking-wide mb-2">每週例行活動</h3><div class="flex flex-wrap gap-3">${recurringRules.map((r:any)=>`<div class="flex items-center gap-1.5 text-sm"><span class="bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-bold text-xs">週${weekdayLabel(r.dayOfWeek)}</span><span class="font-medium text-gray-800">${r.title}</span>${r.description?`<span class="text-gray-500 text-xs">(${r.description})</span>`:''}</div>`).join('')}</div></div>`:''}
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${semMonthsHtml}</div>
+    </div>`:''}
+  </div>
+</body></html>`)
+})
+
+// ===== 公假申請表單 =====
+memberRoutes.get('/official-leave/apply', memberAuthMiddleware, async (c) => {
+  const db = c.env.DB
+  const sess = c.get('memberSession') as any
+  const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(sess.memberId).first() as any
+  if (!member) return c.redirect('/member/login')
+
+  const settingRows = await db.prepare(
+    `SELECT key, value FROM site_settings WHERE key LIKE 'official_leave%'`
+  ).all()
+  const sMap: Record<string,string> = {}
+  settingRows.results.forEach((r:any) => { sMap[r.key]=r.value })
+  const semStart = sMap['official_leave_semester_start']||''
+  const semEnd   = sMap['official_leave_semester_end']||''
+  let allowedDays: number[] = [1,2,3,4,5]
+  try { allowedDays = JSON.parse(sMap['official_leave_allowed_weekdays']||'[1,2,3,4,5]') } catch {}
+  const dowLabels = ['日','一','二','三','四','五','六']
+  const allowedStr = allowedDays.map(d=>`星期${dowLabels[d]}`).join('、')
+
+  const timeslots = [
+    { id:'M',   label:'M（11:30 - 12:10）' },
+    { id:'H',   label:'H（12:15 - 12:55）' },
+    { id:'午休', label:'午休（12:55 - 13:20）' },
+    { id:'其他', label:'其他時間' }
+  ]
+
+  return c.html(`${memberHead('午間公假申請')}
+<body class="bg-gray-50 min-h-screen">
+  ${memberNav(sess.memberName, sess.section)}
+  <div class="max-w-2xl mx-auto px-4 py-8 fade-in">
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <div class="bg-gradient-to-r from-blue-600 to-blue-500 text-white px-6 py-5">
+        <h1 class="text-2xl font-bold flex items-center gap-2"><i class="fas fa-edit"></i>午間公假申請</h1>
+        <p class="text-blue-100 text-sm mt-1">申請成功後需等待管理員審核</p>
+      </div>
+      <div class="p-6 space-y-5">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2"><i class="fas fa-user text-blue-500 mr-1"></i>申請人</label>
+          <div class="bg-gray-50 rounded-xl border border-gray-200 p-4">
+            <div class="font-bold text-gray-900 text-base">${member.chinese_name}</div>
+            <div class="grid grid-cols-2 gap-3 mt-2">
+              <div class="text-sm text-gray-600"><span class="text-gray-400 text-xs">組別</span><br><span class="font-medium">${member.section}</span></div>
+              <div class="text-sm text-gray-600"><span class="text-gray-400 text-xs">隊別</span><br><span class="font-medium">${member.unit_name||'-'}</span></div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <label for="leave_date" class="block text-sm font-semibold text-gray-700 mb-2"><i class="fas fa-calendar text-blue-500 mr-1"></i>請假日期 <span class="text-red-500">*</span></label>
+          <input type="date" id="leave_date" name="leave_date" min="${semStart}" max="${semEnd}"
+            class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-blue-500 focus:outline-none transition-colors"
+            onchange="checkDate(this.value)">
+          <div id="dateMsg" class="mt-1.5 text-xs text-gray-500">
+            <i class="fas fa-info-circle mr-1"></i>請選擇平日午間時段。學期範圍：${semStart||'未設定'} ~ ${semEnd||'未設定'} · 開放日：${allowedStr}
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2"><i class="fas fa-clock text-blue-500 mr-1"></i>請假時段 <span class="text-red-500">*</span>（可複選）</label>
+          <div class="space-y-2">
+            ${timeslots.map(t=>`<label class="flex items-center gap-3 p-3 rounded-xl border-2 border-gray-100 hover:border-blue-300 cursor-pointer transition-colors"><input type="checkbox" name="timeslots" value="${t.id}" class="w-4 h-4 text-blue-600 rounded"><span class="text-sm font-medium text-gray-800">${t.label}</span></label>`).join('')}
+          </div>
+        </div>
+        <div>
+          <label for="reason" class="block text-sm font-semibold text-gray-700 mb-2"><i class="fas fa-comment-alt text-blue-500 mr-1"></i>事由（選填）</label>
+          <textarea id="reason" rows="3" placeholder="請簡要說明公假原因..." class="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-blue-500 focus:outline-none transition-colors resize-none"></textarea>
+        </div>
+        <div class="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 space-y-3">
+          <label class="flex items-start gap-3 cursor-pointer"><input type="checkbox" id="chk_conflict" class="w-4 h-4 mt-0.5 text-blue-600 rounded flex-shrink-0"><span class="text-sm text-gray-700">我確認此時段 <strong>**不與班級重要事務衝突**</strong>（如考試、活動等）。</span></label>
+          <label class="flex items-start gap-3 cursor-pointer"><input type="checkbox" id="chk_teacher" class="w-4 h-4 mt-0.5 text-blue-600 rounded flex-shrink-0"><span class="text-sm text-gray-700">我已 <strong>**告知班級導師**</strong> 我將申請此公假。</span></label>
+        </div>
+        <div id="submitMsg" class="hidden"></div>
+        <div class="grid grid-cols-2 gap-3 pt-2">
+          <a href="/member/official-leave" class="bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl text-sm font-medium transition-colors text-center">取消</a>
+          <button id="submitBtn" onclick="submitLeave()" class="bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 shadow-sm"><i class="fas fa-paper-plane"></i>送出申請</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const MEMBER_ID = '${sess.memberId}'
+    async function checkDate(date) {
+      const msg = document.getElementById('dateMsg')
+      if (!date) return
+      msg.innerHTML = '<span class="text-gray-400"><i class="fas fa-spinner fa-spin mr-1"></i>檢查中...</span>'
+      try {
+        const res = await fetch('/api/official-leave/check-date?date=' + date)
+        const r = await res.json()
+        if (r.allowed) {
+          msg.innerHTML = '<span class="text-green-600"><i class="fas fa-check-circle mr-1"></i>此日期可以申請公假</span>'
+        } else {
+          msg.innerHTML = '<span class="text-red-500"><i class="fas fa-times-circle mr-1"></i>' + (r.reason||'此日期不開放申請') + '</span>'
+        }
+      } catch { msg.innerHTML = '<span class="text-gray-400">無法檢查日期，請繼續填寫</span>' }
+    }
+    async function submitLeave() {
+      const btn = document.getElementById('submitBtn')
+      const leave_date = document.getElementById('leave_date').value
+      const timeslots = [...document.querySelectorAll('input[name="timeslots"]:checked')].map(c => c.value)
+      const reason = document.getElementById('reason').value.trim()
+      const conflict = document.getElementById('chk_conflict').checked
+      const teacher = document.getElementById('chk_teacher').checked
+      if (!leave_date) { showMsg('請選擇請假日期','red'); return }
+      if (timeslots.length===0) { showMsg('請至少選擇一個時段','red'); return }
+      if (!conflict) { showMsg('請確認不與班級重要事務衝突','red'); return }
+      if (!teacher) { showMsg('請確認已告知班級導師','red'); return }
+      btn.disabled=true; btn.innerHTML='<i class="fas fa-spinner fa-spin mr-1"></i>送出中...'
+      showMsg('送出中，請稍後...','gray')
+      try {
+        const res = await fetch('/api/official-leave', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ member_id:MEMBER_ID, leave_date, timeslots, reason:reason||null, is_conflict_checked:true, is_teacher_informed:true })
+        })
+        const r = await res.json()
+        if (r.success) {
+          showMsg('✅ 申請已送出！管理員審核後將生效。','green')
+          setTimeout(()=>{ window.location.href='/member/official-leave/my' }, 2000)
+        } else {
+          showMsg('送出失敗：'+(r.error||'未知錯誤'),'red')
+          btn.disabled=false; btn.innerHTML='<i class="fas fa-paper-plane"></i>送出申請'
+        }
+      } catch(e) {
+        showMsg('網路錯誤，請稍後再試','red')
+        btn.disabled=false; btn.innerHTML='<i class="fas fa-paper-plane"></i>送出申請'
+      }
+    }
+    function showMsg(text,color) {
+      const msg=document.getElementById('submitMsg')
+      msg.classList.remove('hidden')
+      const colors={red:'bg-red-50 border-red-200 text-red-700',green:'bg-green-50 border-green-200 text-green-700',gray:'bg-gray-50 border-gray-200 text-gray-600'}
+      msg.innerHTML='<div class="px-4 py-3 rounded-xl border text-sm '+(colors[color]||colors.gray)+'">'+text+'</div>'
+    }
+  </script>
+</body></html>`)
+})
+
+// ===== 我的公假申請記錄 =====
+memberRoutes.get('/official-leave/my', memberAuthMiddleware, async (c) => {
+  const db = c.env.DB
+  const sess = c.get('memberSession') as any
+  const applications = await db.prepare(`
+    SELECT id, leave_date, timeslots, reason, status, admin_note, created_at
+    FROM official_leave_applications WHERE member_id=? ORDER BY leave_date DESC
+  `).bind(sess.memberId).all()
+
+  const statusLabel: Record<string,string> = { pending:'⏳ 待審核', approved:'✅ 已核准', rejected:'❌ 未通過', uploaded:'📤 已上傳' }
+  const statusClass: Record<string,string> = { pending:'bg-yellow-100 text-yellow-800', approved:'bg-green-100 text-green-800', rejected:'bg-red-100 text-red-800', uploaded:'bg-blue-100 text-blue-800' }
+
+  const rows = applications.results.map((a:any) => {
+    const ts: string[] = (() => { try{return JSON.parse(a.timeslots)}catch{return[]} })()
+    return `<div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4" id="app-${a.id}">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex-1">
+          <div class="flex items-center gap-2 flex-wrap mb-1">
+            <span class="text-sm font-bold text-gray-800">${a.leave_date}</span>
+            <span class="text-xs px-2 py-0.5 rounded-full font-medium ${statusClass[a.status]||'bg-gray-100 text-gray-700'}">${statusLabel[a.status]||a.status}</span>
+          </div>
+          <div class="text-xs text-gray-500 flex items-center gap-2 flex-wrap">
+            <span><i class="fas fa-clock mr-1"></i>${ts.join('、')}</span>
+            ${a.reason?`<span><i class="fas fa-comment mr-1"></i>${a.reason}</span>`:''}
+          </div>
+          ${a.admin_note?`<div class="mt-2 text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg border border-blue-100"><i class="fas fa-comment-dots mr-1"></i>管理員備註：${a.admin_note}</div>`:''}
+        </div>
+        ${a.status==='pending'?`<button onclick="cancelLeave('${a.id}')" class="text-red-400 hover:text-red-600 text-xs px-3 py-1.5 rounded-lg hover:bg-red-50 border border-gray-200 transition-colors flex-shrink-0">取消申請</button>`:''}
+      </div>
+    </div>`
+  }).join('')
+
+  return c.html(`${memberHead('我的公假申請')}
+<body class="bg-gray-50 min-h-screen">
+  ${memberNav(sess.memberName, sess.section)}
+  <div class="max-w-2xl mx-auto px-4 py-6 fade-in">
+    <div class="flex items-center justify-between mb-5">
+      <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-list text-blue-600"></i>我的公假申請</h1>
+      <div class="flex gap-2">
+        <a href="/member/official-leave/apply" class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-xl transition-colors flex items-center gap-2"><i class="fas fa-plus"></i>新增申請</a>
+        <a href="/member/official-leave" class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-3 py-2 rounded-xl transition-colors"><i class="fas fa-calendar-alt"></i></a>
+      </div>
+    </div>
+    ${applications.results.length===0
+      ? `<div class="bg-white rounded-2xl p-12 text-center border border-gray-100 shadow-sm"><div class="text-5xl mb-3">📋</div><h3 class="font-semibold text-gray-700 mb-2">尚無公假申請記錄</h3><a href="/member/official-leave/apply" class="text-blue-600 hover:underline text-sm">+ 申請公假</a></div>`
+      : `<div class="space-y-3">${rows}</div>`}
+  </div>
+  <script>
+    async function cancelLeave(id) {
+      if (!confirm('確定取消此公假申請？')) return
+      const res = await fetch('/api/official-leave/'+id, {method:'DELETE'})
+      const r = await res.json()
+      if (r.success) { const el=document.getElementById('app-'+id); if(el) el.remove() }
+      else alert('取消失敗：'+(r.error||'未知錯誤'))
+    }
   </script>
 </body></html>`)
 })

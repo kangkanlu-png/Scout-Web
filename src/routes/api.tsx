@@ -1268,3 +1268,322 @@ apiRoutes.put('/admin/member-accounts/:id/status', async (c) => {
   await db.prepare(`UPDATE member_accounts SET is_active = ? WHERE id = ?`).bind(body.is_active ? 1 : 0, id).run()
   return c.json({ success: true })
 })
+
+// =====================================================================
+// 公假申請系統 API (Official Leave System)
+// =====================================================================
+
+// --- Helper: 判斷日期是否開放申請 ---
+async function isOfficialLeaveDateAllowed(db: any, dateStr: string): Promise<{ allowed: boolean; reason?: string }> {
+  // 取得學期設定
+  const settings = await db.prepare(`
+    SELECT key, value FROM site_settings WHERE key IN (
+      'official_leave_semester_start','official_leave_semester_end','official_leave_allowed_weekdays'
+    )
+  `).all()
+  const sMap: Record<string, string> = {}
+  settings.results.forEach((r: any) => { sMap[r.key] = r.value })
+
+  const start = sMap['official_leave_semester_start'] || ''
+  const end   = sMap['official_leave_semester_end'] || ''
+  const allowedDays: number[] = sMap['official_leave_allowed_weekdays']
+    ? JSON.parse(sMap['official_leave_allowed_weekdays']) : [1,2,3,4,5]
+
+  if (start && (dateStr < start || dateStr > end)) {
+    return { allowed: false, reason: '此日期不在學期範圍內' }
+  }
+  const dow = new Date(dateStr + 'T12:00:00').getDay()
+  if (!allowedDays.includes(dow)) {
+    return { allowed: false, reason: '此星期幾未開放申請' }
+  }
+  // 檢查是否封鎖
+  const blocked = await db.prepare(`
+    SELECT id FROM leave_calendar_events WHERE date = ? AND type = 'blocked'
+  `).bind(dateStr).first()
+  if (blocked) {
+    return { allowed: false, reason: '此日期已封鎖，暫停申請' }
+  }
+  return { allowed: true }
+}
+
+// GET /api/official-leave/settings  — 取得學期設定 + 每週例行規則
+apiRoutes.get('/official-leave/settings', async (c) => {
+  const db = c.env.DB
+  const rows = await db.prepare(`
+    SELECT key, value FROM site_settings WHERE key LIKE 'official_leave%'
+  `).all()
+  const map: Record<string, any> = {}
+  rows.results.forEach((r: any) => {
+    let v = r.value
+    try { v = JSON.parse(v) } catch {}
+    map[r.key] = v
+  })
+  return c.json({ success: true, data: {
+    semesterStart: map['official_leave_semester_start'] || '',
+    semesterEnd:   map['official_leave_semester_end'] || '',
+    allowedWeekdays: map['official_leave_allowed_weekdays'] || [1,2,3,4,5],
+    recurringRules: map['official_leave_recurring_rules'] || []
+  }})
+})
+
+// GET /api/official-leave/calendar-events  — 取得行事曆事件
+apiRoutes.get('/official-leave/calendar-events', async (c) => {
+  const db = c.env.DB
+  const start = c.req.query('start')
+  const end   = c.req.query('end')
+  let q = `SELECT * FROM leave_calendar_events WHERE 1=1`
+  const params: any[] = []
+  if (start) { q += ` AND date >= ?`; params.push(start) }
+  if (end)   { q += ` AND date <= ?`; params.push(end) }
+  q += ` ORDER BY date`
+  const result = await db.prepare(q).bind(...params).all()
+  return c.json({ success: true, data: result.results })
+})
+
+// GET /api/official-leave/approved  — 取得已核准公假清單（含成員資訊，供行事曆顯示）
+apiRoutes.get('/official-leave/approved', async (c) => {
+  const db = c.env.DB
+  const start = c.req.query('start')
+  const end   = c.req.query('end')
+  let q = `
+    SELECT ola.id, ola.member_id, ola.leave_date, ola.timeslots, ola.status,
+      m.chinese_name, m.section
+    FROM official_leave_applications ola
+    JOIN members m ON m.id = ola.member_id
+    WHERE ola.status = 'approved'
+  `
+  const params: any[] = []
+  if (start) { q += ` AND ola.leave_date >= ?`; params.push(start) }
+  if (end)   { q += ` AND ola.leave_date <= ?`; params.push(end) }
+  q += ` ORDER BY ola.leave_date`
+  const result = await db.prepare(q).bind(...params).all()
+  return c.json({ success: true, data: result.results.map((r: any) => ({
+    ...r,
+    timeslots: (() => { try { return JSON.parse(r.timeslots) } catch { return [] } })()
+  }))})
+})
+
+// GET /api/official-leave/check-date?date=YYYY-MM-DD  — 檢查日期是否可申請
+apiRoutes.get('/official-leave/check-date', async (c) => {
+  const db = c.env.DB
+  const date = c.req.query('date')
+  if (!date) return c.json({ success: false, error: '缺少 date 參數' }, 400)
+  const result = await isOfficialLeaveDateAllowed(db, date)
+  return c.json({ success: true, ...result })
+})
+
+// POST /api/official-leave  — 提交公假申請（需登入）
+apiRoutes.post('/official-leave', async (c) => {
+  const db = c.env.DB
+  // 驗證 member session
+  const cookieHeader = c.req.header('cookie') || ''
+  const sessionMatch = cookieHeader.match(/member_session=([^;]+)/)
+  if (!sessionMatch) return c.json({ success: false, error: '請先登入' }, 401)
+
+  let session: any
+  try {
+    const raw = atob(decodeURIComponent(sessionMatch[1]))
+    session = JSON.parse(raw)
+    if (session.exp < Date.now()) return c.json({ success: false, error: '登入已過期' }, 401)
+  } catch {
+    return c.json({ success: false, error: '登入已過期，請重新登入' }, 401)
+  }
+
+  const body = await c.req.json()
+  const { member_id, leave_date, timeslots, reason, is_conflict_checked, is_teacher_informed } = body
+
+  // 驗證必填
+  if (!member_id || !leave_date || !timeslots || timeslots.length === 0) {
+    return c.json({ success: false, error: '缺少必填欄位' }, 400)
+  }
+  if (!is_conflict_checked || !is_teacher_informed) {
+    return c.json({ success: false, error: '請確認不衝突並已告知導師' }, 400)
+  }
+
+  // 確認申請者是本人（或 admin 可代申請）
+  if (session.memberId !== member_id) {
+    return c.json({ success: false, error: '只能為自己申請公假' }, 403)
+  }
+
+  // 檢查日期是否開放
+  const check = await isOfficialLeaveDateAllowed(db, leave_date)
+  if (!check.allowed) {
+    return c.json({ success: false, error: check.reason || '此日期不開放申請' }, 400)
+  }
+
+  // 確認同一日期沒有重複申請（pending 或 approved）
+  const dup = await db.prepare(`
+    SELECT id FROM official_leave_applications
+    WHERE member_id = ? AND leave_date = ? AND status IN ('pending','approved')
+  `).bind(member_id, leave_date).first()
+  if (dup) {
+    return c.json({ success: false, error: '您已申請過此日期的公假' }, 400)
+  }
+
+  const id = `lv-${Date.now()}-${Math.random().toString(36).substring(2,7)}`
+  await db.prepare(`
+    INSERT INTO official_leave_applications
+      (id, member_id, leave_date, timeslots, reason, is_conflict_checked, is_teacher_informed, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+  `).bind(id, member_id, leave_date, JSON.stringify(timeslots), reason || null,
+    is_conflict_checked ? 1 : 0, is_teacher_informed ? 1 : 0).run()
+
+  return c.json({ success: true, id })
+})
+
+// GET /api/official-leave/my  — 取得自己的公假申請記錄
+apiRoutes.get('/official-leave/my', async (c) => {
+  const db = c.env.DB
+  const cookieHeader = c.req.header('cookie') || ''
+  const sessionMatch = cookieHeader.match(/member_session=([^;]+)/)
+  if (!sessionMatch) return c.json({ success: false, error: '請先登入' }, 401)
+  let session: any
+  try {
+    const raw = atob(decodeURIComponent(sessionMatch[1]))
+    session = JSON.parse(raw)
+    if (session.exp < Date.now()) return c.json({ success: false, error: '登入已過期' }, 401)
+  } catch {
+    return c.json({ success: false, error: '登入已過期' }, 401)
+  }
+  const result = await db.prepare(`
+    SELECT id, leave_date, timeslots, reason, status, is_conflict_checked, is_teacher_informed,
+      admin_note, created_at
+    FROM official_leave_applications
+    WHERE member_id = ?
+    ORDER BY leave_date DESC
+  `).bind(session.memberId).all()
+  return c.json({ success: true, data: result.results.map((r: any) => ({
+    ...r,
+    timeslots: (() => { try { return JSON.parse(r.timeslots) } catch { return [] } })()
+  }))})
+})
+
+// DELETE /api/official-leave/:id  — 取消自己的申請（只能取消 pending 狀態）
+apiRoutes.delete('/official-leave/:id', async (c) => {
+  const db = c.env.DB
+  const cookieHeader = c.req.header('cookie') || ''
+  const sessionMatch = cookieHeader.match(/member_session=([^;]+)/)
+  if (!sessionMatch) return c.json({ success: false, error: '請先登入' }, 401)
+  let session: any
+  try {
+    const raw = atob(decodeURIComponent(sessionMatch[1]))
+    session = JSON.parse(raw)
+  } catch { return c.json({ success: false, error: '登入已過期' }, 401) }
+
+  const id = c.req.param('id')
+  const app = await db.prepare(`SELECT * FROM official_leave_applications WHERE id = ?`).bind(id).first() as any
+  if (!app) return c.json({ success: false, error: '申請記錄不存在' }, 404)
+  if (app.member_id !== session.memberId) return c.json({ success: false, error: '無權限取消此申請' }, 403)
+  if (app.status !== 'pending') return c.json({ success: false, error: '只能取消待審核的申請' }, 400)
+
+  await db.prepare(`DELETE FROM official_leave_applications WHERE id = ?`).bind(id).run()
+  return c.json({ success: true })
+})
+
+// ===== 後台公假管理 API =====
+
+// GET /api/admin/official-leave  — 取得所有公假申請（後台用）
+apiRoutes.get('/admin/official-leave', async (c) => {
+  const db = c.env.DB
+  const status = c.req.query('status') || ''
+  let q = `
+    SELECT ola.*, m.chinese_name, m.section, m.unit_name
+    FROM official_leave_applications ola
+    JOIN members m ON m.id = ola.member_id
+    WHERE 1=1
+  `
+  const params: any[] = []
+  if (status) { q += ` AND ola.status = ?`; params.push(status) }
+  q += ` ORDER BY ola.leave_date DESC, ola.created_at DESC`
+  const result = await db.prepare(q).bind(...params).all()
+  return c.json({ success: true, data: result.results.map((r: any) => ({
+    ...r,
+    timeslots: (() => { try { return JSON.parse(r.timeslots) } catch { return [] } })()
+  }))})
+})
+
+// PUT /api/admin/official-leave/:id  — 審核公假申請
+apiRoutes.put('/admin/official-leave/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { status, admin_note } = body
+  if (!['approved','rejected','uploaded'].includes(status)) {
+    return c.json({ success: false, error: '無效的狀態值' }, 400)
+  }
+  await db.prepare(`
+    UPDATE official_leave_applications
+    SET status = ?, admin_note = ?, reviewed_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(status, admin_note || null, id).run()
+  return c.json({ success: true })
+})
+
+// POST /api/admin/official-leave/calendar-event  — 新增行事曆事件
+apiRoutes.post('/admin/official-leave/calendar-event', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  const { title, date, type, description } = body
+  if (!title || !date) return c.json({ success: false, error: '缺少 title 或 date' }, 400)
+  const id = `ev-${Date.now()}-${Math.random().toString(36).substring(2,7)}`
+  await db.prepare(`
+    INSERT INTO leave_calendar_events (id, title, date, type, description)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(id, title, date, type || 'event', description || null).run()
+  return c.json({ success: true, id })
+})
+
+// DELETE /api/admin/official-leave/calendar-event/:id  — 刪除行事曆事件
+apiRoutes.delete('/admin/official-leave/calendar-event/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  await db.prepare(`DELETE FROM leave_calendar_events WHERE id = ?`).bind(id).run()
+  return c.json({ success: true })
+})
+
+// POST /api/admin/official-leave/toggle-block  — 封鎖/解封某日期
+apiRoutes.post('/admin/official-leave/toggle-block', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  const { date, is_blocked, reason } = body
+  if (!date) return c.json({ success: false, error: '缺少 date' }, 400)
+
+  if (is_blocked) {
+    const exists = await db.prepare(`
+      SELECT id FROM leave_calendar_events WHERE date = ? AND type = 'blocked'
+    `).bind(date).first()
+    if (!exists) {
+      const id = `ev-${Date.now()}-${Math.random().toString(36).substring(2,7)}`
+      await db.prepare(`
+        INSERT INTO leave_calendar_events (id, title, date, type, description)
+        VALUES (?, ?, ?, 'blocked', ?)
+      `).bind(id, '暫停申請', date, reason || '團長有事或不開放').run()
+    }
+  } else {
+    await db.prepare(`
+      DELETE FROM leave_calendar_events WHERE date = ? AND type = 'blocked'
+    `).bind(date).run()
+  }
+  return c.json({ success: true })
+})
+
+// PUT /api/admin/official-leave/settings  — 更新學期設定 + 每週例行
+apiRoutes.put('/admin/official-leave/settings', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  const { semesterStart, semesterEnd, allowedWeekdays, recurringRules } = body
+
+  const updates: Array<{ key: string; value: string }> = []
+  if (semesterStart !== undefined) updates.push({ key: 'official_leave_semester_start', value: semesterStart })
+  if (semesterEnd !== undefined) updates.push({ key: 'official_leave_semester_end', value: semesterEnd })
+  if (allowedWeekdays !== undefined) updates.push({ key: 'official_leave_allowed_weekdays', value: JSON.stringify(allowedWeekdays) })
+  if (recurringRules !== undefined) updates.push({ key: 'official_leave_recurring_rules', value: JSON.stringify(recurringRules) })
+
+  for (const u of updates) {
+    await db.prepare(`
+      INSERT INTO site_settings (key, value, description) VALUES (?, ?, '')
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).bind(u.key, u.value).run()
+  }
+  return c.json({ success: true })
+})

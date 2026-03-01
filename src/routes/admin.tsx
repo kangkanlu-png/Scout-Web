@@ -1203,8 +1203,11 @@ function adminLayout(title: string, content: string) {
         <a href="/admin/progress" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('進程') || title.includes('榮譽') ? 'bg-green-700' : ''}">
           <span>🏅</span> 進程/榮譽
         </a>
-        <a href="/admin/leaves" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('請假') || title.includes('公假') ? 'bg-green-700' : ''}">
+        <a href="/admin/leaves" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('請假') ? 'bg-green-700' : ''}">
           <span>📝</span> 請假審核
+        </a>
+        <a href="/admin/official-leave" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('公假') ? 'bg-green-700' : ''}">
+          <span>📋</span> 公假管理
         </a>
         <a href="/admin/advancement" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('晉升') ? 'bg-green-700' : ''}">
           <span>⬆️</span> 晉升審核
@@ -4305,6 +4308,473 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
       const r = await res.json()
       if (r.success) location.reload()
       else alert('失敗：' + r.error)
+    }
+    </script>
+  `))
+})
+
+// =====================================================================
+// 公假管理後台
+// =====================================================================
+adminRoutes.get('/official-leave', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const tab = c.req.query('tab') || 'pending'
+
+  // 1. 申請列表
+  let q = `
+    SELECT ola.*, m.chinese_name, m.section, m.unit_name
+    FROM official_leave_applications ola
+    JOIN members m ON m.id = ola.member_id
+  `
+  const params: any[] = []
+  if (tab !== 'all') { q += ` WHERE ola.status = ?`; params.push(tab) }
+  q += ` ORDER BY ola.leave_date DESC, ola.created_at DESC LIMIT 200`
+  const applications = await db.prepare(q).bind(...params).all()
+
+  // 2. 各狀態計數
+  const counts = await db.prepare(`
+    SELECT status, COUNT(*) as cnt FROM official_leave_applications GROUP BY status
+  `).all()
+  const cMap: Record<string,number> = {}
+  counts.results.forEach((r:any) => { cMap[r.status] = r.cnt })
+
+  const statusLabel: Record<string,string> = { pending:'⏳ 待審核', approved:'✅ 已核准', rejected:'❌ 未通過', uploaded:'📤 已上傳' }
+  const statusClass: Record<string,string> = { pending:'bg-yellow-100 text-yellow-800', approved:'bg-green-100 text-green-800', rejected:'bg-red-100 text-red-800', uploaded:'bg-blue-100 text-blue-800' }
+
+  const tabItems = [
+    { key:'pending', label:'待審核' }, { key:'approved', label:'已核准' },
+    { key:'rejected', label:'未通過' }, { key:'uploaded', label:'已上傳' }, { key:'all', label:'全部' }
+  ]
+
+  const appRows = applications.results.map((a:any) => {
+    const ts: string[] = (() => { try{return JSON.parse(a.timeslots)}catch{return[]} })()
+    return `
+    <tr class="hover:bg-gray-50" id="app-${a.id}">
+      <td class="px-4 py-3">
+        <div class="font-medium text-sm text-gray-900">${a.chinese_name}</div>
+        <div class="text-xs text-gray-400">${a.section} · ${a.unit_name||'-'}</div>
+      </td>
+      <td class="px-4 py-3 text-sm font-mono text-gray-700">${a.leave_date}</td>
+      <td class="px-4 py-3">
+        <div class="flex flex-wrap gap-1">
+          ${ts.map(t=>`<span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">${t}</span>`).join('')}
+        </div>
+      </td>
+      <td class="px-4 py-3 text-xs text-gray-500 max-w-xs">${a.reason||'-'}</td>
+      <td class="px-4 py-3">
+        <span class="px-2 py-0.5 rounded-full text-xs font-medium ${statusClass[a.status]||'bg-gray-100 text-gray-600'}">
+          ${statusLabel[a.status]||a.status}
+        </span>
+        ${a.admin_note ? `<div class="text-xs text-blue-600 mt-1">${a.admin_note}</div>` : ''}
+      </td>
+      <td class="px-4 py-3 text-xs text-gray-400">${a.created_at ? a.created_at.substring(0,10) : '-'}</td>
+      <td class="px-4 py-3">
+        <div class="flex flex-wrap gap-1">
+          ${a.status !== 'approved' ? `<button onclick="setStatus('${a.id}','approved')" class="bg-green-600 hover:bg-green-500 text-white text-xs px-2 py-1 rounded">✓ 核准</button>` : ''}
+          ${a.status !== 'rejected' ? `<button onclick="setStatus('${a.id}','rejected')" class="bg-red-500 hover:bg-red-400 text-white text-xs px-2 py-1 rounded">✗ 拒絕</button>` : ''}
+          ${a.status === 'approved' ? `<button onclick="setStatus('${a.id}','uploaded')" class="bg-blue-500 hover:bg-blue-400 text-white text-xs px-2 py-1 rounded">📤 已上傳</button>` : ''}
+        </div>
+      </td>
+    </tr>`
+  }).join('')
+
+  // 3. 本週封鎖/排程管理（每週視圖）
+  const weekParam = c.req.query('week')
+  let weekStart: Date
+  if (weekParam) {
+    weekStart = new Date(weekParam + 'T12:00:00')
+  } else {
+    const today = new Date()
+    const dow = today.getDay()
+    const diff = dow === 0 ? -6 : 1 - dow
+    weekStart = new Date(today)
+    weekStart.setDate(today.getDate() + diff)
+  }
+  weekStart.setHours(12,0,0,0)
+  const fmtDate = (d: Date) => d.toISOString().substring(0,10)
+  const weekDays: Date[] = []
+  for (let i=0; i<7; i++) {
+    const d = new Date(weekStart); d.setDate(weekStart.getDate()+i); weekDays.push(d)
+  }
+  const wStart = fmtDate(weekStart), wEnd = fmtDate(weekDays[6])
+  const prevW = new Date(weekStart); prevW.setDate(weekStart.getDate()-7)
+  const nextW = new Date(weekStart); nextW.setDate(weekStart.getDate()+7)
+
+  const weekEvents = await db.prepare(`
+    SELECT * FROM leave_calendar_events WHERE date>=? AND date<=? ORDER BY date
+  `).bind(wStart, wEnd).all()
+  const blockedSet = new Set(weekEvents.results.filter((e:any)=>e.type==='blocked').map((e:any)=>e.date as string))
+
+  const dowLabel = ['日','一','二','三','四','五','六']
+
+  const weekGrid = weekDays.map(d => {
+    const dStr = fmtDate(d)
+    const isBlocked = blockedSet.has(dStr)
+    const dayEv = weekEvents.results.filter((e:any) => e.date===dStr && e.type!=='blocked')
+    return `
+    <div class="border rounded-lg overflow-hidden">
+      <div class="bg-gray-100 text-center py-2 text-sm font-bold text-gray-700">
+        ${dStr.substring(5).replace('-','/')} (星期${dowLabel[d.getDay()]})
+      </div>
+      <div class="p-2 min-h-[80px]">
+        ${dayEv.map((e:any)=>`<div class="text-xs text-gray-600 mb-1">📌 ${e.title}</div>`).join('')}
+        ${isBlocked ? '<div class="text-xs text-red-600 mb-1">⛔ 已封鎖</div>' : '<div class="text-xs text-gray-300 mb-1">無</div>'}
+        <button onclick="toggleBlock('${dStr}', ${!isBlocked})"
+          class="${isBlocked ? 'bg-green-500 hover:bg-green-400' : 'bg-red-500 hover:bg-red-400'} text-white text-xs px-2 py-1 rounded w-full mt-1">
+          ${isBlocked ? '🔓 解除封鎖' : '🔒 封鎖此日'}
+        </button>
+      </div>
+    </div>`
+  }).join('')
+
+  // 4. 系統設定
+  const settingRows = await db.prepare(`
+    SELECT key, value FROM site_settings WHERE key LIKE 'official_leave%'
+  `).all()
+  const sMap: Record<string,string> = {}
+  settingRows.results.forEach((r:any) => { sMap[r.key] = r.value })
+  const semStart = sMap['official_leave_semester_start']||''
+  const semEnd   = sMap['official_leave_semester_end']||''
+  let allowedDays: number[] = [1,2,3,4,5]
+  try { allowedDays = JSON.parse(sMap['official_leave_allowed_weekdays']||'[1,2,3,4,5]') } catch {}
+  let recurringRules: any[] = []
+  try { recurringRules = JSON.parse(sMap['official_leave_recurring_rules']||'[]') } catch {}
+
+  const dowNames = ['日','一','二','三','四','五','六']
+  const dowChecks = dowNames.map((n,i) =>
+    `<label class="flex items-center gap-1 text-sm"><input type="checkbox" value="${i}" ${allowedDays.includes(i)?'checked':''} class="chk-dow w-4 h-4 rounded">${i===0?'星期日':i===6?'星期六':`星期${n}`}</label>`
+  ).join('')
+
+  const ruleRows = recurringRules.map((r:any,i:number) =>
+    `<div class="flex items-center gap-2 flex-wrap py-1.5 border-b border-gray-50" id="rule-${i}">
+      <span class="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded">週${dowNames[r.dayOfWeek]||r.dayOfWeek}</span>
+      <span class="text-sm font-medium text-gray-800 flex-1">${r.title}</span>
+      ${r.description ? `<span class="text-xs text-gray-400">${r.description}</span>` : ''}
+      <button onclick="deleteRule(${i})" class="text-red-400 hover:text-red-600 text-xs px-2 py-0.5 rounded hover:bg-red-50">刪除</button>
+    </div>`
+  ).join('')
+
+  return c.html(adminLayout('公假管理', `
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+          <i class="fas fa-calendar-check text-blue-600"></i>公假管理
+        </h1>
+        <p class="text-gray-500 text-sm mt-0.5">管理成員的公假申請、行事曆封鎖與系統設定</p>
+      </div>
+      <a href="/member/official-leave" class="text-blue-600 hover:underline text-sm flex items-center gap-1">
+        <i class="fas fa-external-link-alt"></i>公假行事曆
+      </a>
+    </div>
+
+    <!-- 四個 Tab -->
+    <div class="border-b mb-5">
+      <div class="flex gap-0 overflow-x-auto">
+        ${['pending','approved','schedule','settings'].map((t,i) => {
+          const labels = ['待審核申請','行事曆管理','每週排程與封鎖','系統設定']
+          return `<button onclick="switchTab('${t}')" id="tab-${t}"
+            class="px-5 py-3 text-sm font-medium transition-colors whitespace-nowrap border-b-2 ${tab===t&&i===0?'border-blue-600 text-blue-700':'border-transparent text-gray-500 hover:text-gray-700'}" onclick="switchTab('${t}')">
+            ${labels[i]}
+            ${t==='pending' && cMap['pending'] ? `<span class="ml-1 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5">${cMap['pending']}</span>` : ''}
+          </button>`
+        }).join('')}
+      </div>
+    </div>
+
+    <!-- Tab 1: 待審核 -->
+    <div id="panel-pending" class="tab-panel">
+      <div class="flex gap-2 mb-4 flex-wrap">
+        ${tabItems.map(t =>
+          `<a href="/admin/official-leave?tab=${t.key}" class="px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${tab===t.key?'bg-blue-600 text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+            ${t.label} ${cMap[t.key] !== undefined ? `(${cMap[t.key]})` : ''}
+          </a>`
+        ).join('')}
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div id="reviewMsg" class="hidden px-4 py-2 text-sm"></div>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[700px]">
+            <thead class="bg-gray-50 border-b">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">申請人</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">日期</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">時段</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">事由</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">狀態</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">申請日</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-50">
+              ${appRows || `<tr><td colspan="7" class="py-10 text-center text-gray-400">尚無公假申請</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: 行事曆事件管理 -->
+    <div id="panel-calendar" class="tab-panel hidden">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-4">
+        <h3 class="font-bold text-gray-800 mb-3 text-sm">新增行事曆事件</h3>
+        <div class="grid sm:grid-cols-4 gap-3">
+          <input id="ev_date" type="date" class="border-2 border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" placeholder="日期">
+          <select id="ev_type" class="border-2 border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white">
+            <option value="event">📌 一般活動</option>
+            <option value="holiday">🔴 假日</option>
+            <option value="exam">📋 考試</option>
+            <option value="blocked">⛔ 封鎖申請</option>
+          </select>
+          <input id="ev_title" type="text" placeholder="標題 *" class="border-2 border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
+          <input id="ev_desc" type="text" placeholder="說明（選填）" class="border-2 border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
+        </div>
+        <div id="evMsg" class="mt-2"></div>
+        <button onclick="addCalendarEvent()" class="mt-3 bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-xl transition-colors">
+          <i class="fas fa-plus mr-1"></i>新增事件
+        </button>
+      </div>
+      <div id="evList" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <h3 class="font-bold text-gray-800 mb-3 text-sm">現有行事曆事件</h3>
+        <div id="evListContent">載入中...</div>
+      </div>
+    </div>
+
+    <!-- Tab 3: 每週排程與封鎖 -->
+    <div id="panel-schedule" class="tab-panel hidden">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-4">
+        <h3 class="font-bold text-gray-800 mb-3">每週例行活動設定</h3>
+        <div class="grid sm:grid-cols-3 gap-3 mb-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">星期</label>
+            <select id="rule_dow" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:border-blue-500 focus:outline-none">
+              ${dowNames.map((n,i)=>`<option value="${i}">星期${n}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">標題</label>
+            <input id="rule_title" type="text" placeholder="例：國務會議"
+              class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">備註（選填）</label>
+            <input id="rule_desc" type="text" placeholder="例：午休"
+              class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none">
+          </div>
+        </div>
+        <button onclick="addRule()" class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-xl">
+          <i class="fas fa-plus mr-1"></i>新增
+        </button>
+        <div id="ruleMsg" class="mt-2 text-xs"></div>
+        <div class="mt-4 border-t pt-3" id="ruleList">
+          ${ruleRows || '<p class="text-gray-400 text-sm">尚無例行活動設定</p>'}
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-gray-800">每週排程與封鎖管理</h3>
+          <div class="flex items-center gap-3">
+            <a href="/admin/official-leave?tab=schedule&week=${fmtDate(prevW)}" class="text-gray-500 hover:text-gray-700 text-sm">◀</a>
+            <span class="text-sm font-medium text-gray-700">${wStart.substring(5).replace('-','/')} - ${wEnd.substring(5).replace('-','/')}</span>
+            <a href="/admin/official-leave?tab=schedule&week=${fmtDate(nextW)}" class="text-gray-500 hover:text-gray-700 text-sm">▶</a>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+          ${weekGrid}
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 4: 系統設定 -->
+    <div id="panel-settings" class="tab-panel hidden">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h3 class="font-bold text-gray-800 mb-4">公假系統設定</h3>
+        <div class="space-y-4 max-w-xl">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">學期開始日期</label>
+              <input id="set_start" type="date" value="${semStart}"
+                class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">學期結束日期</label>
+              <input id="set_end" type="date" value="${semEnd}"
+                class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none">
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-2">開放申請的星期幾</label>
+            <div class="flex flex-wrap gap-3">${dowChecks}</div>
+          </div>
+          <div id="settingsMsg"></div>
+          <button onclick="saveSettings()"
+            class="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-colors">
+            <i class="fas fa-save mr-1"></i>儲存設定
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    // Tab 切換
+    const TAB_MAP = { pending:'panel-pending', approved:'panel-pending', rejected:'panel-pending', uploaded:'panel-pending', all:'panel-pending', calendar:'panel-calendar', schedule:'panel-schedule', settings:'panel-settings' }
+    const CURRENT_TAB = '${tab}'
+
+    function switchTab(t) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'))
+      const panel = { pending:'panel-pending', calendar:'panel-calendar', schedule:'panel-schedule', settings:'panel-settings' }[t] || 'panel-pending'
+      document.getElementById(panel).classList.remove('hidden')
+      // Update tab buttons
+      document.querySelectorAll('[id^="tab-"]').forEach(b => b.classList.remove('border-blue-600','text-blue-700'))
+      const btn = document.getElementById('tab-' + t)
+      if (btn) { btn.classList.add('border-blue-600','text-blue-700') }
+      if (t === 'calendar') loadCalendarEvents()
+    }
+
+    // Init tabs
+    document.querySelectorAll('[id^="tab-"]').forEach(b => {
+      b.classList.remove('border-blue-600','text-blue-700')
+    })
+    document.getElementById('tab-pending').classList.add('border-blue-600','text-blue-700')
+
+    // 審核操作
+    async function setStatus(id, status) {
+      const note = status === 'rejected' ? (prompt('拒絕原因（選填）：') || '') : ''
+      const res = await fetch('/api/admin/official-leave/' + id, {
+        method: 'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ status, admin_note: note || null })
+      })
+      const r = await res.json()
+      if (r.success) location.reload()
+      else alert('操作失敗：' + r.error)
+    }
+
+    // 封鎖/解封
+    async function toggleBlock(date, isBlocked) {
+      const reason = isBlocked ? (prompt('封鎖原因（選填，例：團長有事）：') || '團長有事或不開放') : ''
+      const res = await fetch('/api/admin/official-leave/toggle-block', {
+        method: 'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ date, is_blocked: isBlocked, reason })
+      })
+      const r = await res.json()
+      if (r.success) location.reload()
+      else alert('操作失敗：' + r.error)
+    }
+
+    // 新增行事曆事件
+    async function addCalendarEvent() {
+      const date  = document.getElementById('ev_date').value
+      const type  = document.getElementById('ev_type').value
+      const title = document.getElementById('ev_title').value.trim()
+      const desc  = document.getElementById('ev_desc').value.trim()
+      if (!date || !title) { showEvMsg('請填寫日期和標題','red'); return }
+      const res = await fetch('/api/admin/official-leave/calendar-event', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ date, type, title, description: desc || null })
+      })
+      const r = await res.json()
+      if (r.success) { showEvMsg('✅ 已新增','green'); loadCalendarEvents() }
+      else showEvMsg('失敗：'+r.error,'red')
+    }
+
+    function showEvMsg(msg, color) {
+      const el = document.getElementById('evMsg')
+      const c = { red:'text-red-500', green:'text-green-600', gray:'text-gray-400' }
+      el.innerHTML = '<span class="text-sm '+(c[color]||'text-gray-500')+'">'+msg+'</span>'
+    }
+
+    async function loadCalendarEvents() {
+      const el = document.getElementById('evListContent')
+      el.innerHTML = '<span class="text-gray-400 text-sm">載入中...</span>'
+      const res = await fetch('/api/official-leave/calendar-events')
+      const r = await res.json()
+      if (!r.success || r.data.length === 0) {
+        el.innerHTML = '<p class="text-gray-400 text-sm">尚無行事曆事件</p>'
+        return
+      }
+      const evTypeIcon = { blocked:'\u26d4', holiday:'\ud83d\udd34', exam:'\ud83d\udccb', event:'\ud83d\udccc' }
+      el.innerHTML = r.data.map(function(e) {
+        return '<div class="flex items-center justify-between py-2 border-b last:border-0" id="ev-'+e.id+'">' +
+          '<div class="flex items-center gap-3">' +
+          '<span class="font-mono text-xs text-gray-500">'+e.date+'</span>' +
+          '<span class="text-sm">'+(evTypeIcon[e.type]||'\ud83d\udccc')+' '+e.title+'</span>' +
+          (e.description ? '<span class="text-xs text-gray-400">('+e.description+')</span>' : '') +
+          '</div>' +
+          '<button onclick="deleteCalEvent(\'' + e.id + '\')" class="text-red-400 hover:text-red-600 text-xs px-2 py-1 rounded hover:bg-red-50">\u522a\u9664</button>' +
+          '</div>'
+      }).join('')
+    }
+
+    async function deleteCalEvent(id) {
+      if (!confirm('確定刪除此事件？')) return
+      const res = await fetch('/api/admin/official-leave/calendar-event/' + id, { method:'DELETE' })
+      const r = await res.json()
+      if (r.success) { const el = document.getElementById('ev-'+id); if (el) el.remove() }
+      else alert('刪除失敗：'+r.error)
+    }
+
+    // 每週例行規則
+    let RULES = ${JSON.stringify(recurringRules)}
+
+    function renderRules() {
+      const dowN = ['日','一','二','三','四','五','六']
+      const el = document.getElementById('ruleList')
+      if (RULES.length === 0) { el.innerHTML = '<p class="text-gray-400 text-sm">尚無例行活動設定</p>'; return }
+      el.innerHTML = RULES.map(function(r,i) {
+        return '<div class="flex items-center gap-2 flex-wrap py-1.5 border-b border-gray-50">' +
+          '<span class="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded">\u9031'+dowN[r.dayOfWeek]+'</span>' +
+          '<span class="text-sm font-medium text-gray-800 flex-1">'+r.title+'</span>' +
+          (r.description ? '<span class="text-xs text-gray-400">('+r.description+')</span>' : '') +
+          '<button onclick="deleteRule('+i+')" class="text-red-400 hover:text-red-600 text-xs px-2 py-0.5 rounded hover:bg-red-50">\u522a\u9664</button>' +
+          '</div>'
+      }).join('')
+    }
+
+    async function addRule() {
+      const dow   = parseInt(document.getElementById('rule_dow').value)
+      const title = document.getElementById('rule_title').value.trim()
+      const desc  = document.getElementById('rule_desc').value.trim()
+      if (!title) { document.getElementById('ruleMsg').innerHTML='<span class="text-red-500">請填寫標題</span>'; return }
+      const id = 'rule-' + Date.now()
+      RULES.push({ id, dayOfWeek: dow, title, type:'recurring', description: desc || undefined })
+      await saveRules()
+      document.getElementById('rule_title').value = ''
+      document.getElementById('rule_desc').value = ''
+      renderRules()
+    }
+
+    async function deleteRule(idx) {
+      RULES.splice(idx, 1)
+      await saveRules()
+      renderRules()
+    }
+
+    async function saveRules() {
+      await fetch('/api/admin/official-leave/settings', {
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ recurringRules: RULES })
+      })
+    }
+
+    // 系統設定
+    async function saveSettings() {
+      const start = document.getElementById('set_start').value
+      const end   = document.getElementById('set_end').value
+      const dow   = [...document.querySelectorAll('.chk-dow:checked')].map(c => parseInt(c.value))
+      if (!start || !end) { showSettingsMsg('請填寫學期日期','red'); return }
+      showSettingsMsg('儲存中...','gray')
+      const res = await fetch('/api/admin/official-leave/settings', {
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ semesterStart:start, semesterEnd:end, allowedWeekdays:dow })
+      })
+      const r = await res.json()
+      if (r.success) showSettingsMsg('✅ 設定已儲存','green')
+      else showSettingsMsg('儲存失敗：'+r.error,'red')
+    }
+    function showSettingsMsg(msg, color) {
+      const c = { red:'text-red-500', green:'text-green-600', gray:'text-gray-400' }
+      document.getElementById('settingsMsg').innerHTML = '<p class="text-sm '+(c[color]||'text-gray-500')+'">'+msg+'</p>'
     }
     </script>
   `))
