@@ -4,6 +4,7 @@ import { serveStatic } from 'hono/cloudflare-workers'
 import { apiRoutes } from './routes/api'
 import { adminRoutes } from './routes/admin'
 import { frontendRoutes } from './routes/frontend'
+import { memberRoutes } from './routes/member'
 
 type Bindings = {
   DB: D1Database
@@ -22,6 +23,9 @@ app.route('/api', apiRoutes)
 
 // 後台管理路由
 app.route('/admin', adminRoutes)
+
+// 會員入口路由
+app.route('/member', memberRoutes)
 
 // 前台路由
 app.route('/', frontendRoutes)

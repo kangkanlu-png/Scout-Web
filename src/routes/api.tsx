@@ -952,3 +952,319 @@ apiRoutes.get('/leader-awards/summary', async (c) => {
   `).all()
   return c.json({ success: true, data: result.results })
 })
+
+// ==================== 會員入口 API ====================
+
+// 取得 member session（輔助函數，從 cookie 解碼）
+async function getMemberIdFromCookie(c: any): Promise<string | null> {
+  const { getCookie } = await import('hono/cookie')
+  const session = getCookie(c, 'member_session')
+  if (!session) return null
+  try {
+    // UTF-8 safe Base64 解碼
+    const binary = atob(session)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    const decoded = new TextDecoder().decode(bytes)
+    const data = JSON.parse(decoded)
+    if (!data.memberId || !data.exp || Date.now() > data.exp) return null
+    return data.memberId
+  } catch { return null }
+}
+
+// 請假申請 API
+apiRoutes.post('/member/leave', async (c) => {
+  const db = c.env.DB
+  const memberId = await getMemberIdFromCookie(c)
+  if (!memberId) return c.json({ success: false, error: '未登入' }, 401)
+
+  const body = await c.req.json()
+  const { leave_type, session_id, date, reason } = body
+  if (!date) return c.json({ success: false, error: '請填寫請假日期' }, 400)
+
+  // 檢查是否已有相同申請
+  if (session_id) {
+    const existing = await db.prepare(`
+      SELECT id FROM leave_requests WHERE member_id = ? AND session_id = ?
+    `).bind(memberId, session_id).first()
+    if (existing) return c.json({ success: false, error: '此例會已有請假申請' }, 409)
+  }
+
+  const id = `lr-${Date.now()}-${Math.random().toString(36).substring(2,7)}`
+  await db.prepare(`
+    INSERT INTO leave_requests (id, member_id, session_id, leave_type, reason, date, status)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending')
+  `).bind(id, memberId, session_id || null, leave_type || 'personal', reason || null, date).run()
+
+  return c.json({ success: true, id })
+})
+
+// 取消請假申請
+apiRoutes.delete('/member/leave/:id', async (c) => {
+  const db = c.env.DB
+  const memberId = await getMemberIdFromCookie(c)
+  if (!memberId) return c.json({ success: false, error: '未登入' }, 401)
+  const id = c.req.param('id')
+  const leave = await db.prepare(`SELECT * FROM leave_requests WHERE id = ? AND member_id = ?`).bind(id, memberId).first() as any
+  if (!leave) return c.json({ success: false, error: '找不到申請' }, 404)
+  if (leave.status === 'approved') return c.json({ success: false, error: '已核准的申請無法取消' }, 400)
+  await db.prepare(`DELETE FROM leave_requests WHERE id = ?`).bind(id).run()
+  return c.json({ success: true })
+})
+
+// 晉升申請 API
+apiRoutes.post('/member/advancement', async (c) => {
+  const db = c.env.DB
+  const memberId = await getMemberIdFromCookie(c)
+  if (!memberId) return c.json({ success: false, error: '未登入' }, 401)
+
+  const body = await c.req.json()
+  const { rank_from, rank_to, apply_date } = body
+  if (!rank_from || !rank_to) return c.json({ success: false, error: '請填寫晉升資訊' }, 400)
+
+  const member = await db.prepare(`SELECT section FROM members WHERE id = ?`).bind(memberId).first() as any
+  if (!member) return c.json({ success: false, error: '找不到成員' }, 404)
+
+  // 檢查是否已有進行中的申請
+  const existing = await db.prepare(`
+    SELECT id FROM advancement_applications WHERE member_id = ? AND status IN ('pending','reviewing')
+  `).bind(memberId).first()
+  if (existing) return c.json({ success: false, error: '已有進行中的晉升申請，請等待審核完成' }, 409)
+
+  const id = `adv-${Date.now()}-${Math.random().toString(36).substring(2,7)}`
+  await db.prepare(`
+    INSERT INTO advancement_applications (id, member_id, section, rank_from, rank_to, apply_date, status)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending')
+  `).bind(id, memberId, member.section, rank_from, rank_to, apply_date || new Date().toISOString().slice(0,10)).run()
+
+  return c.json({ success: true, id })
+})
+
+// 提交晉升條件進度
+apiRoutes.post('/member/advancement-progress', async (c) => {
+  const db = c.env.DB
+  const memberId = await getMemberIdFromCookie(c)
+  if (!memberId) return c.json({ success: false, error: '未登入' }, 401)
+
+  const body = await c.req.json()
+  const { requirement_id, achieved_count, evidence_note } = body
+  if (!requirement_id) return c.json({ success: false, error: '缺少條件 ID' }, 400)
+
+  const id = `ap-${Date.now()}-${Math.random().toString(36).substring(2,7)}`
+  await db.prepare(`
+    INSERT INTO advancement_progress (id, member_id, requirement_id, achieved_count, evidence_note, status)
+    VALUES (?, ?, ?, ?, ?, 'submitted')
+    ON CONFLICT(member_id, requirement_id) DO UPDATE SET
+      achieved_count = excluded.achieved_count,
+      evidence_note = excluded.evidence_note,
+      status = 'submitted',
+      submitted_at = CURRENT_TIMESTAMP
+  `).bind(id, memberId, requirement_id, achieved_count || 0, evidence_note || null).run()
+
+  return c.json({ success: true })
+})
+
+// ==================== 管理員：請假審核 API ====================
+
+// 取得所有請假申請（含成員名稱）
+apiRoutes.get('/admin/leaves', async (c) => {
+  const db = c.env.DB
+  const status = c.req.query('status')
+  let query = `
+    SELECT lr.*, m.chinese_name, m.section,
+      COALESCE(as2.title, '自訂') as session_title, as2.date as session_date
+    FROM leave_requests lr
+    JOIN members m ON m.id = lr.member_id
+    LEFT JOIN attendance_sessions as2 ON as2.id = lr.session_id
+  `
+  const params: any[] = []
+  if (status) { query += ` WHERE lr.status = ?`; params.push(status) }
+  query += ` ORDER BY lr.created_at DESC LIMIT 100`
+  const result = await db.prepare(query).bind(...params).all()
+  return c.json({ success: true, data: result.results })
+})
+
+// 審核請假申請（核准/拒絕）
+apiRoutes.put('/admin/leaves/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { status, admin_note } = body
+  if (!['approved','rejected','pending'].includes(status)) {
+    return c.json({ success: false, error: '無效的狀態' }, 400)
+  }
+  await db.prepare(`
+    UPDATE leave_requests SET
+      status = ?, admin_note = ?,
+      approved_at = CASE WHEN ? = 'approved' THEN CURRENT_TIMESTAMP ELSE NULL END,
+      approved_by = ?
+    WHERE id = ?
+  `).bind(status, admin_note || null, status, 'admin', id).run()
+  return c.json({ success: true })
+})
+
+// ==================== 管理員：晉升申請審核 ====================
+
+// 取得所有晉升申請
+apiRoutes.get('/admin/advancement', async (c) => {
+  const db = c.env.DB
+  const status = c.req.query('status')
+  let query = `
+    SELECT aa.*, m.chinese_name, m.section, m.rank_level
+    FROM advancement_applications aa
+    JOIN members m ON m.id = aa.member_id
+  `
+  const params: any[] = []
+  if (status) { query += ` WHERE aa.status = ?`; params.push(status) }
+  query += ` ORDER BY aa.created_at DESC LIMIT 100`
+  const result = await db.prepare(query).bind(...params).all()
+  return c.json({ success: true, data: result.results })
+})
+
+// 審核晉升申請
+apiRoutes.put('/admin/advancement/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { status, admin_notes } = body
+  if (!['pending','reviewing','approved','rejected'].includes(status)) {
+    return c.json({ success: false, error: '無效的狀態' }, 400)
+  }
+
+  await db.prepare(`
+    UPDATE advancement_applications SET
+      status = ?, admin_notes = ?, reviewed_by = 'admin',
+      reviewed_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(status, admin_notes || null, id).run()
+
+  // 如果核准，更新成員的 rank_level
+  if (status === 'approved') {
+    const app = await db.prepare(`SELECT * FROM advancement_applications WHERE id = ?`).bind(id).first() as any
+    if (app) {
+      await db.prepare(`UPDATE members SET rank_level = ? WHERE id = ?`).bind(app.rank_to, app.member_id).run()
+    }
+  }
+  return c.json({ success: true })
+})
+
+// ==================== 管理員：晉升條件管理 ====================
+
+// 取得晉升條件
+apiRoutes.get('/admin/advancement-requirements', async (c) => {
+  const db = c.env.DB
+  const section = c.req.query('section')
+  let query = `SELECT * FROM advancement_requirements WHERE is_active = 1`
+  const params: any[] = []
+  if (section) { query += ` AND section = ?`; params.push(section) }
+  query += ` ORDER BY section, rank_from, display_order`
+  const result = await db.prepare(query).bind(...params).all()
+  return c.json({ success: true, data: result.results })
+})
+
+// 新增晉升條件
+apiRoutes.post('/admin/advancement-requirements', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  const { section, rank_from, rank_to, requirement_type, title, description, required_count, unit, is_mandatory, display_order } = body
+  if (!section || !rank_from || !rank_to || !title) {
+    return c.json({ success: false, error: '缺少必填欄位' }, 400)
+  }
+  const id = `req-${Date.now()}-${Math.random().toString(36).substring(2,7)}`
+  await db.prepare(`
+    INSERT INTO advancement_requirements (id, section, rank_from, rank_to, requirement_type, title, description, required_count, unit, is_mandatory, display_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, section, rank_from, rank_to, requirement_type || 'other', title, description || null,
+    required_count || 1, unit || '次', is_mandatory !== false ? 1 : 0, display_order || 0).run()
+  return c.json({ success: true, id })
+})
+
+// 更新晉升條件
+apiRoutes.put('/admin/advancement-requirements/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { title, description, required_count, unit, is_mandatory, display_order, is_active } = body
+  await db.prepare(`
+    UPDATE advancement_requirements SET
+      title = ?, description = ?, required_count = ?, unit = ?,
+      is_mandatory = ?, display_order = ?, is_active = ?
+    WHERE id = ?
+  `).bind(title, description || null, required_count || 1, unit || '次',
+    is_mandatory !== false ? 1 : 0, display_order || 0, is_active !== false ? 1 : 0, id).run()
+  return c.json({ success: true })
+})
+
+// 刪除晉升條件（軟刪除）
+apiRoutes.delete('/admin/advancement-requirements/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  await db.prepare(`UPDATE advancement_requirements SET is_active = 0 WHERE id = ?`).bind(id).run()
+  return c.json({ success: true })
+})
+
+// 取得成員帳號列表
+apiRoutes.get('/admin/member-accounts', async (c) => {
+  const db = c.env.DB
+  const result = await db.prepare(`
+    SELECT ma.id, ma.username, ma.is_active, ma.last_login, ma.created_at,
+      m.chinese_name, m.section, m.rank_level
+    FROM member_accounts ma
+    JOIN members m ON m.id = ma.member_id
+    ORDER BY m.section, m.chinese_name
+  `).all()
+  return c.json({ success: true, data: result.results })
+})
+
+// 建立/更新成員帳號
+apiRoutes.post('/admin/member-accounts', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  const { member_id, username, password } = body
+  if (!member_id || !username || !password) {
+    return c.json({ success: false, error: '缺少必填欄位' }, 400)
+  }
+  const hash = await (async () => {
+    const msgBuffer = new TextEncoder().encode(password)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  })()
+  const id = `acc-${Date.now()}-${Math.random().toString(36).substring(2,7)}`
+  try {
+    await db.prepare(`
+      INSERT INTO member_accounts (id, member_id, username, password_hash, is_active)
+      VALUES (?, ?, ?, ?, 1)
+    `).bind(id, member_id, username.toLowerCase(), hash).run()
+    return c.json({ success: true, id })
+  } catch (e: any) {
+    if (e.message?.includes('UNIQUE')) return c.json({ success: false, error: '帳號已存在' }, 409)
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// 重設密碼
+apiRoutes.put('/admin/member-accounts/:id/password', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { password } = body
+  if (!password) return c.json({ success: false, error: '請提供新密碼' }, 400)
+  const hash = await (async () => {
+    const msgBuffer = new TextEncoder().encode(password)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  })()
+  await db.prepare(`UPDATE member_accounts SET password_hash = ? WHERE id = ?`).bind(hash, id).run()
+  return c.json({ success: true })
+})
+
+// 啟用/停用帳號
+apiRoutes.put('/admin/member-accounts/:id/status', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  await db.prepare(`UPDATE member_accounts SET is_active = ? WHERE id = ?`).bind(body.is_active ? 1 : 0, id).run()
+  return c.json({ success: true })
+})

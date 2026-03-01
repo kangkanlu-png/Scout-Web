@@ -1203,8 +1203,14 @@ function adminLayout(title: string, content: string) {
         <a href="/admin/progress" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('進程') || title.includes('榮譽') ? 'bg-green-700' : ''}">
           <span>🏅</span> 進程/榮譽
         </a>
-        <a href="/admin/leaves" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('公假') ? 'bg-green-700' : ''}">
-          <span>📝</span> 公假管理
+        <a href="/admin/leaves" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('請假') || title.includes('公假') ? 'bg-green-700' : ''}">
+          <span>📝</span> 請假審核
+        </a>
+        <a href="/admin/advancement" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('晉升') ? 'bg-green-700' : ''}">
+          <span>⬆️</span> 晉升審核
+        </a>
+        <a href="/admin/member-accounts" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('帳號') ? 'bg-green-700' : ''}">
+          <span>🔑</span> 會員帳號
         </a>
         <a href="/admin/coaches" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('教練') ? 'bg-green-700' : ''}">
           <span>🧢</span> 教練團
@@ -1794,7 +1800,10 @@ adminRoutes.get('/progress', authMiddleware, async (c) => {
 })
 
 // ===================== 公假管理 =====================
-adminRoutes.get('/leaves', authMiddleware, async (c) => {
+// 已重構為更完整的請假審核頁面（在檔案末尾）
+// 此路由保留舊有的快速操作支援，轉向新頁面
+adminRoutes.get('/leaves-legacy', authMiddleware, async (c) => {
+  return c.redirect('/admin/leaves')
   const db = c.env.DB
   const status = c.req.query('status') || ''
 
@@ -1943,6 +1952,8 @@ adminRoutes.get('/leaves', authMiddleware, async (c) => {
     </script>
   `))
 })
+
+// 保留 /admin/leaves-legacy 路由結束})
 
 // ===================== 教練團管理 =====================
 adminRoutes.get('/coaches', authMiddleware, async (c) => {
@@ -3436,5 +3447,577 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
         </div>
       </div>
     </div>
+  `))
+})
+
+// ===================== 請假審核管理 =====================
+adminRoutes.get('/leaves', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const statusFilter = c.req.query('status') || 'pending'
+
+  const leaves = await db.prepare(`
+    SELECT lr.*, m.chinese_name, m.section,
+      COALESCE(as2.title, '自訂日期') as session_title, as2.date as session_date
+    FROM leave_requests lr
+    JOIN members m ON m.id = lr.member_id
+    LEFT JOIN attendance_sessions as2 ON as2.id = lr.session_id
+    ${statusFilter !== 'all' ? 'WHERE lr.status = ?' : ''}
+    ORDER BY lr.created_at DESC LIMIT 100
+  `).bind(...(statusFilter !== 'all' ? [statusFilter] : [])).all()
+
+  const counts = await db.prepare(`
+    SELECT status, COUNT(*) as cnt FROM leave_requests GROUP BY status
+  `).all()
+  const countMap: Record<string, number> = {}
+  counts.results.forEach((r: any) => { countMap[r.status] = r.cnt })
+
+  const statusLabel: Record<string, string> = { pending: '待審核', approved: '已核准', rejected: '未核准' }
+  const leaveTypeLabel: Record<string, string> = { official: '⚡公假', sick: '🏥病假', personal: '📝事假', other: '📌其他' }
+  const statusColor: Record<string, string> = {
+    pending: 'bg-yellow-100 text-yellow-800',
+    approved: 'bg-green-100 text-green-800',
+    rejected: 'bg-red-100 text-red-800'
+  }
+
+  return c.html(adminLayout('請假審核', `
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-gray-800">請假申請審核</h1>
+      <div class="flex gap-2 text-sm">
+        <span class="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full">待審：${countMap.pending || 0}</span>
+        <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full">核准：${countMap.approved || 0}</span>
+        <span class="bg-red-100 text-red-800 px-3 py-1 rounded-full">拒絕：${countMap.rejected || 0}</span>
+      </div>
+    </div>
+
+    <!-- 篩選 tabs -->
+    <div class="flex gap-2 mb-4 border-b">
+      ${['all','pending','approved','rejected'].map(s => `
+      <a href="/admin/leaves?status=${s}" class="px-4 py-2 text-sm font-medium ${statusFilter === s ? 'border-b-2 border-green-600 text-green-700' : 'text-gray-500 hover:text-gray-700'}">
+        ${s === 'all' ? '全部' : statusLabel[s]} ${s !== 'all' && countMap[s] ? `(${countMap[s]})` : ''}
+      </a>`).join('')}
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">成員</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">例會/日期</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">假別</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">原因</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">狀態</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">操作</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          ${leaves.results.length === 0 ? `<tr><td colspan="6" class="py-8 text-center text-gray-400">尚無請假申請</td></tr>` :
+            leaves.results.map((l: any) => `
+            <tr class="hover:bg-gray-50" id="leave-${l.id}">
+              <td class="px-4 py-3">
+                <div class="font-medium text-gray-800 text-sm">${l.chinese_name}</div>
+                <div class="text-xs text-gray-400">${l.section}</div>
+              </td>
+              <td class="px-4 py-3">
+                <div class="text-sm text-gray-700">${l.session_title}</div>
+                <div class="text-xs text-gray-400">${l.date}</div>
+              </td>
+              <td class="px-4 py-3 text-sm">${leaveTypeLabel[l.leave_type] || l.leave_type}</td>
+              <td class="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">${l.reason || '-'}</td>
+              <td class="px-4 py-3">
+                <span class="px-2 py-0.5 rounded-full text-xs font-medium ${statusColor[l.status] || 'bg-gray-100 text-gray-700'}">
+                  ${statusLabel[l.status] || l.status}
+                </span>
+                ${l.admin_note ? `<div class="text-xs text-blue-600 mt-1">${l.admin_note}</div>` : ''}
+              </td>
+              <td class="px-4 py-3">
+                ${l.status === 'pending' ? `
+                <div class="flex gap-1">
+                  <button onclick="reviewLeave('${l.id}','approved')"
+                    class="bg-green-600 hover:bg-green-500 text-white text-xs px-2 py-1 rounded transition-colors">
+                    ✓ 核准
+                  </button>
+                  <button onclick="reviewLeave('${l.id}','rejected')"
+                    class="bg-red-500 hover:bg-red-400 text-white text-xs px-2 py-1 rounded transition-colors">
+                    ✗ 拒絕
+                  </button>
+                </div>` : `
+                <button onclick="reviewLeave('${l.id}','pending')"
+                  class="text-gray-400 hover:text-gray-600 text-xs px-2 py-1 border rounded transition-colors">
+                  重設
+                </button>`}
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <script>
+    async function reviewLeave(id, status) {
+      let admin_note = ''
+      if (status === 'rejected') {
+        admin_note = prompt('拒絕原因（選填）') || ''
+      }
+      const res = await fetch('/api/admin/leaves/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, admin_note })
+      })
+      const r = await res.json()
+      if (r.success) {
+        const row = document.getElementById('leave-' + id)
+        if (row) {
+          const statusTd = row.querySelector('td:nth-child(5)')
+          const colors = { approved: 'bg-green-100 text-green-800', rejected: 'bg-red-100 text-red-800', pending: 'bg-yellow-100 text-yellow-800' }
+          const labels = { approved: '已核准', rejected: '未核准', pending: '待審核' }
+          statusTd.innerHTML = '<span class="px-2 py-0.5 rounded-full text-xs font-medium ' + (colors[status]||'') + '">' + (labels[status]||status) + '</span>' + (admin_note ? '<div class="text-xs text-blue-600 mt-1">' + admin_note + '</div>' : '')
+          row.querySelector('td:nth-child(6)').innerHTML = '<span class="text-xs text-gray-400">已更新</span>'
+        }
+      } else { alert('操作失敗：' + r.error) }
+    }
+    </script>
+  `))
+})
+
+// ===================== 晉升申請審核 =====================
+adminRoutes.get('/advancement', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const statusFilter = c.req.query('status') || 'pending'
+
+  const applications = await db.prepare(`
+    SELECT aa.*, m.chinese_name, m.section, m.rank_level
+    FROM advancement_applications aa
+    JOIN members m ON m.id = aa.member_id
+    ${statusFilter !== 'all' ? 'WHERE aa.status = ?' : ''}
+    ORDER BY aa.created_at DESC LIMIT 100
+  `).bind(...(statusFilter !== 'all' ? [statusFilter] : [])).all()
+
+  const counts = await db.prepare(`
+    SELECT status, COUNT(*) as cnt FROM advancement_applications GROUP BY status
+  `).all()
+  const countMap: Record<string, number> = {}
+  counts.results.forEach((r: any) => { countMap[r.status] = r.cnt })
+
+  const statusLabel: Record<string, string> = {
+    pending: '待審核', reviewing: '審核中', approved: '已通過', rejected: '未通過'
+  }
+  const statusColor: Record<string, string> = {
+    pending: 'bg-yellow-100 text-yellow-800',
+    reviewing: 'bg-blue-100 text-blue-800',
+    approved: 'bg-green-100 text-green-800',
+    rejected: 'bg-red-100 text-red-800'
+  }
+
+  return c.html(adminLayout('晉升審核', `
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-gray-800">晉升申請審核</h1>
+      <a href="/admin/advancement/requirements" class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+        <i class="fas fa-cog"></i>晉升條件管理
+      </a>
+    </div>
+
+    <!-- 篩選 tabs -->
+    <div class="flex gap-2 mb-4 border-b flex-wrap">
+      ${['all','pending','reviewing','approved','rejected'].map(s => `
+      <a href="/admin/advancement?status=${s}" class="px-4 py-2 text-sm font-medium ${statusFilter === s ? 'border-b-2 border-green-600 text-green-700' : 'text-gray-500 hover:text-gray-700'}">
+        ${s === 'all' ? '全部' : statusLabel[s]} ${s !== 'all' && countMap[s] ? `(${countMap[s]})` : ''}
+      </a>`).join('')}
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">成員</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">晉升路徑</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">申請日期</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">狀態</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">操作</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          ${applications.results.length === 0 ? `<tr><td colspan="5" class="py-8 text-center text-gray-400">尚無晉升申請</td></tr>` :
+            applications.results.map((a: any) => `
+            <tr class="hover:bg-gray-50" id="adv-${a.id}">
+              <td class="px-4 py-3">
+                <div class="font-medium text-gray-800 text-sm">${a.chinese_name}</div>
+                <div class="text-xs text-gray-400">${a.section} · 目前：${a.rank_level || '-'}</div>
+              </td>
+              <td class="px-4 py-3">
+                <span class="text-sm font-medium text-gray-800">${a.rank_from}</span>
+                <span class="text-gray-400 mx-2">→</span>
+                <span class="text-sm font-bold text-green-700">${a.rank_to}</span>
+              </td>
+              <td class="px-4 py-3 text-sm text-gray-600">${a.apply_date}</td>
+              <td class="px-4 py-3">
+                <span class="px-2 py-0.5 rounded-full text-xs font-medium ${statusColor[a.status] || 'bg-gray-100'}">
+                  ${statusLabel[a.status] || a.status}
+                </span>
+                ${a.admin_notes ? `<div class="text-xs text-blue-600 mt-1 max-w-xs truncate">${a.admin_notes}</div>` : ''}
+              </td>
+              <td class="px-4 py-3">
+                <div class="flex gap-1 flex-wrap">
+                  ${a.status === 'pending' ? `<button onclick="setAdvStatus('${a.id}','reviewing')" class="bg-blue-500 hover:bg-blue-400 text-white text-xs px-2 py-1 rounded">🔍 審核中</button>` : ''}
+                  ${a.status !== 'approved' ? `<button onclick="setAdvStatus('${a.id}','approved')" class="bg-green-600 hover:bg-green-500 text-white text-xs px-2 py-1 rounded">✓ 通過</button>` : ''}
+                  ${a.status !== 'rejected' ? `<button onclick="setAdvStatus('${a.id}','rejected')" class="bg-red-500 hover:bg-red-400 text-white text-xs px-2 py-1 rounded">✗ 拒絕</button>` : ''}
+                </div>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <script>
+    async function setAdvStatus(id, status) {
+      let admin_notes = ''
+      if (status === 'rejected') {
+        admin_notes = prompt('拒絕說明（選填）') || ''
+      } else if (status === 'approved') {
+        admin_notes = prompt('審核備注（選填）') || ''
+      }
+      const res = await fetch('/api/admin/advancement/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, admin_notes })
+      })
+      const r = await res.json()
+      if (r.success) {
+        location.reload()
+      } else { alert('操作失敗：' + r.error) }
+    }
+    </script>
+  `))
+})
+
+// ===================== 晉升條件管理 =====================
+adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const sectionFilter = c.req.query('section') || '童軍'
+
+  const requirements = await db.prepare(`
+    SELECT * FROM advancement_requirements
+    WHERE section = ? AND is_active = 1
+    ORDER BY rank_from, display_order
+  `).bind(sectionFilter).all()
+
+  const reqTypeIcon: Record<string, string> = {
+    attendance: '📅', service: '🤝', badge: '🏅', test: '📋', camp: '🏕️', other: '⭐'
+  }
+
+  // 依 rank_from → rank_to 分組
+  const groups: Record<string, any[]> = {}
+  requirements.results.forEach((r: any) => {
+    const key = `${r.rank_from}→${r.rank_to}`
+    if (!groups[key]) groups[key] = []
+    groups[key].push(r)
+  })
+
+  return c.html(adminLayout('晉升條件管理', `
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-800">晉升條件管理</h1>
+        <a href="/admin/advancement" class="text-sm text-green-600 hover:underline">← 返回晉升申請</a>
+      </div>
+      <button onclick="showAddForm()"
+        class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+        <i class="fas fa-plus"></i>新增條件
+      </button>
+    </div>
+
+    <!-- 組別 tabs -->
+    <div class="flex gap-2 mb-4 border-b">
+      ${['童軍','行義童軍','羅浮童軍'].map(s => `
+      <a href="/admin/advancement/requirements?section=${encodeURIComponent(s)}"
+        class="px-4 py-2 text-sm font-medium ${sectionFilter === s ? 'border-b-2 border-green-600 text-green-700' : 'text-gray-500 hover:text-gray-700'}">
+        ${s}
+      </a>`).join('')}
+    </div>
+
+    <!-- 新增表單（預設隱藏） -->
+    <div id="addForm" class="hidden bg-white rounded-xl shadow-sm border border-green-200 p-5 mb-4">
+      <h3 class="font-semibold text-gray-800 mb-4">新增晉升條件</h3>
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">組別</label>
+          <select id="new_section" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+            <option value="童軍" ${sectionFilter==='童軍'?'selected':''}>童軍</option>
+            <option value="行義童軍" ${sectionFilter==='行義童軍'?'selected':''}>行義童軍</option>
+            <option value="羅浮童軍" ${sectionFilter==='羅浮童軍'?'selected':''}>羅浮童軍</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">類型</label>
+          <select id="new_type" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+            <option value="attendance">📅 出席</option>
+            <option value="service">🤝 服務</option>
+            <option value="badge">🏅 技能章</option>
+            <option value="test">📋 測驗</option>
+            <option value="camp">🏕️ 露營</option>
+            <option value="other">⭐ 其他</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">目前階級</label>
+          <input id="new_from" type="text" placeholder="例：見習童軍" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">目標階級</label>
+          <input id="new_to" type="text" placeholder="例：初級童軍" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+        </div>
+        <div class="sm:col-span-2">
+          <label class="block text-xs font-medium text-gray-600 mb-1">條件名稱</label>
+          <input id="new_title" type="text" placeholder="例：例會出席" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+        </div>
+        <div class="sm:col-span-2">
+          <label class="block text-xs font-medium text-gray-600 mb-1">描述（選填）</label>
+          <input id="new_desc" type="text" placeholder="詳細說明" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">需達到數量</label>
+          <input id="new_count" type="number" value="1" min="1" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">單位</label>
+          <input id="new_unit" type="text" value="次" placeholder="次/小時/章" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+        </div>
+        <div class="flex items-center gap-2">
+          <input id="new_mandatory" type="checkbox" checked class="w-4 h-4">
+          <label class="text-sm text-gray-700">必填條件</label>
+        </div>
+      </div>
+      <div id="addFormMsg" class="mt-3"></div>
+      <div class="flex gap-2 mt-4">
+        <button onclick="submitNewReq()" class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-lg transition-colors">
+          新增
+        </button>
+        <button onclick="document.getElementById('addForm').classList.add('hidden')"
+          class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-lg transition-colors">
+          取消
+        </button>
+      </div>
+    </div>
+
+    <!-- 條件列表 -->
+    ${Object.entries(groups).length === 0 ? `
+    <div class="bg-white rounded-xl p-8 text-center text-gray-400">
+      <i class="fas fa-tasks text-4xl mb-3"></i>
+      <p>${sectionFilter} 尚無晉升條件</p>
+    </div>` : Object.entries(groups).map(([rankTitle, reqs]) => `
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 mb-4">
+      <div class="p-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+        <h3 class="font-semibold text-gray-800">${rankTitle.replace('→', ' → ')}</h3>
+        <span class="text-xs text-gray-400">${reqs.length} 條件</span>
+      </div>
+      <div class="divide-y divide-gray-50">
+        ${reqs.map((r: any) => `
+        <div class="flex items-center justify-between p-4 hover:bg-gray-50">
+          <div class="flex items-center gap-3">
+            <span class="text-lg">${reqTypeIcon[r.requirement_type] || '⭐'}</span>
+            <div>
+              <div class="font-medium text-gray-800 text-sm">${r.title}
+                ${!r.is_mandatory ? `<span class="ml-1 text-xs text-gray-400 bg-gray-100 px-1 rounded">選填</span>` : ''}
+              </div>
+              <div class="text-xs text-gray-400">${r.description || ''} · 需 ${r.required_count} ${r.unit}</div>
+            </div>
+          </div>
+          <button onclick="deleteReq('${r.id}')" class="text-red-400 hover:text-red-600 text-xs px-2 py-1 hover:bg-red-50 rounded transition-colors">
+            <i class="fas fa-trash"></i>
+          </button>
+        </div>`).join('')}
+      </div>
+    </div>`).join('')}
+
+    <script>
+    function showAddForm() {
+      document.getElementById('addForm').classList.remove('hidden')
+      document.getElementById('new_title').focus()
+    }
+    async function submitNewReq() {
+      const msg = document.getElementById('addFormMsg')
+      const data = {
+        section: document.getElementById('new_section').value,
+        rank_from: document.getElementById('new_from').value.trim(),
+        rank_to: document.getElementById('new_to').value.trim(),
+        requirement_type: document.getElementById('new_type').value,
+        title: document.getElementById('new_title').value.trim(),
+        description: document.getElementById('new_desc').value.trim(),
+        required_count: parseInt(document.getElementById('new_count').value) || 1,
+        unit: document.getElementById('new_unit').value.trim() || '次',
+        is_mandatory: document.getElementById('new_mandatory').checked
+      }
+      if (!data.rank_from || !data.rank_to || !data.title) {
+        msg.innerHTML = '<p class="text-red-500 text-sm">請填寫所有必填欄位</p>'; return
+      }
+      msg.innerHTML = '<p class="text-gray-400 text-sm">送出中...</p>'
+      const res = await fetch('/api/admin/advancement-requirements', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      })
+      const r = await res.json()
+      if (r.success) { location.reload() }
+      else { msg.innerHTML = '<p class="text-red-500 text-sm">失敗：' + r.error + '</p>' }
+    }
+    async function deleteReq(id) {
+      if (!confirm('確定要刪除此晉升條件？')) return
+      const res = await fetch('/api/admin/advancement-requirements/' + id, { method: 'DELETE' })
+      const r = await res.json()
+      if (r.success) location.reload()
+      else alert('刪除失敗：' + r.error)
+    }
+    </script>
+  `))
+})
+
+// ===================== 會員帳號管理 =====================
+adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
+  const db = c.env.DB
+
+  const accounts = await db.prepare(`
+    SELECT ma.id, ma.username, ma.is_active, ma.last_login, ma.created_at,
+      m.id as member_id, m.chinese_name, m.section, m.rank_level
+    FROM member_accounts ma
+    JOIN members m ON m.id = ma.member_id
+    ORDER BY m.section, m.chinese_name
+  `).all()
+
+  // 取得尚未建立帳號的成員
+  const noAccount = await db.prepare(`
+    SELECT id, chinese_name, section, rank_level
+    FROM members
+    WHERE id NOT IN (SELECT member_id FROM member_accounts)
+      AND membership_status = 'ACTIVE'
+    ORDER BY section, chinese_name
+  `).all()
+
+  return c.html(adminLayout('會員帳號管理', `
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-gray-800">會員帳號管理</h1>
+      <button onclick="document.getElementById('newAccountForm').classList.toggle('hidden')"
+        class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+        <i class="fas fa-plus"></i>建立新帳號
+      </button>
+    </div>
+
+    <!-- 新建帳號表單 -->
+    <div id="newAccountForm" class="hidden bg-white rounded-xl shadow-sm border border-green-200 p-5 mb-4">
+      <h3 class="font-semibold text-gray-800 mb-4">建立會員帳號</h3>
+      <div class="grid sm:grid-cols-3 gap-4">
+        <div class="sm:col-span-1">
+          <label class="block text-xs font-medium text-gray-600 mb-1">選擇成員</label>
+          <select id="new_member" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+            <option value="">-- 選擇成員 --</option>
+            ${noAccount.results.map((m: any) => `<option value="${m.id}">${m.chinese_name} (${m.section})</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">登入帳號</label>
+          <input id="new_username" type="text" placeholder="英文/數字" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">初始密碼</label>
+          <input id="new_pw" type="text" placeholder="至少 6 字元" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+        </div>
+      </div>
+      <div id="newAccMsg" class="mt-3"></div>
+      <div class="flex gap-2 mt-4">
+        <button onclick="createAccount()" class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-lg">建立</button>
+        <button onclick="document.getElementById('newAccountForm').classList.add('hidden')"
+          class="bg-gray-100 text-gray-700 text-sm px-4 py-2 rounded-lg">取消</button>
+      </div>
+    </div>
+
+    <!-- 帳號列表 -->
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">成員</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">帳號</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">最後登入</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">狀態</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">操作</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          ${accounts.results.length === 0 ? `<tr><td colspan="5" class="py-8 text-center text-gray-400">尚無會員帳號</td></tr>` :
+            accounts.results.map((a: any) => `
+            <tr class="hover:bg-gray-50" id="acc-${a.id}">
+              <td class="px-4 py-3">
+                <div class="font-medium text-gray-800 text-sm">${a.chinese_name}</div>
+                <div class="text-xs text-gray-400">${a.section} · ${a.rank_level || '-'}</div>
+              </td>
+              <td class="px-4 py-3 text-sm font-mono text-gray-700">${a.username}</td>
+              <td class="px-4 py-3 text-xs text-gray-400">${a.last_login ? a.last_login.substring(0,16) : '從未登入'}</td>
+              <td class="px-4 py-3">
+                <span class="px-2 py-0.5 rounded-full text-xs font-medium ${a.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
+                  ${a.is_active ? '✓ 啟用' : '✗ 停用'}
+                </span>
+              </td>
+              <td class="px-4 py-3">
+                <div class="flex gap-1">
+                  <button onclick="resetPw('${a.id}')" class="bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs px-2 py-1 rounded transition-colors">
+                    <i class="fas fa-key"></i> 重設密碼
+                  </button>
+                  <button onclick="toggleStatus('${a.id}', ${a.is_active})"
+                    class="${a.is_active ? 'bg-red-50 hover:bg-red-100 text-red-600' : 'bg-green-50 hover:bg-green-100 text-green-600'} text-xs px-2 py-1 rounded transition-colors">
+                    ${a.is_active ? '停用' : '啟用'}
+                  </button>
+                </div>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    ${noAccount.results.length > 0 ? `
+    <div class="mt-4 bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+      <h3 class="text-sm font-medium text-yellow-800 mb-2">⚠️ 尚未開通帳號的成員（${noAccount.results.length} 位）</h3>
+      <div class="flex flex-wrap gap-2">
+        ${noAccount.results.map((m: any) => `<span class="bg-white text-xs text-gray-700 px-2 py-1 rounded-full border">${m.chinese_name} (${m.section})</span>`).join('')}
+      </div>
+    </div>` : ''}
+
+    <script>
+    async function createAccount() {
+      const msg = document.getElementById('newAccMsg')
+      const data = {
+        member_id: document.getElementById('new_member').value,
+        username: document.getElementById('new_username').value.trim(),
+        password: document.getElementById('new_pw').value
+      }
+      if (!data.member_id || !data.username || !data.password) {
+        msg.innerHTML = '<p class="text-red-500 text-sm">請填寫所有欄位</p>'; return
+      }
+      if (data.password.length < 6) {
+        msg.innerHTML = '<p class="text-red-500 text-sm">密碼至少 6 字元</p>'; return
+      }
+      const res = await fetch('/api/admin/member-accounts', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+      })
+      const r = await res.json()
+      if (r.success) { location.reload() }
+      else { msg.innerHTML = '<p class="text-red-500 text-sm">失敗：' + r.error + '</p>' }
+    }
+    async function resetPw(id) {
+      const pw = prompt('請輸入新密碼（至少 6 字元）')
+      if (!pw || pw.length < 6) { alert('密碼至少 6 字元'); return }
+      const res = await fetch('/api/admin/member-accounts/' + id + '/password', {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ password: pw })
+      })
+      const r = await res.json()
+      if (r.success) alert('✅ 密碼已重設')
+      else alert('失敗：' + r.error)
+    }
+    async function toggleStatus(id, current) {
+      const res = await fetch('/api/admin/member-accounts/' + id + '/status', {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ is_active: !current })
+      })
+      const r = await res.json()
+      if (r.success) location.reload()
+      else alert('失敗：' + r.error)
+    }
+    </script>
   `))
 })
