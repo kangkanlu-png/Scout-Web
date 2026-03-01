@@ -151,6 +151,484 @@ frontendRoutes.get('/honor', async (c) => {
 </body></html>`)
 })
 
+// ===================== 教練團總覽頁（公開）=====================
+frontendRoutes.get('/coaches', async (c) => {
+  const db = c.env.DB
+
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+
+  const coaches = await db.prepare(`
+    SELECT cm.*, sg.name as group_name, sg.slug as group_slug
+    FROM coach_members cm
+    LEFT JOIN scout_groups sg ON sg.id = (
+      CASE cm.section_assigned
+        WHEN '童軍' THEN (SELECT id FROM scout_groups WHERE slug='scout-troop' LIMIT 1)
+        WHEN '行義童軍' THEN (SELECT id FROM scout_groups WHERE slug='senior-scout' LIMIT 1)
+        WHEN '羅浮童軍' THEN (SELECT id FROM scout_groups WHERE slug='rover-scout' LIMIT 1)
+        ELSE NULL
+      END
+    )
+    ORDER BY cm.year_label DESC, cm.coach_level, cm.chinese_name
+  `).all()
+
+  // 按年度分組
+  const byYear: Record<string, any[]> = {}
+  coaches.results.forEach((c: any) => {
+    const y = c.year_label || '未知年度'
+    if (!byYear[y]) byYear[y] = []
+    byYear[y].push(c)
+  })
+
+  const levelBadge: Record<string, string> = {
+    '指導教練': 'bg-purple-100 text-purple-800 border-purple-200',
+    '助理教練': 'bg-blue-100 text-blue-800 border-blue-200',
+    '見習教練': 'bg-cyan-100 text-cyan-800 border-cyan-200',
+    '預備教練': 'bg-teal-100 text-teal-800 border-teal-200',
+  }
+
+  const yearBlocks = Object.entries(byYear)
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([year, members]) => {
+      const cards = members.map((coach: any) => {
+        const badge = levelBadge[coach.coach_level] || 'bg-gray-100 text-gray-700 border-gray-200'
+        const specialties = coach.specialties
+          ? (typeof coach.specialties === 'string' && coach.specialties.startsWith('[')
+              ? JSON.parse(coach.specialties).join('、')
+              : coach.specialties)
+          : ''
+        return `
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex items-start gap-4 hover:shadow-md transition-shadow">
+          <div class="w-14 h-14 rounded-full bg-gradient-to-br from-green-100 to-emerald-200 flex items-center justify-center flex-shrink-0 text-2xl border-2 border-green-200">
+            ${coach.section_assigned === '童軍' ? '🏕️' : coach.section_assigned === '行義童軍' ? '⛺' : coach.section_assigned === '羅浮童軍' ? '🧭' : '👨‍🏫'}
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap mb-1">
+              <span class="font-bold text-gray-800 text-base">${coach.chinese_name}</span>
+              ${coach.english_name ? `<span class="text-gray-400 text-xs">${coach.english_name}</span>` : ''}
+            </div>
+            <div class="flex flex-wrap gap-1.5 mb-2">
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${badge}">${coach.coach_level || '教練'}</span>
+              ${coach.section_assigned && coach.section_assigned !== '未指定' ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">${coach.section_assigned}</span>` : ''}
+            </div>
+            ${specialties ? `<p class="text-gray-500 text-xs">🎯 專長：${specialties}</p>` : ''}
+            ${coach.notes ? `<p class="text-gray-400 text-xs mt-0.5">${coach.notes}</p>` : ''}
+          </div>
+        </div>`
+      }).join('')
+
+      const byLevel: Record<string, number> = {}
+      members.forEach((c: any) => {
+        byLevel[c.coach_level || '其他'] = (byLevel[c.coach_level || '其他'] || 0) + 1
+      })
+      const levelSummary = Object.entries(byLevel).map(([l, n]) =>
+        `<span class="text-xs text-gray-500">${l} ${n}位</span>`
+      ).join(' · ')
+
+      return `
+      <div class="mb-10">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-bold text-green-900 flex items-center gap-2">
+            <span class="w-9 h-9 bg-green-700 text-white rounded-full flex items-center justify-center text-sm font-bold shadow">${year}</span>
+            <span>學年度教練團</span>
+          </h2>
+          <div class="flex items-center gap-3">${levelSummary}</div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${cards}</div>
+      </div>`
+    }).join('')
+
+  return c.html(`${pageHead('教練團 - 林口康橋童軍團')}
+<body class="bg-gray-50">
+  ${navBar(settings)}
+  <div class="hero-gradient text-white py-14 px-4">
+    <div class="max-w-5xl mx-auto">
+      <div class="flex items-center gap-2 text-green-300 text-sm mb-4">
+        <a href="/" class="hover:text-white transition-colors">首頁</a>
+        <span>›</span>
+        <span class="text-white">教練團</span>
+      </div>
+      <div class="flex items-center gap-4">
+        <span class="text-5xl">🧢</span>
+        <div>
+          <h1 class="text-3xl md:text-4xl font-bold">教練團總覽</h1>
+          <p class="text-green-200 mt-1">Coach Team · 感謝所有為童軍奉獻的教練</p>
+        </div>
+      </div>
+      <div class="mt-6 flex gap-6 text-center">
+        <div>
+          <div class="text-3xl font-bold">${coaches.results.length}</div>
+          <div class="text-green-300 text-xs mt-0.5">累計教練人次</div>
+        </div>
+        <div class="w-px bg-green-600"></div>
+        <div>
+          <div class="text-3xl font-bold">${Object.keys(byYear).length}</div>
+          <div class="text-green-300 text-xs mt-0.5">涵蓋學年度</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="max-w-5xl mx-auto px-4 py-10">
+    ${yearBlocks || '<div class="text-center py-20 text-gray-400"><div class="text-5xl mb-4">🧢</div><p class="text-lg">尚無教練團資料</p></div>'}
+  </div>
+  ${pageFooter(settings)}
+`)
+})
+
+// ===================== 統計公開頁 =====================
+frontendRoutes.get('/stats', async (c) => {
+  const db = c.env.DB
+
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+
+  // 各組人數
+  const sectionCounts = await db.prepare(`
+    SELECT section, COUNT(*) as count
+    FROM members
+    WHERE membership_status = 'ACTIVE'
+    GROUP BY section
+    ORDER BY count DESC
+  `).all()
+
+  const totalMembers = (sectionCounts.results as any[]).reduce((sum: number, r: any) => sum + r.count, 0)
+
+  // 各組晉級統計
+  const rankStats = await db.prepare(`
+    SELECT m.section, pr.award_name, COUNT(*) as count
+    FROM progress_records pr
+    JOIN members m ON m.id = pr.member_id
+    WHERE pr.record_type = 'rank'
+    GROUP BY m.section, pr.award_name
+    ORDER BY m.section, count DESC
+  `).all()
+
+  // 近期進程記錄（最新 15 筆）
+  const recentProgress = await db.prepare(`
+    SELECT pr.*, m.chinese_name, m.section
+    FROM progress_records pr
+    JOIN members m ON m.id = pr.member_id
+    ORDER BY pr.awarded_at DESC
+    LIMIT 15
+  `).all()
+
+  // 出席場次統計（最近 6 場）
+  const recentSessions = await db.prepare(`
+    SELECT
+      s.id, s.title, s.date, s.section,
+      COUNT(CASE WHEN ar.status = 'present' THEN 1 END) as present_count,
+      COUNT(ar.id) as total_count
+    FROM attendance_sessions s
+    LEFT JOIN attendance_records ar ON ar.session_id = s.id
+    GROUP BY s.id
+    ORDER BY s.date DESC
+    LIMIT 6
+  `).all()
+
+  // 教練人數
+  const coachCount = await db.prepare(`SELECT COUNT(*) as count FROM coach_members`).first() as any
+
+  const sectionIcons: Record<string, string> = {
+    '童軍': '🏕️', '行義童軍': '⛺', '羅浮童軍': '🧭',
+    '服務員': '🎖️', '幼童軍': '🌱', '稚齡童軍': '🌟'
+  }
+  const sectionColors: Record<string, string> = {
+    '童軍': 'from-green-500 to-emerald-600',
+    '行義童軍': 'from-blue-500 to-blue-700',
+    '羅浮童軍': 'from-purple-500 to-purple-700',
+    '服務員': 'from-amber-500 to-amber-700',
+    '幼童軍': 'from-pink-400 to-rose-500',
+    '稚齡童軍': 'from-yellow-400 to-orange-400',
+  }
+
+  const memberCards = (sectionCounts.results as any[]).map((row: any) => `
+    <div class="bg-gradient-to-br ${sectionColors[row.section] || 'from-gray-400 to-gray-600'} text-white rounded-2xl p-6 shadow-lg">
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-3xl">${sectionIcons[row.section] || '⚜️'}</span>
+        <span class="text-4xl font-bold">${row.count}</span>
+      </div>
+      <p class="font-semibold text-base opacity-90">${row.section}</p>
+      <p class="text-xs opacity-70 mt-0.5">${Math.round(row.count / totalMembers * 100)}% 的成員</p>
+    </div>
+  `).join('')
+
+  // 出席率圖表資料
+  const sessionBars = (recentSessions.results as any[]).reverse().map((s: any) => {
+    const rate = s.total_count > 0 ? Math.round(s.present_count / s.total_count * 100) : 0
+    const barColor = rate >= 80 ? 'bg-green-500' : rate >= 60 ? 'bg-amber-500' : 'bg-red-400'
+    const sectionLabel: Record<string, string> = { junior: '童軍', senior: '行義', rover: '羅浮', all: '全體' }
+    return `
+    <div class="flex flex-col items-center gap-1">
+      <span class="text-xs font-bold text-gray-700">${rate}%</span>
+      <div class="w-10 ${barColor} rounded-t-md transition-all" style="height:${Math.max(rate * 1.2, 8)}px"></div>
+      <div class="text-center">
+        <div class="text-xs text-gray-500 w-12 truncate" title="${s.title}">${s.title.substring(0,4)}</div>
+        <div class="text-xs text-gray-400">${sectionLabel[s.section] || s.section}</div>
+      </div>
+    </div>`
+  }).join('')
+
+  // 晉級統計
+  const rankGrouped: Record<string, Record<string, number>> = {}
+  ;(rankStats.results as any[]).forEach((r: any) => {
+    if (!rankGrouped[r.section]) rankGrouped[r.section] = {}
+    rankGrouped[r.section][r.award_name] = r.count
+  })
+
+  const rankTable = Object.entries(rankGrouped).map(([section, awards]) => {
+    const rows = Object.entries(awards).map(([award, cnt]) =>
+      `<tr class="border-b border-gray-50 last:border-0">
+        <td class="py-2 pr-4 text-sm text-gray-700">${award}</td>
+        <td class="py-2 text-sm font-bold text-green-700 text-right">${cnt} 位</td>
+      </tr>`
+    ).join('')
+    return `
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+      <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">
+        ${sectionIcons[section] || '⚜️'} ${section}
+      </h3>
+      <table class="w-full">${rows}</table>
+    </div>`
+  }).join('')
+
+  // 近期進程
+  const progressList = (recentProgress.results as any[]).map((p: any) => {
+    const typeLabel: Record<string, string> = { rank: '晉級', badge: '徽章', achievement: '成就', award: '獎項' }
+    const typeBg: Record<string, string> = { rank: 'bg-green-100 text-green-700', badge: 'bg-blue-100 text-blue-700', achievement: 'bg-amber-100 text-amber-700', award: 'bg-purple-100 text-purple-700' }
+    return `
+    <div class="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
+      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${typeBg[p.record_type] || 'bg-gray-100 text-gray-600'} flex-shrink-0">
+        ${typeLabel[p.record_type] || p.record_type}
+      </span>
+      <div class="flex-1 min-w-0">
+        <span class="font-medium text-gray-800 text-sm">${p.chinese_name}</span>
+        <span class="text-gray-400 text-xs ml-1">${p.section}</span>
+        <span class="text-gray-600 text-sm ml-2">${p.award_name}</span>
+      </div>
+      <span class="text-gray-400 text-xs flex-shrink-0">${p.year_label || ''}</span>
+    </div>`
+  }).join('')
+
+  return c.html(`${pageHead('童軍統計 - 林口康橋童軍團')}
+<body class="bg-gray-50">
+  ${navBar(settings)}
+  <div class="hero-gradient text-white py-14 px-4">
+    <div class="max-w-5xl mx-auto text-center">
+      <div class="text-5xl mb-4">📊</div>
+      <h1 class="text-3xl md:text-4xl font-bold mb-2">童軍統計總覽</h1>
+      <p class="text-green-200">Scout Statistics · 紀錄每一段成長的足跡</p>
+    </div>
+  </div>
+  <div class="max-w-5xl mx-auto px-4 py-10">
+
+    <!-- 成員總數 -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8 flex items-center justify-between flex-wrap gap-4">
+      <div>
+        <p class="text-gray-500 text-sm">在籍成員總數</p>
+        <p class="text-5xl font-bold text-green-700">${totalMembers}</p>
+        <p class="text-gray-400 text-sm mt-1">Active Members</p>
+      </div>
+      <div class="text-center">
+        <p class="text-gray-500 text-sm">教練團人數</p>
+        <p class="text-4xl font-bold text-blue-700">${coachCount?.count || 0}</p>
+        <p class="text-gray-400 text-sm mt-1">Coaches</p>
+      </div>
+      <div class="text-center">
+        <p class="text-gray-500 text-sm">近期出席場次</p>
+        <p class="text-4xl font-bold text-amber-600">${recentSessions.results.length}</p>
+        <p class="text-gray-400 text-sm mt-1">Recent Sessions</p>
+      </div>
+    </div>
+
+    <!-- 各組人數卡片 -->
+    <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+      <span class="text-green-600">👥</span> 各組在籍人數
+    </h2>
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-10">
+      ${memberCards || '<p class="text-gray-400 col-span-3">尚無成員資料</p>'}
+    </div>
+
+    <!-- 出席率長條圖 -->
+    ${recentSessions.results.length > 0 ? `
+    <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+      <span class="text-blue-600">📅</span> 近期出席率
+    </h2>
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-10">
+      <div class="flex items-end gap-4 justify-center min-h-[140px]">
+        ${sessionBars}
+      </div>
+      <div class="flex items-center gap-4 mt-4 justify-center text-xs text-gray-500">
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-green-500 inline-block"></span>≥80%</span>
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-amber-500 inline-block"></span>60–79%</span>
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-red-400 inline-block"></span>&lt;60%</span>
+      </div>
+    </div>` : ''}
+
+    <!-- 晉級統計 -->
+    ${rankTable ? `
+    <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+      <span class="text-amber-600">🏅</span> 晉級統計
+    </h2>
+    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-10">
+      ${rankTable}
+    </div>` : ''}
+
+    <!-- 近期進程 -->
+    ${progressList ? `
+    <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+      <span class="text-purple-600">📈</span> 近期進程記錄
+    </h2>
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+      ${progressList}
+    </div>` : ''}
+
+  </div>
+  ${pageFooter(settings)}
+`)
+})
+
+// ===================== 出席查詢公開頁 =====================
+frontendRoutes.get('/attendance', async (c) => {
+  const db = c.env.DB
+
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+
+  const sectionFilter = c.req.query('section') || 'all'
+
+  // 出席場次列表
+  const sessionsQuery = sectionFilter === 'all'
+    ? `SELECT s.*, COUNT(CASE WHEN ar.status='present' THEN 1 END) as present_count, COUNT(ar.id) as total_count
+       FROM attendance_sessions s
+       LEFT JOIN attendance_records ar ON ar.session_id = s.id
+       GROUP BY s.id ORDER BY s.date DESC LIMIT 20`
+    : `SELECT s.*, COUNT(CASE WHEN ar.status='present' THEN 1 END) as present_count, COUNT(ar.id) as total_count
+       FROM attendance_sessions s
+       LEFT JOIN attendance_records ar ON ar.session_id = s.id
+       WHERE s.section = ? OR s.section = 'all'
+       GROUP BY s.id ORDER BY s.date DESC LIMIT 20`
+
+  const sessions = sectionFilter === 'all'
+    ? await db.prepare(sessionsQuery).all()
+    : await db.prepare(sessionsQuery).bind(sectionFilter).all()
+
+  // 出席率總計
+  const overallStats = await db.prepare(`
+    SELECT
+      COUNT(DISTINCT s.id) as session_count,
+      COUNT(CASE WHEN ar.status='present' THEN 1 END) as total_present,
+      COUNT(ar.id) as total_records
+    FROM attendance_sessions s
+    LEFT JOIN attendance_records ar ON ar.session_id = s.id
+  `).first() as any
+
+  const overallRate = overallStats?.total_records > 0
+    ? Math.round(overallStats.total_present / overallStats.total_records * 100)
+    : 0
+
+  const sectionTabs = [
+    { key: 'all', label: '全部' },
+    { key: 'junior', label: '童軍' },
+    { key: 'senior', label: '行義童軍' },
+    { key: 'rover', label: '羅浮童軍' },
+  ].map(tab => `
+    <a href="/attendance?section=${tab.key}"
+      class="px-4 py-2 rounded-lg text-sm font-medium transition-colors ${sectionFilter === tab.key
+        ? 'bg-green-700 text-white shadow'
+        : 'bg-white text-gray-600 hover:bg-green-50 border border-gray-200'}">
+      ${tab.label}
+    </a>
+  `).join('')
+
+  const sectionLabel: Record<string, string> = { junior: '童軍', senior: '行義童軍', rover: '羅浮童軍', all: '全體' }
+
+  const sessionRows = (sessions.results as any[]).map((s: any) => {
+    const rate = s.total_count > 0 ? Math.round(s.present_count / s.total_count * 100) : 0
+    const rateColor = rate >= 80 ? 'text-green-700 bg-green-50 border-green-200'
+      : rate >= 60 ? 'text-amber-700 bg-amber-50 border-amber-200'
+      : 'text-red-600 bg-red-50 border-red-200'
+    const dateStr = s.date ? new Date(s.date).toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric' }) : ''
+    return `
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 hover:shadow-md transition-shadow">
+      <div class="flex items-start justify-between gap-3 flex-wrap">
+        <div class="flex-1 min-w-0">
+          <h3 class="font-bold text-gray-800 truncate">${s.title}</h3>
+          ${s.topic ? `<p class="text-sm text-gray-500 mt-0.5">📋 ${s.topic}</p>` : ''}
+          <div class="flex items-center gap-3 mt-2 text-xs text-gray-400 flex-wrap">
+            <span>📅 ${dateStr}</span>
+            <span class="bg-blue-50 text-blue-600 border border-blue-100 px-2 py-0.5 rounded-full">${sectionLabel[s.section] || s.section}</span>
+          </div>
+        </div>
+        <div class="flex flex-col items-end flex-shrink-0">
+          <span class="text-2xl font-bold ${rateColor.split(' ')[0]}">${rate}%</span>
+          <span class="text-xs text-gray-400">${s.present_count}/${s.total_count} 出席</span>
+          <span class="mt-1 text-xs border px-2 py-0.5 rounded-full ${rateColor}">
+            ${rate >= 80 ? '出席良好' : rate >= 60 ? '尚可' : s.total_count === 0 ? '未記錄' : '出席偏低'}
+          </span>
+        </div>
+      </div>
+    </div>`
+  }).join('')
+
+  return c.html(`${pageHead('出席記錄 - 林口康橋童軍團')}
+<body class="bg-gray-50">
+  ${navBar(settings)}
+  <div class="hero-gradient text-white py-14 px-4">
+    <div class="max-w-5xl mx-auto">
+      <div class="flex items-center gap-2 text-green-300 text-sm mb-4">
+        <a href="/" class="hover:text-white transition-colors">首頁</a>
+        <span>›</span>
+        <span class="text-white">出席記錄</span>
+      </div>
+      <div class="flex items-center gap-4">
+        <span class="text-5xl">📅</span>
+        <div>
+          <h1 class="text-3xl md:text-4xl font-bold">出席記錄查詢</h1>
+          <p class="text-green-200 mt-1">Attendance Records · 團集會出席情況</p>
+        </div>
+      </div>
+      <div class="mt-6 flex gap-8 text-center">
+        <div>
+          <div class="text-3xl font-bold">${overallStats?.session_count || 0}</div>
+          <div class="text-green-300 text-xs mt-0.5">累計場次</div>
+        </div>
+        <div class="w-px bg-green-600"></div>
+        <div>
+          <div class="text-3xl font-bold">${overallRate}%</div>
+          <div class="text-green-300 text-xs mt-0.5">整體出席率</div>
+        </div>
+        <div class="w-px bg-green-600"></div>
+        <div>
+          <div class="text-3xl font-bold">${overallStats?.total_present || 0}</div>
+          <div class="text-green-300 text-xs mt-0.5">累計出席人次</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="max-w-5xl mx-auto px-4 py-10">
+    <!-- 篩選標籤 -->
+    <div class="flex gap-2 flex-wrap mb-6">
+      ${sectionTabs}
+    </div>
+    <!-- 場次列表 -->
+    <div class="grid gap-3">
+      ${sessionRows || `<div class="text-center py-20 text-gray-400">
+        <div class="text-5xl mb-4">📭</div>
+        <p class="text-lg">尚無出席記錄</p>
+      </div>`}
+    </div>
+    ${sessions.results.length >= 20 ? `
+    <div class="text-center mt-8 text-gray-400 text-sm">
+      顯示最近 20 場 · 更多記錄請洽管理員
+    </div>` : ''}
+  </div>
+  ${pageFooter(settings)}
+`)
+})
+
 // ===================== 分組首頁（學期列表）=====================
 frontendRoutes.get('/group/:slug', async (c) => {
   const db = c.env.DB
@@ -295,6 +773,9 @@ function navBar(settings: Record<string, string>, groups: any[] = []) {
         <a href="/#groups" class="hover:text-amber-300 transition-colors hidden md:inline">分組</a>
         <a href="/#activities" class="hover:text-amber-300 transition-colors hidden md:inline">活動</a>
         <a href="/honor" class="hover:text-amber-300 transition-colors hidden md:inline">🏅 榮譽榜</a>
+        <a href="/coaches" class="hover:text-amber-300 transition-colors hidden md:inline">🧢 教練團</a>
+        <a href="/stats" class="hover:text-amber-300 transition-colors hidden md:inline">📊 統計</a>
+        <a href="/attendance" class="hover:text-amber-300 transition-colors hidden md:inline">📅 出席</a>
         <a href="/#about" class="hover:text-amber-300 transition-colors hidden md:inline">關於我們</a>
         <a href="/admin" class="bg-amber-500 hover:bg-amber-400 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">⚙ 後台管理</a>
       </div>
