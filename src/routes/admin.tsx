@@ -1181,6 +1181,11 @@ function adminLayout(title: string, content: string) {
         <a href="/admin/members" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('成員') ? 'bg-green-700' : ''}">
           <span>🪖</span> 成員管理
         </a>
+        <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
+          <a href="/admin/members/import" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('匯入') ? 'bg-green-700' : 'text-green-200'}">
+            📥 批次匯入
+          </a>
+        </div>
         <a href="/admin/attendance" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('出席') ? 'bg-green-700' : ''}">
           <span>📅</span> 出席管理
         </a>
@@ -1194,6 +1199,9 @@ function adminLayout(title: string, content: string) {
           <span>🧢</span> 教練團
         </a>
         <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-1 mt-2">系統</div>
+        <a href="/admin/stats" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('統計') ? 'bg-green-700' : ''}">
+          <span>📊</span> 統計報表
+        </a>
         <a href="/admin/settings" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '網站設定' ? 'bg-green-700' : ''}">
           <span>⚙️</span> 網站設定
         </a>
@@ -1252,7 +1260,7 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
   const rows = members.results.map((m: any) => `
     <tr class="hover:bg-gray-50 border-b">
       <td class="px-4 py-3">
-        <div class="font-medium text-gray-800">${m.chinese_name}</div>
+        <a href="/admin/members/${m.id}" class="font-medium text-green-700 hover:text-green-900 hover:underline">${m.chinese_name}</a>
         ${m.english_name ? `<div class="text-xs text-gray-400">${m.english_name}</div>` : ''}
       </td>
       <td class="px-4 py-3 text-sm text-gray-600">${m.section}</td>
@@ -2777,4 +2785,645 @@ adminRoutes.delete('/api/admin/group-alumni/:id', authMiddleware, async (c) => {
   const db = c.env.DB
   await db.prepare(`DELETE FROM group_alumni WHERE id=?`).bind(c.req.param('id')).run()
   return c.json({ success: true })
+})
+
+// ===================== 成員 CSV 批次匯入 =====================
+adminRoutes.get('/members/import', authMiddleware, async (c) => {
+  return c.html(adminLayout('成員批次匯入', `
+    <div class="max-w-3xl">
+      <p class="text-sm text-gray-500 mb-6">
+        上傳 CSV 檔案批次匯入成員資料。CSV 格式：<code class="bg-gray-100 px-1 rounded text-xs">中文姓名,英文姓名,性別,組別,小隊,職位,級別,所屬團,電話,Email,家長姓名,備注</code>
+      </p>
+
+      <!-- CSV 範本下載 -->
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="font-medium text-blue-800 text-sm">📋 CSV 範本</div>
+            <div class="text-xs text-blue-600 mt-1">第一列為欄位名稱，從第二列開始填入資料</div>
+          </div>
+          <button onclick="downloadTemplate()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm">下載範本</button>
+        </div>
+      </div>
+
+      <!-- 上傳區域 -->
+      <div class="bg-white rounded-xl shadow-sm p-6 mb-6">
+        <h3 class="font-semibold text-gray-800 mb-4">📤 上傳 CSV 檔案</h3>
+        <div id="drop-zone" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-green-400 transition-colors cursor-pointer" onclick="document.getElementById('csv-file').click()">
+          <div class="text-4xl mb-3">📁</div>
+          <div class="text-gray-600 font-medium">點擊選擇 CSV 檔案</div>
+          <div class="text-sm text-gray-400 mt-1">或將檔案拖曳至此</div>
+          <input type="file" id="csv-file" accept=".csv" class="hidden" onchange="previewCSV(event)">
+        </div>
+      </div>
+
+      <!-- 預覽區域 -->
+      <div id="preview-section" class="hidden bg-white rounded-xl shadow-sm p-6 mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-semibold text-gray-800">👁️ 資料預覽</h3>
+          <span id="preview-count" class="text-sm text-gray-500"></span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead id="preview-head" class="bg-gray-50"></thead>
+            <tbody id="preview-body"></tbody>
+          </table>
+        </div>
+        <div id="preview-msg" class="hidden mt-3 p-3 rounded-lg text-sm"></div>
+        <div class="flex gap-3 mt-4">
+          <button onclick="importCSV()" class="bg-green-700 hover:bg-green-600 text-white px-6 py-2 rounded-lg text-sm font-medium">✅ 確認匯入</button>
+          <button onclick="resetImport()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm">重新選擇</button>
+        </div>
+      </div>
+
+      <!-- 匯入結果 -->
+      <div id="result-section" class="hidden bg-white rounded-xl shadow-sm p-6">
+        <h3 class="font-semibold text-gray-800 mb-4">📊 匯入結果</h3>
+        <div id="result-content"></div>
+        <a href="/admin/members" class="inline-block mt-4 bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm">← 返回成員列表</a>
+      </div>
+    </div>
+
+    <script>
+    const COLUMNS = ['中文姓名','英文姓名','性別','組別','小隊','職位','級別','所屬團','電話','Email','家長姓名','備注']
+    const COLUMN_KEYS = ['chinese_name','english_name','gender','section','unit_name','role_name','rank_level','troop','phone','email','parent_name','notes']
+    let parsedRows = []
+
+    function downloadTemplate() {
+      const header = COLUMNS.join(',')
+      const example = '王小明,Wang Xiaoming,男,童軍,台灣小隊,隊員,初級童軍,54團,0912345678,test@email.com,王大明,'
+      const csv = '\\uFEFF' + header + '\\n' + example
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = 'members_template.csv'; a.click()
+    }
+
+    function previewCSV(event) {
+      const file = event.target.files[0]
+      if (!file) return
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const text = e.target.result.replace(/^\uFEFF/, '') // remove BOM
+        const lines = text.split('\\n').filter(l => l.trim())
+        if (lines.length < 2) {
+          alert('CSV 內容不足，請確認格式'); return
+        }
+        const headers = lines[0].split(',').map(h => h.trim())
+        parsedRows = []
+        const errors = []
+        for (let i = 1; i < lines.length; i++) {
+          const vals = lines[i].split(',').map(v => v.trim())
+          if (vals.every(v => !v)) continue // 跳過空行
+          const row = {}
+          COLUMN_KEYS.forEach((key, idx) => { row[key] = vals[idx] || '' })
+          if (!row.chinese_name) { errors.push('第' + (i+1) + '列：姓名為空'); continue }
+          // 設預設值
+          if (!row.section) row.section = '童軍'
+          if (!row.role_name) row.role_name = '隊員'
+          if (!row.troop) row.troop = '54團'
+          parsedRows.push(row)
+        }
+
+        // 顯示預覽
+        const head = document.getElementById('preview-head')
+        const body = document.getElementById('preview-body')
+        head.innerHTML = '<tr>' + ['姓名','組別','小隊','職位','級別'].map(h => '<th class="px-3 py-2 text-left text-xs font-semibold text-gray-500 border-b">'+h+'</th>').join('') + '</tr>'
+        body.innerHTML = parsedRows.slice(0,10).map(r => '<tr class="border-b hover:bg-gray-50"><td class="px-3 py-2">'+r.chinese_name+'</td><td class="px-3 py-2">'+r.section+'</td><td class="px-3 py-2">'+r.unit_name+'</td><td class="px-3 py-2">'+r.role_name+'</td><td class="px-3 py-2">'+r.rank_level+'</td></tr>').join('')
+        if (parsedRows.length > 10) body.innerHTML += '<tr><td colspan="5" class="px-3 py-2 text-center text-gray-400 text-xs">...（共 '+parsedRows.length+' 筆，僅顯示前10筆）</td></tr>'
+
+        document.getElementById('preview-count').textContent = '共 ' + parsedRows.length + ' 筆資料'
+        document.getElementById('preview-section').classList.remove('hidden')
+        const msg = document.getElementById('preview-msg')
+        if (errors.length > 0) {
+          msg.className = 'mt-3 p-3 rounded-lg text-sm bg-yellow-50 text-yellow-700 border border-yellow-200'
+          msg.textContent = '⚠️ 已跳過 ' + errors.length + ' 列錯誤資料：' + errors.slice(0,3).join('、')
+          msg.classList.remove('hidden')
+        }
+      }
+      reader.readAsText(file, 'UTF-8')
+    }
+
+    async function importCSV() {
+      if (parsedRows.length === 0) { alert('無資料可匯入'); return }
+      const btn = event.target
+      btn.disabled = true; btn.textContent = '匯入中...'
+      const results = { success: 0, skip: 0, error: [] }
+      for (const row of parsedRows) {
+        try {
+          const res = await fetch('/api/members', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chinese_name: row.chinese_name,
+              english_name: row.english_name || null,
+              gender: row.gender || null,
+              section: row.section || '童軍',
+              unit_name: row.unit_name || null,
+              role_name: row.role_name || '隊員',
+              rank_level: row.rank_level || null,
+              troop: row.troop || '54團',
+              phone: row.phone || null,
+              email: row.email || null,
+              parent_name: row.parent_name || null,
+              notes: row.notes || null,
+              membership_status: 'ACTIVE'
+            })
+          })
+          const data = await res.json()
+          if (data.success) results.success++
+          else results.error.push(row.chinese_name + ': ' + data.error)
+        } catch(e) {
+          results.error.push(row.chinese_name + ': 網路錯誤')
+        }
+      }
+      document.getElementById('preview-section').classList.add('hidden')
+      const resultEl = document.getElementById('result-content')
+      resultEl.innerHTML = \`
+        <div class="grid grid-cols-3 gap-4 mb-4">
+          <div class="bg-green-50 rounded-xl p-4 text-center">
+            <div class="text-3xl font-bold text-green-700">\${results.success}</div>
+            <div class="text-xs text-gray-500 mt-1">成功匯入</div>
+          </div>
+          <div class="bg-red-50 rounded-xl p-4 text-center">
+            <div class="text-3xl font-bold text-red-600">\${results.error.length}</div>
+            <div class="text-xs text-gray-500 mt-1">失敗</div>
+          </div>
+          <div class="bg-blue-50 rounded-xl p-4 text-center">
+            <div class="text-3xl font-bold text-blue-600">\${parsedRows.length}</div>
+            <div class="text-xs text-gray-500 mt-1">總計</div>
+          </div>
+        </div>
+        \${results.error.length > 0 ? '<div class="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700"><strong>失敗記錄：</strong><br>' + results.error.slice(0,10).join('<br>') + '</div>' : ''}
+      \`
+      document.getElementById('result-section').classList.remove('hidden')
+      btn.disabled = false; btn.textContent = '✅ 確認匯入'
+    }
+
+    function resetImport() {
+      parsedRows = []
+      document.getElementById('csv-file').value = ''
+      document.getElementById('preview-section').classList.add('hidden')
+      document.getElementById('result-section').classList.add('hidden')
+    }
+
+    // Drag & Drop
+    const dz = document.getElementById('drop-zone')
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('border-green-400','bg-green-50') })
+    dz.addEventListener('dragleave', () => dz.classList.remove('border-green-400','bg-green-50'))
+    dz.addEventListener('drop', e => {
+      e.preventDefault(); dz.classList.remove('border-green-400','bg-green-50')
+      const file = e.dataTransfer.files[0]
+      if (file) previewCSV({ target: { files: [file] } })
+    })
+    </script>
+  `))
+})
+
+// ===================== 成員詳細頁面 =====================
+adminRoutes.get('/members/:id', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const member = await db.prepare(`SELECT * FROM members WHERE id=?`).bind(id).first() as any
+  if (!member) return c.redirect('/admin/members')
+
+  const progress = await db.prepare(`
+    SELECT * FROM progress_records WHERE member_id=? ORDER BY awarded_at DESC
+  `).bind(id).all()
+
+  const attendance = await db.prepare(`
+    SELECT ar.*, ats.title, ats.date, ats.section, ats.topic
+    FROM attendance_records ar
+    JOIN attendance_sessions ats ON ats.id = ar.session_id
+    WHERE ar.member_id=?
+    ORDER BY ats.date DESC LIMIT 20
+  `).bind(id).all()
+
+  const leaves = await db.prepare(`
+    SELECT * FROM leave_requests WHERE member_id=? ORDER BY created_at DESC
+  `).bind(id).all()
+
+  const leaderAwards = await db.prepare(`
+    SELECT mla.*, la.name as award_name, la.category, la.level
+    FROM member_leader_awards mla
+    JOIN leader_awards la ON la.id = mla.award_id
+    WHERE mla.member_id=?
+    ORDER BY la.level ASC
+  `).bind(id).all()
+
+  // 出席統計
+  const totalSessions = attendance.results.length
+  const presentCount = attendance.results.filter((r: any) => r.status === 'present').length
+  const attendRate = totalSessions > 0 ? Math.round(presentCount / totalSessions * 100) : 0
+
+  const statusBadge = (s: string) => {
+    const map: Record<string,string> = {present:'bg-green-100 text-green-700',absent:'bg-red-100 text-red-700',leave:'bg-yellow-100 text-yellow-700',late:'bg-orange-100 text-orange-700'}
+    const label: Record<string,string> = {present:'出席',absent:'缺席',leave:'請假',late:'遲到'}
+    return `<span class="px-2 py-0.5 rounded-full text-xs font-medium ${map[s]||'bg-gray-100 text-gray-600'}">${label[s]||s}</span>`
+  }
+
+  const progressRows = progress.results.map((r: any) => `
+    <div class="flex items-center gap-3 py-2 border-b last:border-0">
+      <span class="px-2 py-0.5 rounded-full text-xs ${r.record_type==='rank'?'bg-purple-100 text-purple-700':r.record_type==='badge'?'bg-blue-100 text-blue-700':'bg-orange-100 text-orange-700'}">
+        ${r.record_type==='rank'?'晉級':r.record_type==='badge'?'徽章':'成就'}
+      </span>
+      <span class="text-sm font-medium">${r.award_name}</span>
+      <span class="text-xs text-gray-400 ml-auto">${r.year_label ? r.year_label+'學年' : ''} ${r.awarded_at ? r.awarded_at.substring(0,10) : ''}</span>
+    </div>
+  `).join('')
+
+  const attendanceRows = attendance.results.map((r: any) => `
+    <tr class="hover:bg-gray-50 border-b">
+      <td class="px-3 py-2 text-sm">${r.date}</td>
+      <td class="px-3 py-2 text-sm">${r.title}</td>
+      <td class="px-3 py-2">${statusBadge(r.status)}</td>
+      <td class="px-3 py-2 text-xs text-gray-400">${r.note || ''}</td>
+    </tr>
+  `).join('')
+
+  const leaderAwardRows = leaderAwards.results.map((r: any) => `
+    <div class="flex items-center gap-3 py-2 border-b last:border-0">
+      <span class="w-6 h-6 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center text-xs font-bold">${r.level}</span>
+      <span class="text-sm font-medium">${r.award_name}</span>
+      <span class="text-xs text-gray-400 ml-auto">${r.year_label ? r.year_label+'學年' : ''}</span>
+      <button onclick="deleteLeaderAward('${r.id}')" class="text-red-400 hover:text-red-600 text-xs ml-2">🗑</button>
+    </div>
+  `).join('')
+
+  const sections = ['童軍','行義童軍','羅浮童軍','服務員','幼童軍','稚齡童軍']
+  const ranks = ['','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮']
+
+  return c.html(adminLayout(`成員：${member.chinese_name}`, `
+    <div class="mb-4">
+      <a href="/admin/members" class="text-sm text-green-700 hover:underline">← 返回成員列表</a>
+    </div>
+
+    <div class="grid grid-cols-3 gap-6">
+      <!-- 左：基本資料 -->
+      <div class="col-span-1 space-y-4">
+        <div class="bg-white rounded-xl shadow-sm p-5">
+          <div class="flex items-start justify-between mb-4">
+            <div>
+              <div class="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-2xl font-bold text-green-700">${member.chinese_name.charAt(0)}</div>
+            </div>
+            <button onclick="document.getElementById('edit-modal').classList.remove('hidden')" class="text-blue-600 hover:text-blue-800 text-xs">✏️ 編輯</button>
+          </div>
+          <div class="text-xl font-bold text-gray-800">${member.chinese_name}</div>
+          ${member.english_name ? `<div class="text-sm text-gray-400">${member.english_name}</div>` : ''}
+          <div class="mt-3 space-y-2">
+            <div class="flex justify-between text-sm"><span class="text-gray-500">組別</span><span class="font-medium">${member.section}</span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">小隊</span><span>${member.unit_name||'-'}</span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">職位</span><span>${member.role_name||'-'}</span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">級別</span><span>${member.rank_level||'-'}</span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">所屬團</span><span>${member.troop||'-'}</span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">性別</span><span>${member.gender||'-'}</span></div>
+            ${member.phone ? `<div class="flex justify-between text-sm"><span class="text-gray-500">電話</span><span>${member.phone}</span></div>` : ''}
+            ${member.email ? `<div class="flex justify-between text-sm"><span class="text-gray-500">Email</span><a href="mailto:${member.email}" class="text-blue-600 text-xs">${member.email}</a></div>` : ''}
+            ${member.parent_name ? `<div class="flex justify-between text-sm"><span class="text-gray-500">家長</span><span>${member.parent_name}</span></div>` : ''}
+          </div>
+        </div>
+
+        <!-- 出席統計 -->
+        <div class="bg-white rounded-xl shadow-sm p-5">
+          <div class="text-sm font-semibold text-gray-700 mb-3">📊 出席統計</div>
+          <div class="grid grid-cols-3 gap-3 text-center">
+            <div><div class="text-2xl font-bold text-green-700">${presentCount}</div><div class="text-xs text-gray-400">出席</div></div>
+            <div><div class="text-2xl font-bold text-red-500">${totalSessions - presentCount}</div><div class="text-xs text-gray-400">缺席</div></div>
+            <div><div class="text-2xl font-bold ${attendRate>=80?'text-green-600':attendRate>=60?'text-yellow-600':'text-red-500'}">${attendRate}%</div><div class="text-xs text-gray-400">出席率</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右：詳細資訊 -->
+      <div class="col-span-2 space-y-4">
+        <!-- 進程/榮譽 -->
+        <div class="bg-white rounded-xl shadow-sm p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-semibold text-gray-700">🏅 進程/榮譽記錄</div>
+            <button onclick="document.getElementById('add-prog-modal').classList.remove('hidden')" class="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1 rounded-lg">+ 新增</button>
+          </div>
+          <div>${progressRows || '<div class="text-sm text-gray-400 py-4 text-center">尚無進程記錄</div>'}</div>
+        </div>
+
+        <!-- 領袖獎項 -->
+        <div class="bg-white rounded-xl shadow-sm p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-semibold text-gray-700">🌟 領袖/晉級進程</div>
+            <button onclick="document.getElementById('add-la-modal').classList.remove('hidden')" class="text-xs bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1 rounded-lg">+ 新增</button>
+          </div>
+          <div>${leaderAwardRows || '<div class="text-sm text-gray-400 py-4 text-center">尚無領袖獎項記錄</div>'}</div>
+        </div>
+
+        <!-- 出席記錄 -->
+        <div class="bg-white rounded-xl shadow-sm p-5">
+          <div class="text-sm font-semibold text-gray-700 mb-3">📅 近期出席記錄（最近20筆）</div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50 border-b">
+                <tr>
+                  <th class="px-3 py-2 text-left text-xs text-gray-500">日期</th>
+                  <th class="px-3 py-2 text-left text-xs text-gray-500">場次</th>
+                  <th class="px-3 py-2 text-left text-xs text-gray-500">狀態</th>
+                  <th class="px-3 py-2 text-left text-xs text-gray-500">備注</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${attendanceRows || '<tr><td colspan="4" class="py-4 text-center text-gray-400">尚無出席記錄</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 編輯成員 Modal -->
+    <div id="edit-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto p-6">
+        <h3 class="text-lg font-bold mb-4">編輯成員資料</h3>
+        ${memberFormFields('edit')}
+        <div class="flex gap-3 mt-4">
+          <button onclick="saveMemberEdit()" class="flex-1 bg-green-700 hover:bg-green-600 text-white py-2 rounded-lg text-sm font-medium">儲存</button>
+          <button onclick="document.getElementById('edit-modal').classList.add('hidden')" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新增進程 Modal -->
+    <div id="add-prog-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-bold mb-4">新增進程/榮譽記錄</h3>
+        <div class="space-y-3">
+          <div><label class="block text-xs font-medium text-gray-700 mb-1">類型</label>
+            <select id="prog-type" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="rank">晉級</option><option value="badge">徽章</option><option value="achievement">成就</option>
+            </select>
+          </div>
+          <div><label class="block text-xs font-medium text-gray-700 mb-1">獎項名稱 *</label>
+            <input id="prog-award" type="text" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：高級童軍">
+          </div>
+          <div><label class="block text-xs font-medium text-gray-700 mb-1">學年度</label>
+            <input id="prog-year" type="text" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="115">
+          </div>
+          <div><label class="block text-xs font-medium text-gray-700 mb-1">日期</label>
+            <input id="prog-date" type="date" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div><label class="block text-xs font-medium text-gray-700 mb-1">備注</label>
+            <textarea id="prog-notes" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm"></textarea>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button onclick="addProgress()" class="flex-1 bg-green-700 text-white py-2 rounded-lg text-sm">儲存</button>
+          <button onclick="document.getElementById('add-prog-modal').classList.add('hidden')" class="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新增領袖獎項 Modal -->
+    <div id="add-la-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-bold mb-4">新增領袖進程獎項</h3>
+        <div class="space-y-3">
+          <div><label class="block text-xs font-medium text-gray-700 mb-1">獎項</label>
+            <select id="la-award" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="la_rank1">初級童軍（Lv.1）</option>
+              <option value="la_rank2">中級童軍（Lv.2）</option>
+              <option value="la_rank3">高級童軍（Lv.3）</option>
+              <option value="la_rank4">獅級童軍（Lv.4）</option>
+              <option value="la_rank5">長城童軍（Lv.5）</option>
+              <option value="la_rank6">國花童軍（Lv.6）</option>
+              <option value="la_rank7">見習羅浮（Lv.7）</option>
+              <option value="la_rank8">授銜羅浮（Lv.8）</option>
+              <option value="la_rank9">服務羅浮（Lv.9）</option>
+              <option value="la_senior1">行義初級（Lv.1）</option>
+              <option value="la_senior2">行義中級（Lv.2）</option>
+              <option value="la_senior3">行義高級（Lv.3）</option>
+            </select>
+          </div>
+          <div><label class="block text-xs font-medium text-gray-700 mb-1">學年度</label>
+            <input id="la-year" type="text" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="115">
+          </div>
+          <div><label class="block text-xs font-medium text-gray-700 mb-1">備注</label>
+            <textarea id="la-notes" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm"></textarea>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button onclick="addLeaderAward()" class="flex-1 bg-yellow-600 text-white py-2 rounded-lg text-sm">儲存</button>
+          <button onclick="document.getElementById('add-la-modal').classList.add('hidden')" class="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    const MEMBER_ID = '${member.id}'
+    const MEMBER_DATA = ${JSON.stringify({
+      chinese_name: member.chinese_name,
+      english_name: member.english_name,
+      gender: member.gender,
+      section: member.section,
+      unit_name: member.unit_name,
+      role_name: member.role_name,
+      rank_level: member.rank_level,
+      troop: member.troop,
+      phone: member.phone,
+      email: member.email,
+      parent_name: member.parent_name,
+      notes: member.notes
+    })}
+
+    // 填入編輯表單
+    document.addEventListener('DOMContentLoaded', () => {
+      Object.keys(MEMBER_DATA).forEach(k => {
+        const el = document.getElementById('edit-' + k)
+        if (el) el.value = MEMBER_DATA[k] || ''
+      })
+    })
+
+    async function saveMemberEdit() {
+      const data = {}
+      ['chinese_name','english_name','gender','section','unit_name','role_name','rank_level','troop','phone','email','parent_name','notes'].forEach(k => {
+        data[k] = document.getElementById('edit-' + k).value
+      })
+      const res = await fetch('/api/members/' + MEMBER_ID, { method: 'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) })
+      if (res.ok) location.reload(); else alert('儲存失敗')
+    }
+
+    async function addProgress() {
+      const award = document.getElementById('prog-award').value.trim()
+      if (!award) { alert('請填寫獎項名稱'); return }
+      const res = await fetch('/api/progress', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          member_id: MEMBER_ID,
+          record_type: document.getElementById('prog-type').value,
+          award_name: award,
+          year_label: document.getElementById('prog-year').value || null,
+          awarded_at: document.getElementById('prog-date').value || null,
+          notes: document.getElementById('prog-notes').value || null
+        })
+      })
+      if (res.ok) location.reload(); else alert('新增失敗')
+    }
+
+    async function addLeaderAward() {
+      const awardId = document.getElementById('la-award').value
+      const res = await fetch('/api/leader-awards/member', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          member_id: MEMBER_ID,
+          award_id: awardId,
+          year_label: document.getElementById('la-year').value || null,
+          notes: document.getElementById('la-notes').value || null
+        })
+      })
+      const data = await res.json()
+      if (data.success) location.reload(); else alert(data.error || '新增失敗')
+    }
+
+    async function deleteLeaderAward(id) {
+      if (!confirm('確定刪除？')) return
+      await fetch('/api/leader-awards/member/' + id, { method: 'DELETE' })
+      location.reload()
+    }
+    </script>
+  `))
+})
+
+// ===================== 統計報表頁面 =====================
+adminRoutes.get('/stats', authMiddleware, async (c) => {
+  const db = c.env.DB
+
+  // 各組別人數
+  const sectionStats = await db.prepare(`
+    SELECT section, COUNT(*) as count FROM members WHERE membership_status='ACTIVE' GROUP BY section ORDER BY count DESC
+  `).all()
+
+  // 總人數
+  const total = await db.prepare(`SELECT COUNT(*) as c FROM members WHERE membership_status='ACTIVE'`).first() as any
+
+  // 近期活動出席率（最近10場）
+  const recentSessions = await db.prepare(`
+    SELECT ats.title, ats.date, ats.section,
+      COUNT(ar.id) as total_count,
+      SUM(CASE WHEN ar.status='present' THEN 1 ELSE 0 END) as present_count
+    FROM attendance_sessions ats
+    LEFT JOIN attendance_records ar ON ar.session_id = ats.id
+    GROUP BY ats.id ORDER BY ats.date DESC LIMIT 10
+  `).all()
+
+  // 進程統計
+  const progressStats = await db.prepare(`
+    SELECT record_type, COUNT(*) as count FROM progress_records GROUP BY record_type
+  `).all()
+
+  // 最近10筆進程
+  const recentProgress = await db.prepare(`
+    SELECT pr.*, m.chinese_name, m.section FROM progress_records pr
+    JOIN members m ON m.id = pr.member_id
+    ORDER BY pr.awarded_at DESC LIMIT 10
+  `).all()
+
+  // 教練人數
+  const coachTotal = await db.prepare(`SELECT COUNT(*) as c FROM coach_members`).first() as any
+
+  // 各組別出席率
+  const sectionColors: Record<string,string> = {'童軍':'bg-blue-500','行義童軍':'bg-green-500','羅浮童軍':'bg-purple-500','全體':'bg-gray-400'}
+
+  const sectionCards = sectionStats.results.map((s: any) => `
+    <div class="bg-white rounded-xl shadow-sm p-5 text-center">
+      <div class="text-3xl font-bold text-green-700">${s.count}</div>
+      <div class="text-sm text-gray-600 mt-1">${s.section}</div>
+    </div>
+  `).join('')
+
+  const sessionRows = recentSessions.results.map((s: any) => {
+    const rate = s.total_count > 0 ? Math.round(s.present_count / s.total_count * 100) : 0
+    return `
+      <tr class="border-b hover:bg-gray-50">
+        <td class="px-4 py-2 text-sm">${s.date}</td>
+        <td class="px-4 py-2 text-sm">${s.title}</td>
+        <td class="px-4 py-2 text-sm">${s.section}</td>
+        <td class="px-4 py-2 text-sm">${s.present_count}/${s.total_count}</td>
+        <td class="px-4 py-2">
+          <div class="flex items-center gap-2">
+            <div class="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div class="h-full rounded-full ${rate>=80?'bg-green-500':rate>=60?'bg-yellow-400':'bg-red-400'}" style="width:${rate}%"></div>
+            </div>
+            <span class="text-xs font-medium ${rate>=80?'text-green-600':rate>=60?'text-yellow-600':'text-red-500'}">${rate}%</span>
+          </div>
+        </td>
+      </tr>
+    `
+  }).join('')
+
+  const progressTypeMap: Record<string,string> = {rank:'晉級',badge:'徽章',achievement:'成就'}
+  const progressTypeColor: Record<string,string> = {rank:'text-purple-700 bg-purple-50',badge:'text-blue-700 bg-blue-50',achievement:'text-orange-700 bg-orange-50'}
+  const progressCards = progressStats.results.map((p: any) => `
+    <div class="rounded-xl p-4 text-center ${progressTypeColor[p.record_type]||'bg-gray-50 text-gray-700'}">
+      <div class="text-2xl font-bold">${p.count}</div>
+      <div class="text-xs mt-1">${progressTypeMap[p.record_type]||p.record_type}</div>
+    </div>
+  `).join('')
+
+  const recentProgressRows = recentProgress.results.map((r: any) => `
+    <div class="flex items-center gap-3 py-2 border-b last:border-0">
+      <span class="px-2 py-0.5 rounded-full text-xs ${r.record_type==='rank'?'bg-purple-100 text-purple-700':r.record_type==='badge'?'bg-blue-100 text-blue-700':'bg-orange-100 text-orange-700'}">
+        ${progressTypeMap[r.record_type]||r.record_type}
+      </span>
+      <span class="text-sm font-medium">${r.chinese_name}</span>
+      <span class="text-sm text-gray-600">${r.award_name}</span>
+      <span class="text-xs text-gray-400 ml-auto">${r.awarded_at ? r.awarded_at.substring(0,10) : '-'}</span>
+    </div>
+  `).join('')
+
+  return c.html(adminLayout('統計報表', `
+    <!-- 總覽卡片 -->
+    <div class="grid grid-cols-4 gap-4 mb-6">
+      <div class="bg-white rounded-xl shadow-sm p-5 text-center">
+        <div class="text-3xl font-bold text-green-700">${total?.c || 0}</div>
+        <div class="text-sm text-gray-500 mt-1">在籍成員</div>
+      </div>
+      ${sectionCards}
+      <div class="bg-white rounded-xl shadow-sm p-5 text-center">
+        <div class="text-3xl font-bold text-blue-600">${coachTotal?.c || 0}</div>
+        <div class="text-sm text-gray-500 mt-1">教練人數</div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-6">
+      <!-- 近期出席率 -->
+      <div class="bg-white rounded-xl shadow-sm p-5">
+        <h3 class="font-semibold text-gray-800 mb-4">📅 近期場次出席率</h3>
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead class="bg-gray-50 border-b">
+              <tr>
+                <th class="px-4 py-2 text-left text-xs text-gray-500">日期</th>
+                <th class="px-4 py-2 text-left text-xs text-gray-500">場次</th>
+                <th class="px-4 py-2 text-left text-xs text-gray-500">組別</th>
+                <th class="px-4 py-2 text-left text-xs text-gray-500">人數</th>
+                <th class="px-4 py-2 text-left text-xs text-gray-500">出席率</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sessionRows || '<tr><td colspan="5" class="py-4 text-center text-gray-400">尚無出席記錄</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 右側：進程統計 + 最近進程 -->
+      <div class="space-y-4">
+        <div class="bg-white rounded-xl shadow-sm p-5">
+          <h3 class="font-semibold text-gray-800 mb-4">🏅 進程統計</h3>
+          <div class="grid grid-cols-3 gap-3">${progressCards || '<div class="col-span-3 text-center text-sm text-gray-400">尚無進程記錄</div>'}</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-5">
+          <h3 class="font-semibold text-gray-800 mb-4">🌟 最近進程記錄</h3>
+          <div>${recentProgressRows || '<div class="text-sm text-gray-400 text-center py-2">尚無記錄</div>'}</div>
+        </div>
+      </div>
+    </div>
+  `))
 })
