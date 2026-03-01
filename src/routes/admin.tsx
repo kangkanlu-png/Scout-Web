@@ -386,6 +386,7 @@ adminRoutes.get('/groups', authMiddleware, async (c) => {
       </td>
       <td class="py-3 px-4">
         <a href="/admin/groups/${g.id}/semesters" class="text-green-600 hover:text-green-800 text-sm font-medium mr-3">📂 學期/相片</a>
+        <a href="/admin/groups/${g.id}/subpages" class="text-purple-600 hover:text-purple-800 text-sm font-medium mr-3">📋 組織/幹部/名單</a>
         <button onclick="editGroup(${g.id}, ${JSON.stringify(g).replace(/"/g, '&quot;')})" class="text-blue-600 hover:text-blue-800 text-sm font-medium mr-3">編輯</button>
         <button onclick="deleteGroup(${g.id})" class="text-red-500 hover:text-red-700 text-sm font-medium">刪除</button>
       </td>
@@ -2198,3 +2199,570 @@ function coachFormFields(prefix: string) {
     </div>
   `
 }
+
+// ============================================================
+// 分組子頁面管理：組織架構 / 幹部 / 歷屆名單
+// ============================================================
+
+// 子頁面管理總覽
+adminRoutes.get('/groups/:id/subpages', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const group = await db.prepare(`SELECT * FROM scout_groups WHERE id=?`).bind(id).first() as any
+  if (!group) return c.redirect('/admin/groups')
+
+  const cadresCount = await db.prepare(`SELECT COUNT(*) as cnt FROM group_cadres WHERE group_id=?`).bind(id).first() as any
+  const alumniCount = await db.prepare(`SELECT COUNT(*) as cnt FROM group_alumni WHERE group_id=?`).bind(id).first() as any
+  const org = await db.prepare(`SELECT id FROM group_org_chart WHERE group_id=?`).bind(id).first() as any
+
+  return c.html(adminLayout(`${group.name} - 子頁面管理`, `
+    <div class="mb-6">
+      <div class="flex items-center gap-3 mb-2">
+        <a href="/admin/groups" class="text-gray-500 hover:text-gray-700 text-sm">← 返回分組管理</a>
+      </div>
+      <h2 class="text-xl font-bold text-gray-800">${group.name} · 子頁面管理</h2>
+      <p class="text-gray-500 text-sm mt-1">管理組織架構、幹部名單、歷屆成員資料</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <!-- 組織架構 -->
+      <div class="bg-white rounded-xl shadow p-6 border-t-4 border-blue-500">
+        <div class="text-3xl mb-3">🏛️</div>
+        <h3 class="text-lg font-bold text-gray-800 mb-1">組織架構</h3>
+        <p class="text-gray-500 text-sm mb-4">${org ? '✅ 已設定' : '⚠️ 尚未設定'}</p>
+        <a href="/admin/groups/${id}/org" class="block text-center bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors">
+          ${org ? '編輯組織架構' : '新增組織架構'}
+        </a>
+      </div>
+
+      <!-- 幹部管理 -->
+      <div class="bg-white rounded-xl shadow p-6 border-t-4 border-green-500">
+        <div class="text-3xl mb-3">⭐</div>
+        <h3 class="text-lg font-bold text-gray-800 mb-1">幹部名單</h3>
+        <p class="text-gray-500 text-sm mb-4">共 ${cadresCount?.cnt || 0} 筆記錄</p>
+        <a href="/admin/groups/${id}/cadres" class="block text-center bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors">
+          管理幹部名單
+        </a>
+      </div>
+
+      <!-- 歷屆名單 -->
+      <div class="bg-white rounded-xl shadow p-6 border-t-4 border-amber-500">
+        <div class="text-3xl mb-3">👥</div>
+        <h3 class="text-lg font-bold text-gray-800 mb-1">歷屆名單</h3>
+        <p class="text-gray-500 text-sm mb-4">共 ${alumniCount?.cnt || 0} 筆記錄</p>
+        <a href="/admin/groups/${id}/alumni" class="block text-center bg-amber-600 hover:bg-amber-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors">
+          管理歷屆名單
+        </a>
+      </div>
+    </div>
+
+    <div class="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-700">
+      💡 <strong>提示：</strong>設定完成後，可在前台 
+      <a href="/group/${group.slug}" target="_blank" class="underline">/group/${group.slug}</a> 
+      查看結果
+    </div>
+  `))
+})
+
+// ---- 組織架構管理 ----
+adminRoutes.get('/groups/:id/org', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const group = await db.prepare(`SELECT * FROM scout_groups WHERE id=?`).bind(id).first() as any
+  if (!group) return c.redirect('/admin/groups')
+  const org = await db.prepare(`SELECT * FROM group_org_chart WHERE group_id=?`).bind(id).first() as any
+
+  return c.html(adminLayout(`組織架構 - ${group.name}`, `
+    <div class="mb-6">
+      <a href="/admin/groups/${id}/subpages" class="text-gray-500 hover:text-gray-700 text-sm">← 返回子頁面管理</a>
+      <h2 class="text-xl font-bold text-gray-800 mt-2">${group.name} · 組織架構</h2>
+    </div>
+
+    <div class="bg-white rounded-xl shadow p-6 max-w-2xl">
+      <form id="org-form">
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-1">組織架構圖片網址</label>
+          <input type="url" id="org-image_url" value="${org?.image_url || ''}"
+            class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="https://... (圖片連結)">
+          ${org?.image_url ? `<div class="mt-2"><img src="${org.image_url}" class="max-h-40 rounded border" onerror="this.style.display='none'"></div>` : ''}
+        </div>
+        <div class="mb-5">
+          <label class="block text-sm font-medium text-gray-700 mb-1">組織說明內容（支援 HTML）</label>
+          <textarea id="org-content" rows="8"
+            class="w-full border rounded-lg px-3 py-2 text-sm font-mono"
+            placeholder="可輸入 HTML 或純文字說明...">${org?.content || ''}</textarea>
+        </div>
+        <div id="org-msg" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+        <button type="button" onclick="saveOrg(${id})"
+          class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg text-sm font-medium">
+          💾 儲存組織架構
+        </button>
+      </form>
+    </div>
+
+    <script>
+    async function saveOrg(groupId) {
+      const btn = event.target
+      const msg = document.getElementById('org-msg')
+      btn.disabled = true
+      btn.textContent = '儲存中...'
+      try {
+        const res = await fetch('/api/admin/group-org/' + groupId, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            image_url: document.getElementById('org-image_url').value.trim(),
+            content: document.getElementById('org-content').value.trim()
+          })
+        })
+        const data = await res.json()
+        msg.className = 'mb-4 p-3 rounded-lg text-sm ' + (data.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200')
+        msg.textContent = data.success ? '✅ 儲存成功！' : '❌ 儲存失敗：' + data.error
+        msg.classList.remove('hidden')
+        if (data.success) setTimeout(() => location.reload(), 1000)
+      } catch(e) {
+        msg.className = 'mb-4 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
+        msg.textContent = '❌ 網路錯誤'
+        msg.classList.remove('hidden')
+      }
+      btn.disabled = false
+      btn.textContent = '💾 儲存組織架構'
+    }
+    </script>
+  `))
+})
+
+// API: 儲存組織架構
+adminRoutes.post('/api/admin/group-org/:groupId', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const groupId = c.req.param('groupId')
+  const { image_url, content } = await c.req.json() as any
+  try {
+    const existing = await db.prepare(`SELECT id FROM group_org_chart WHERE group_id=?`).bind(groupId).first()
+    if (existing) {
+      await db.prepare(`UPDATE group_org_chart SET image_url=?, content=?, updated_at=CURRENT_TIMESTAMP WHERE group_id=?`)
+        .bind(image_url || null, content || null, groupId).run()
+    } else {
+      await db.prepare(`INSERT INTO group_org_chart (group_id, image_url, content) VALUES (?,?,?)`)
+        .bind(groupId, image_url || null, content || null).run()
+    }
+    return c.json({ success: true })
+  } catch(e: any) {
+    return c.json({ success: false, error: e.message })
+  }
+})
+
+// ---- 幹部管理 ----
+adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const group = await db.prepare(`SELECT * FROM scout_groups WHERE id=?`).bind(id).first() as any
+  if (!group) return c.redirect('/admin/groups')
+  const cadres = await db.prepare(`SELECT * FROM group_cadres WHERE group_id=? ORDER BY is_current DESC, year_label DESC, display_order ASC`).bind(id).all()
+
+  const rows = cadres.results.map((c: any) => `
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3">
+        <span class="px-2 py-0.5 rounded-full text-xs ${c.is_current ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">
+          ${c.is_current ? '現任' : c.year_label}
+        </span>
+      </td>
+      <td class="py-2 px-3 font-medium">${c.chinese_name}</td>
+      <td class="py-2 px-3 text-gray-500">${c.english_name || '-'}</td>
+      <td class="py-2 px-3"><span class="bg-green-50 text-green-700 px-2 py-0.5 rounded text-xs">${c.role}</span></td>
+      <td class="py-2 px-3 text-gray-400">${c.notes || '-'}</td>
+      <td class="py-2 px-3">
+        <button onclick='editCadre(${JSON.stringify(c).replace(/'/g, "&#39;")})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteCadre(${c.id})" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+  `).join('')
+
+  return c.html(adminLayout(`幹部管理 - ${group.name}`, `
+    <div class="mb-6 flex items-center justify-between">
+      <div>
+        <a href="/admin/groups/${id}/subpages" class="text-gray-500 hover:text-gray-700 text-sm">← 返回子頁面管理</a>
+        <h2 class="text-xl font-bold text-gray-800 mt-2">${group.name} · 幹部名單管理</h2>
+      </div>
+      <button onclick="openAddCadre()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium">➕ 新增幹部</button>
+    </div>
+
+    <div class="bg-white rounded-xl shadow overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b text-xs text-gray-500">
+          <tr>
+            <th class="py-2 px-3 text-left">狀態/年度</th>
+            <th class="py-2 px-3 text-left">姓名</th>
+            <th class="py-2 px-3 text-left">英文名</th>
+            <th class="py-2 px-3 text-left">職位</th>
+            <th class="py-2 px-3 text-left">備注</th>
+            <th class="py-2 px-3 text-left">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="6" class="py-8 text-center text-gray-400">尚無幹部資料</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 新增/編輯 Modal -->
+    <div id="cadre-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div class="p-6">
+          <h3 id="cadre-modal-title" class="text-lg font-bold text-gray-800 mb-4">新增幹部</h3>
+          <input type="hidden" id="cadre-id">
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">中文姓名 *</label>
+              <input type="text" id="cadre-chinese_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="王小明">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">英文姓名</label>
+              <input type="text" id="cadre-english_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Ming Wang">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">職位 *</label>
+              <input type="text" id="cadre-role" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="團長、副團長、行政長...">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">學年度</label>
+              <input type="text" id="cadre-year_label" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="115">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="block text-xs font-medium text-gray-700 mb-1">照片網址</label>
+            <input type="url" id="cadre-photo_url" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="https://...">
+          </div>
+          <div class="mb-3">
+            <label class="block text-xs font-medium text-gray-700 mb-1">備注</label>
+            <input type="text" id="cadre-notes" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div class="mb-4 flex items-center gap-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">排序</label>
+              <input type="number" id="cadre-display_order" value="0" class="w-24 border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div class="flex items-center gap-2 mt-4">
+              <input type="checkbox" id="cadre-is_current" class="rounded">
+              <label for="cadre-is_current" class="text-sm text-gray-700">現任幹部</label>
+            </div>
+          </div>
+          <div id="cadre-msg" class="hidden mb-3 p-3 rounded-lg text-sm"></div>
+          <div class="flex gap-3">
+            <button type="button" onclick="saveCadre(${id})" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-medium">💾 儲存</button>
+            <button type="button" onclick="document.getElementById('cadre-modal').classList.add('hidden')" class="px-4 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    function openAddCadre() {
+      document.getElementById('cadre-modal-title').textContent = '新增幹部'
+      document.getElementById('cadre-id').value = ''
+      document.getElementById('cadre-chinese_name').value = ''
+      document.getElementById('cadre-english_name').value = ''
+      document.getElementById('cadre-role').value = ''
+      document.getElementById('cadre-year_label').value = ''
+      document.getElementById('cadre-photo_url').value = ''
+      document.getElementById('cadre-notes').value = ''
+      document.getElementById('cadre-display_order').value = '0'
+      document.getElementById('cadre-is_current').checked = true
+      document.getElementById('cadre-msg').classList.add('hidden')
+      document.getElementById('cadre-modal').classList.remove('hidden')
+    }
+    function editCadre(data) {
+      document.getElementById('cadre-modal-title').textContent = '編輯幹部'
+      document.getElementById('cadre-id').value = data.id
+      document.getElementById('cadre-chinese_name').value = data.chinese_name || ''
+      document.getElementById('cadre-english_name').value = data.english_name || ''
+      document.getElementById('cadre-role').value = data.role || ''
+      document.getElementById('cadre-year_label').value = data.year_label || ''
+      document.getElementById('cadre-photo_url').value = data.photo_url || ''
+      document.getElementById('cadre-notes').value = data.notes || ''
+      document.getElementById('cadre-display_order').value = data.display_order || 0
+      document.getElementById('cadre-is_current').checked = !!data.is_current
+      document.getElementById('cadre-msg').classList.add('hidden')
+      document.getElementById('cadre-modal').classList.remove('hidden')
+    }
+    async function saveCadre(groupId) {
+      const cadreId = document.getElementById('cadre-id').value
+      const msg = document.getElementById('cadre-msg')
+      const payload = {
+        group_id: groupId,
+        chinese_name: document.getElementById('cadre-chinese_name').value.trim(),
+        english_name: document.getElementById('cadre-english_name').value.trim(),
+        role: document.getElementById('cadre-role').value.trim(),
+        year_label: document.getElementById('cadre-year_label').value.trim(),
+        photo_url: document.getElementById('cadre-photo_url').value.trim(),
+        notes: document.getElementById('cadre-notes').value.trim(),
+        display_order: parseInt(document.getElementById('cadre-display_order').value) || 0,
+        is_current: document.getElementById('cadre-is_current').checked ? 1 : 0
+      }
+      if (!payload.chinese_name || !payload.role) {
+        msg.className = 'mb-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
+        msg.textContent = '❌ 請填寫姓名和職位'
+        msg.classList.remove('hidden')
+        return
+      }
+      const url = cadreId ? '/api/admin/group-cadres/' + cadreId : '/api/admin/group-cadres'
+      const method = cadreId ? 'PUT' : 'POST'
+      const res = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+      const data = await res.json()
+      if (data.success) {
+        location.reload()
+      } else {
+        msg.className = 'mb-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
+        msg.textContent = '❌ ' + (data.error || '儲存失敗')
+        msg.classList.remove('hidden')
+      }
+    }
+    async function deleteCadre(id) {
+      if (!confirm('確定刪除這筆幹部記錄？')) return
+      await fetch('/api/admin/group-cadres/' + id, { method: 'DELETE' })
+      location.reload()
+    }
+    </script>
+  `))
+})
+
+// API: 新增幹部
+adminRoutes.post('/api/admin/group-cadres', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json() as any
+  try {
+    await db.prepare(`
+      INSERT INTO group_cadres (group_id, chinese_name, english_name, role, year_label, photo_url, notes, display_order, is_current)
+      VALUES (?,?,?,?,?,?,?,?,?)
+    `).bind(body.group_id, body.chinese_name, body.english_name||null, body.role, body.year_label||null,
+             body.photo_url||null, body.notes||null, body.display_order||0, body.is_current||0).run()
+    return c.json({ success: true })
+  } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
+
+// API: 更新幹部
+adminRoutes.put('/api/admin/group-cadres/:id', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json() as any
+  try {
+    await db.prepare(`
+      UPDATE group_cadres SET chinese_name=?, english_name=?, role=?, year_label=?, photo_url=?, notes=?, display_order=?, is_current=?
+      WHERE id=?
+    `).bind(body.chinese_name, body.english_name||null, body.role, body.year_label||null,
+             body.photo_url||null, body.notes||null, body.display_order||0, body.is_current||0, id).run()
+    return c.json({ success: true })
+  } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
+
+// API: 刪除幹部
+adminRoutes.delete('/api/admin/group-cadres/:id', authMiddleware, async (c) => {
+  const db = c.env.DB
+  await db.prepare(`DELETE FROM group_cadres WHERE id=?`).bind(c.req.param('id')).run()
+  return c.json({ success: true })
+})
+
+// ---- 歷屆名單管理 ----
+adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const group = await db.prepare(`SELECT * FROM scout_groups WHERE id=?`).bind(id).first() as any
+  if (!group) return c.redirect('/admin/groups')
+  const alumni = await db.prepare(`SELECT * FROM group_alumni WHERE group_id=? ORDER BY year_label DESC, display_order ASC`).bind(id).all()
+
+  const rows = alumni.results.map((a: any) => `
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">${a.year_label}</td>
+      <td class="py-2 px-3 font-medium">${a.member_name}</td>
+      <td class="py-2 px-3 text-gray-500">${a.english_name || '-'}</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">${a.unit_name || '-'}</span></td>
+      <td class="py-2 px-3 text-gray-500">${a.role_name || '-'}</td>
+      <td class="py-2 px-3 text-gray-500">${a.rank_level || '-'}</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni(${JSON.stringify(a).replace(/'/g, "&#39;")})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(${a.id})" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+  `).join('')
+
+  return c.html(adminLayout(`歷屆名單 - ${group.name}`, `
+    <div class="mb-6 flex items-center justify-between">
+      <div>
+        <a href="/admin/groups/${id}/subpages" class="text-gray-500 hover:text-gray-700 text-sm">← 返回子頁面管理</a>
+        <h2 class="text-xl font-bold text-gray-800 mt-2">${group.name} · 歷屆名單管理</h2>
+      </div>
+      <button onclick="openAddAlumni()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium">➕ 新增成員</button>
+    </div>
+
+    <div class="bg-white rounded-xl shadow overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b text-xs text-gray-500">
+          <tr>
+            <th class="py-2 px-3 text-left">學年度</th>
+            <th class="py-2 px-3 text-left">姓名</th>
+            <th class="py-2 px-3 text-left">英文名</th>
+            <th class="py-2 px-3 text-left">小隊</th>
+            <th class="py-2 px-3 text-left">職位</th>
+            <th class="py-2 px-3 text-left">級別</th>
+            <th class="py-2 px-3 text-left">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="7" class="py-8 text-center text-gray-400">尚無歷屆名單資料</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 新增/編輯 Modal -->
+    <div id="alumni-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div class="p-6">
+          <h3 id="alumni-modal-title" class="text-lg font-bold text-gray-800 mb-4">新增成員</h3>
+          <input type="hidden" id="alumni-id">
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">姓名 *</label>
+              <input type="text" id="alumni-member_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">英文名</label>
+              <input type="text" id="alumni-english_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">學年度 *</label>
+              <input type="text" id="alumni-year_label" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="115">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">小隊</label>
+              <input type="text" id="alumni-unit_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="美西小隊">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">職位</label>
+              <input type="text" id="alumni-role_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="團員、隊長...">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">級別</label>
+              <input type="text" id="alumni-rank_level" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="初級、中級、高級...">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="block text-xs font-medium text-gray-700 mb-1">備注</label>
+            <input type="text" id="alumni-notes" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div id="alumni-msg" class="hidden mb-3 p-3 rounded-lg text-sm"></div>
+          <div class="flex gap-3">
+            <button type="button" onclick="saveAlumni(${id})" class="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-2 rounded-lg text-sm font-medium">💾 儲存</button>
+            <button type="button" onclick="document.getElementById('alumni-modal').classList.add('hidden')" class="px-4 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    function openAddAlumni() {
+      document.getElementById('alumni-modal-title').textContent = '新增成員'
+      document.getElementById('alumni-id').value = ''
+      document.getElementById('alumni-member_name').value = ''
+      document.getElementById('alumni-english_name').value = ''
+      document.getElementById('alumni-year_label').value = ''
+      document.getElementById('alumni-unit_name').value = ''
+      document.getElementById('alumni-role_name').value = ''
+      document.getElementById('alumni-rank_level').value = ''
+      document.getElementById('alumni-notes').value = ''
+      document.getElementById('alumni-msg').classList.add('hidden')
+      document.getElementById('alumni-modal').classList.remove('hidden')
+    }
+    function editAlumni(data) {
+      document.getElementById('alumni-modal-title').textContent = '編輯成員'
+      document.getElementById('alumni-id').value = data.id
+      document.getElementById('alumni-member_name').value = data.member_name || ''
+      document.getElementById('alumni-english_name').value = data.english_name || ''
+      document.getElementById('alumni-year_label').value = data.year_label || ''
+      document.getElementById('alumni-unit_name').value = data.unit_name || ''
+      document.getElementById('alumni-role_name').value = data.role_name || ''
+      document.getElementById('alumni-rank_level').value = data.rank_level || ''
+      document.getElementById('alumni-notes').value = data.notes || ''
+      document.getElementById('alumni-msg').classList.add('hidden')
+      document.getElementById('alumni-modal').classList.remove('hidden')
+    }
+    async function saveAlumni(groupId) {
+      const alumniId = document.getElementById('alumni-id').value
+      const msg = document.getElementById('alumni-msg')
+      const payload = {
+        group_id: groupId,
+        member_name: document.getElementById('alumni-member_name').value.trim(),
+        english_name: document.getElementById('alumni-english_name').value.trim(),
+        year_label: document.getElementById('alumni-year_label').value.trim(),
+        unit_name: document.getElementById('alumni-unit_name').value.trim(),
+        role_name: document.getElementById('alumni-role_name').value.trim(),
+        rank_level: document.getElementById('alumni-rank_level').value.trim(),
+        notes: document.getElementById('alumni-notes').value.trim()
+      }
+      if (!payload.member_name || !payload.year_label) {
+        msg.className = 'mb-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
+        msg.textContent = '❌ 請填寫姓名和學年度'
+        msg.classList.remove('hidden')
+        return
+      }
+      const url = alumniId ? '/api/admin/group-alumni/' + alumniId : '/api/admin/group-alumni'
+      const method = alumniId ? 'PUT' : 'POST'
+      const res = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+      const data = await res.json()
+      if (data.success) {
+        location.reload()
+      } else {
+        msg.className = 'mb-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
+        msg.textContent = '❌ ' + (data.error || '儲存失敗')
+        msg.classList.remove('hidden')
+      }
+    }
+    async function deleteAlumni(id) {
+      if (!confirm('確定刪除這筆記錄？')) return
+      await fetch('/api/admin/group-alumni/' + id, { method: 'DELETE' })
+      location.reload()
+    }
+    </script>
+  `))
+})
+
+// API: 新增歷屆名單
+adminRoutes.post('/api/admin/group-alumni', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json() as any
+  try {
+    await db.prepare(`
+      INSERT INTO group_alumni (group_id, year_label, member_name, english_name, unit_name, role_name, rank_level, notes)
+      VALUES (?,?,?,?,?,?,?,?)
+    `).bind(body.group_id, body.year_label, body.member_name, body.english_name||null,
+             body.unit_name||null, body.role_name||null, body.rank_level||null, body.notes||null).run()
+    return c.json({ success: true })
+  } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
+
+// API: 更新歷屆名單
+adminRoutes.put('/api/admin/group-alumni/:id', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json() as any
+  try {
+    await db.prepare(`
+      UPDATE group_alumni SET year_label=?, member_name=?, english_name=?, unit_name=?, role_name=?, rank_level=?, notes=?
+      WHERE id=?
+    `).bind(body.year_label, body.member_name, body.english_name||null,
+             body.unit_name||null, body.role_name||null, body.rank_level||null, body.notes||null, id).run()
+    return c.json({ success: true })
+  } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
+
+// API: 刪除歷屆名單
+adminRoutes.delete('/api/admin/group-alumni/:id', authMiddleware, async (c) => {
+  const db = c.env.DB
+  await db.prepare(`DELETE FROM group_alumni WHERE id=?`).bind(c.req.param('id')).run()
+  return c.json({ success: true })
+})
