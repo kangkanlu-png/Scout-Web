@@ -14,10 +14,20 @@ frontendRoutes.get('/', async (c) => {
     SELECT a.*, GROUP_CONCAT(ai.image_url) as images
     FROM activities a
     LEFT JOIN activity_images ai ON ai.activity_id = a.id
-    WHERE a.is_published = 1
+    WHERE a.is_published = 1 AND (a.show_in_highlights = 0 OR a.show_in_highlights IS NULL)
     GROUP BY a.id
     ORDER BY a.display_order ASC, a.activity_date DESC
-    LIMIT 20
+    LIMIT 6
+  `).all()
+
+  const highlights = await db.prepare(`
+    SELECT a.*, GROUP_CONCAT(ai.image_url) as images
+    FROM activities a
+    LEFT JOIN activity_images ai ON ai.activity_id = a.id
+    WHERE a.is_published = 1 AND a.show_in_highlights = 1
+    GROUP BY a.id
+    ORDER BY a.display_order ASC, a.activity_date DESC
+    LIMIT 6
   `).all()
 
   const groups = await db.prepare(`
@@ -32,7 +42,7 @@ frontendRoutes.get('/', async (c) => {
     SELECT * FROM announcements WHERE is_active = 1 ORDER BY created_at DESC LIMIT 5
   `).all()
 
-  const html = renderHomePage(activities.results, groups.results, settings, announcements.results)
+  const html = renderHomePage(activities.results, groups.results, settings, announcements.results, highlights.results)
   return c.html(html)
 })
 
@@ -629,6 +639,408 @@ frontendRoutes.get('/attendance', async (c) => {
 `)
 })
 
+// ===================== 精彩回顧（歷年活動相冊）=====================
+frontendRoutes.get('/highlights', async (c) => {
+  const db = c.env.DB
+
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+
+  // 取得所有精彩回顧相冊（show_in_highlights=1 或 有圖片的活動）
+  const activities = await db.prepare(`
+    SELECT a.*,
+      GROUP_CONCAT(ai.image_url) as image_urls,
+      GROUP_CONCAT(ai.caption) as captions,
+      GROUP_CONCAT(ai.id) as image_ids,
+      COUNT(ai.id) as img_count
+    FROM activities a
+    LEFT JOIN activity_images ai ON ai.activity_id = a.id
+    WHERE a.is_published = 1 AND a.show_in_highlights = 1
+    GROUP BY a.id
+    ORDER BY a.display_order ASC, a.activity_date DESC
+  `).all()
+
+  // 若無「精彩回顧」活動，則取所有有圖片的活動
+  const allActivities = activities.results.length > 0
+    ? activities.results
+    : (await db.prepare(`
+        SELECT a.*,
+          GROUP_CONCAT(ai.image_url) as image_urls,
+          GROUP_CONCAT(ai.caption) as captions,
+          GROUP_CONCAT(ai.id) as image_ids,
+          COUNT(ai.id) as img_count
+        FROM activities a
+        LEFT JOIN activity_images ai ON ai.activity_id = a.id
+        WHERE a.is_published = 1
+        GROUP BY a.id
+        HAVING img_count > 0
+        ORDER BY a.display_order ASC, a.activity_date DESC
+      `).all()).results
+
+  const categoryIcon: Record<string, string> = {
+    camping: '⛺', tecc: '🚑', service: '🤝', training: '📚',
+    general: '⚜️', highlight: '🌟'
+  }
+  const categoryLabel: Record<string, string> = {
+    camping: '露營', tecc: 'TECC急救', service: '服務',
+    training: '訓練', general: '活動', highlight: '精彩回顧'
+  }
+
+  // 統計
+  const totalAlbums = allActivities.length
+  const totalPhotos = (allActivities as any[]).reduce((s: number, a: any) => s + (a.img_count || 0), 0)
+
+  // 相冊卡片
+  const albumCards = (allActivities as any[]).map((a: any, idx: number) => {
+    const images = a.image_urls ? a.image_urls.split(',').filter(Boolean) : []
+    const captions = a.captions ? a.captions.split(',') : []
+    const coverImg = a.cover_image || images[0] || ''
+    const icon = categoryIcon[a.category] || '⚜️'
+    const label = categoryLabel[a.category] || '活動'
+
+    // 圖片縮圖（最多4張）
+    const thumbs = images.slice(0, 4).map((url: string, i: number) => `
+      <div class="aspect-square overflow-hidden rounded cursor-pointer hover:opacity-90 transition-opacity"
+           onclick="openGallery(${a.id}, ${i})">
+        <img src="${url}" alt="${captions[i] || a.title}" loading="lazy"
+             class="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+             onerror="this.parentElement.style.display='none'">
+      </div>
+    `).join('')
+
+    const moreCount = images.length > 4 ? images.length - 4 : 0
+
+    return `
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-lg transition-shadow duration-300 group" id="album-${a.id}">
+      <!-- 封面大圖 -->
+      <div class="relative h-52 overflow-hidden cursor-pointer" onclick="openGallery(${a.id}, 0)">
+        ${coverImg
+          ? `<img src="${coverImg}" alt="${a.title}" loading="lazy"
+               class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+               onerror="this.parentElement.innerHTML='<div class=\\'flex items-center justify-center h-full bg-gradient-to-br from-green-50 to-emerald-100\\'><span class=\\'text-6xl\\'>${icon}</span></div>'">`
+          : `<div class="flex items-center justify-center h-full bg-gradient-to-br from-green-50 to-emerald-100"><span class="text-6xl">${icon}</span></div>`
+        }
+        <!-- 圖片數量 badge -->
+        ${images.length > 0 ? `
+        <div class="absolute bottom-3 right-3 bg-black/60 text-white text-xs px-2 py-1 rounded-full backdrop-blur-sm">
+          📷 ${images.length} 張
+        </div>` : ''}
+        <!-- 分類 badge -->
+        <div class="absolute top-3 left-3 bg-white/90 text-gray-700 text-xs px-2.5 py-1 rounded-full font-medium backdrop-blur-sm">
+          ${icon} ${label}
+        </div>
+      </div>
+
+      <!-- 資訊區 -->
+      <div class="p-4">
+        <h3 class="font-bold text-gray-800 text-base mb-1 cursor-pointer hover:text-green-700 transition-colors"
+            onclick="openGallery(${a.id}, 0)">${a.title}</h3>
+        ${a.title_en ? `<p class="text-gray-400 text-xs mb-2">${a.title_en}</p>` : ''}
+        ${a.description ? `<p class="text-gray-500 text-sm line-clamp-2 mb-3">${a.description}</p>` : ''}
+        ${a.date_display || a.activity_date ? `
+        <p class="text-gray-400 text-xs flex items-center gap-1">
+          📅 ${a.date_display || a.activity_date}
+        </p>` : ''}
+
+        <!-- 縮圖格 -->
+        ${thumbs ? `
+        <div class="grid grid-cols-4 gap-1 mt-3">
+          ${thumbs}
+          ${moreCount > 0 ? `
+          <div class="aspect-square rounded bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
+               onclick="openGallery(${a.id}, 4)">
+            <span class="text-gray-500 font-bold text-sm">+${moreCount}</span>
+          </div>` : ''}
+        </div>` : ''}
+      </div>
+    </div>
+
+    <!-- 相冊 Lightbox 資料 (hidden) -->
+    <script>
+    window._albums = window._albums || {};
+    window._albums[${a.id}] = {
+      title: ${JSON.stringify(a.title)},
+      images: [${images.map((url: string, i: number) => JSON.stringify({ url, caption: captions[i] || '' })).join(',')}]
+    };
+    </script>`
+  }).join('')
+
+  return c.html(`${pageHead('精彩回顧 - 林口康橋童軍團')}
+<body class="bg-gray-50">
+  ${navBar(settings)}
+
+  <!-- Hero Banner -->
+  <div class="hero-gradient text-white py-14 px-4 relative overflow-hidden">
+    <div class="absolute inset-0 opacity-10">
+      <div class="absolute inset-0" style="background-image: repeating-linear-gradient(45deg, transparent, transparent 30px, rgba(255,255,255,0.05) 30px, rgba(255,255,255,0.05) 60px)"></div>
+    </div>
+    <div class="max-w-5xl mx-auto relative">
+      <div class="flex items-center gap-2 text-green-300 text-sm mb-4">
+        <a href="/" class="hover:text-white transition-colors">首頁</a>
+        <span>›</span>
+        <span class="text-white">精彩回顧</span>
+      </div>
+      <div class="text-center">
+        <div class="text-5xl mb-4">📸</div>
+        <h1 class="text-3xl md:text-4xl font-bold mb-2">歷年精彩回顧</h1>
+        <p class="text-green-200">Highlight Gallery · 每一段回憶都是珍貴的童軍足跡</p>
+        <div class="flex justify-center gap-10 mt-8">
+          <div class="text-center">
+            <div class="text-3xl font-bold">${totalAlbums}</div>
+            <div class="text-green-300 text-xs mt-1">精彩相冊</div>
+          </div>
+          <div class="w-px bg-green-600"></div>
+          <div class="text-center">
+            <div class="text-3xl font-bold">${totalPhotos}</div>
+            <div class="text-green-300 text-xs mt-1">珍貴照片</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 相冊網格 -->
+  <div class="max-w-5xl mx-auto px-4 py-10">
+    ${allActivities.length > 0
+      ? `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">${albumCards}</div>`
+      : `<div class="text-center py-24 text-gray-400">
+          <div class="text-6xl mb-4">📭</div>
+          <p class="text-xl font-medium">尚無精彩回顧相冊</p>
+          <p class="text-sm mt-2">請至後台新增活動並標記為精彩回顧</p>
+        </div>`
+    }
+  </div>
+
+  <!-- Lightbox -->
+  <div id="lb-overlay" class="fixed inset-0 bg-black/95 z-[9999] hidden flex-col items-center justify-center">
+    <div class="absolute top-0 left-0 right-0 flex items-center justify-between p-4 bg-gradient-to-b from-black/60 to-transparent">
+      <div>
+        <h2 id="lb-title" class="text-white font-bold text-lg"></h2>
+        <p id="lb-counter" class="text-gray-400 text-sm"></p>
+      </div>
+      <button onclick="closeLightbox()" class="text-white/80 hover:text-white text-3xl w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors">×</button>
+    </div>
+    <div class="flex items-center justify-center w-full flex-1 px-12">
+      <button onclick="prevImg()" class="absolute left-3 text-white/70 hover:text-white text-4xl w-12 h-12 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors z-10">‹</button>
+      <img id="lb-img" src="" alt="" class="max-h-[75vh] max-w-full object-contain rounded-lg shadow-2xl">
+      <button onclick="nextImg()" class="absolute right-3 text-white/70 hover:text-white text-4xl w-12 h-12 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors z-10">›</button>
+    </div>
+    <div class="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent text-center">
+      <p id="lb-caption" class="text-gray-300 text-sm"></p>
+      <!-- 縮圖列 -->
+      <div id="lb-thumbs" class="flex gap-2 justify-center mt-3 overflow-x-auto pb-1"></div>
+    </div>
+  </div>
+
+  <script>
+  let _curAlbumId = null, _curIdx = 0;
+
+  function openGallery(albumId, startIdx) {
+    const album = window._albums[albumId];
+    if (!album || !album.images || album.images.length === 0) return;
+    _curAlbumId = albumId;
+    _curIdx = startIdx || 0;
+    document.getElementById('lb-title').textContent = album.title;
+    renderLbThumbs();
+    showImg();
+    const overlay = document.getElementById('lb-overlay');
+    overlay.classList.remove('hidden');
+    overlay.classList.add('flex');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeLightbox() {
+    const overlay = document.getElementById('lb-overlay');
+    overlay.classList.add('hidden');
+    overlay.classList.remove('flex');
+    document.body.style.overflow = '';
+  }
+
+  function showImg() {
+    const album = window._albums[_curAlbumId];
+    if (!album) return;
+    const item = album.images[_curIdx];
+    document.getElementById('lb-img').src = item.url;
+    document.getElementById('lb-caption').textContent = item.caption || '';
+    document.getElementById('lb-counter').textContent = (_curIdx + 1) + ' / ' + album.images.length;
+    // 更新縮圖高亮
+    document.querySelectorAll('#lb-thumbs img').forEach((el, i) => {
+      el.classList.toggle('ring-2', i === _curIdx);
+      el.classList.toggle('ring-white', i === _curIdx);
+      el.classList.toggle('opacity-60', i !== _curIdx);
+    });
+  }
+
+  function renderLbThumbs() {
+    const album = window._albums[_curAlbumId];
+    if (!album) return;
+    const container = document.getElementById('lb-thumbs');
+    container.innerHTML = album.images.map((item, i) =>
+      '<img src="' + item.url + '" alt="" class="w-12 h-12 object-cover rounded cursor-pointer opacity-60 hover:opacity-100 transition-opacity" onclick="jumpImg(' + i + ')">'
+    ).join('');
+  }
+
+  function jumpImg(idx) { _curIdx = idx; showImg(); }
+  function prevImg() {
+    const album = window._albums[_curAlbumId];
+    if (!album) return;
+    _curIdx = (_curIdx - 1 + album.images.length) % album.images.length;
+    showImg();
+  }
+  function nextImg() {
+    const album = window._albums[_curAlbumId];
+    if (!album) return;
+    _curIdx = (_curIdx + 1) % album.images.length;
+    showImg();
+  }
+
+  // 鍵盤控制
+  document.addEventListener('keydown', function(e) {
+    const overlay = document.getElementById('lb-overlay');
+    if (overlay.classList.contains('hidden')) return;
+    if (e.key === 'ArrowLeft') prevImg();
+    if (e.key === 'ArrowRight') nextImg();
+    if (e.key === 'Escape') closeLightbox();
+  });
+
+  // 點擊背景關閉
+  document.getElementById('lb-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeLightbox();
+  });
+  </script>
+
+  ${pageFooter(settings)}
+`)
+})
+
+// ===================== 精彩回顧 - 單一活動相冊頁 =====================
+frontendRoutes.get('/highlights/:id', async (c) => {
+  const db = c.env.DB
+  const activityId = c.req.param('id')
+
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+
+  const activity = await db.prepare(`
+    SELECT * FROM activities WHERE id = ? AND is_published = 1
+  `).bind(activityId).first() as any
+
+  if (!activity) return c.notFound()
+
+  const images = await db.prepare(`
+    SELECT * FROM activity_images WHERE activity_id = ? ORDER BY display_order ASC
+  `).bind(activityId).all()
+
+  const categoryLabel: Record<string, string> = {
+    camping: '露營', tecc: 'TECC急救', service: '服務',
+    training: '訓練', general: '活動', highlight: '精彩回顧'
+  }
+
+  const photoGrid = (images.results as any[]).map((img: any, idx: number) => `
+    <div class="group relative aspect-[4/3] overflow-hidden rounded-xl cursor-pointer bg-gray-100 shadow-sm hover:shadow-lg transition-all duration-300"
+         onclick="openPhoto(${idx})">
+      <img src="${img.image_url}" alt="${img.caption || ''}" loading="lazy"
+           class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+           onerror="this.parentElement.classList.add('bg-gray-200')">
+      ${img.caption ? `
+      <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3 translate-y-full group-hover:translate-y-0 transition-transform duration-300">
+        <p class="text-white text-xs">${img.caption}</p>
+      </div>` : ''}
+    </div>
+  `).join('')
+
+  const photosJson = JSON.stringify((images.results as any[]).map((img: any) => ({
+    url: img.image_url, caption: img.caption || ''
+  })))
+
+  return c.html(`${pageHead(`${activity.title} - 精彩回顧 - 林口康橋童軍團`)}
+<body class="bg-gray-50">
+  ${navBar(settings)}
+  <div class="hero-gradient text-white py-12 px-4">
+    <div class="max-w-5xl mx-auto">
+      <div class="flex items-center gap-2 text-green-300 text-sm mb-4 flex-wrap">
+        <a href="/" class="hover:text-white transition-colors">首頁</a>
+        <span>›</span>
+        <a href="/highlights" class="hover:text-white transition-colors">精彩回顧</a>
+        <span>›</span>
+        <span class="text-white">${activity.title}</span>
+      </div>
+      <h1 class="text-2xl md:text-3xl font-bold">${activity.title}</h1>
+      ${activity.title_en ? `<p class="text-green-200 mt-1 text-sm">${activity.title_en}</p>` : ''}
+      <div class="flex items-center gap-4 mt-3 text-sm text-green-200 flex-wrap">
+        ${activity.date_display || activity.activity_date ? `<span>📅 ${activity.date_display || activity.activity_date}</span>` : ''}
+        <span>📷 ${images.results.length} 張照片</span>
+        <span class="bg-white/20 px-2 py-0.5 rounded-full text-xs">${categoryLabel[activity.category] || '活動'}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="max-w-5xl mx-auto px-4 py-8">
+    ${activity.description ? `
+    <div class="bg-white rounded-xl border border-gray-100 p-5 mb-8 shadow-sm">
+      <p class="text-gray-600 leading-relaxed">${activity.description}</p>
+    </div>` : ''}
+
+    ${images.results.length > 0
+      ? `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">${photoGrid}</div>`
+      : `<div class="text-center py-20 text-gray-400"><div class="text-5xl mb-4">📭</div><p>尚無照片</p></div>`
+    }
+
+    <div class="mt-8 text-center">
+      <a href="/highlights" class="inline-flex items-center gap-2 text-green-700 hover:text-green-900 font-medium transition-colors">
+        ← 返回精彩回顧
+      </a>
+    </div>
+  </div>
+
+  <!-- Lightbox -->
+  <div id="lb-overlay" class="fixed inset-0 bg-black/95 z-[9999] hidden flex-col items-center justify-center">
+    <div class="absolute top-0 left-0 right-0 flex items-center justify-between p-4">
+      <p id="lb-counter" class="text-gray-400 text-sm"></p>
+      <button onclick="closeLb()" class="text-white/80 hover:text-white text-3xl">×</button>
+    </div>
+    <div class="flex items-center justify-center w-full flex-1 px-12 relative">
+      <button onclick="prev()" class="absolute left-3 text-white/70 hover:text-white text-5xl w-12 h-12 flex items-center justify-center rounded-full hover:bg-white/10 z-10">‹</button>
+      <img id="lb-img" src="" class="max-h-[80vh] max-w-full object-contain rounded-lg">
+      <button onclick="next()" class="absolute right-3 text-white/70 hover:text-white text-5xl w-12 h-12 flex items-center justify-center rounded-full hover:bg-white/10 z-10">›</button>
+    </div>
+    <p id="lb-cap" class="text-gray-300 text-sm pb-4 px-4 text-center"></p>
+  </div>
+
+  <script>
+  const _photos = ${photosJson};
+  let _cur = 0;
+  function openPhoto(idx) {
+    _cur = idx;
+    document.getElementById('lb-img').src = _photos[idx].url;
+    document.getElementById('lb-cap').textContent = _photos[idx].caption;
+    document.getElementById('lb-counter').textContent = (idx+1) + ' / ' + _photos.length;
+    const o = document.getElementById('lb-overlay');
+    o.classList.remove('hidden'); o.classList.add('flex');
+    document.body.style.overflow='hidden';
+  }
+  function closeLb() {
+    const o = document.getElementById('lb-overlay');
+    o.classList.add('hidden'); o.classList.remove('flex');
+    document.body.style.overflow='';
+  }
+  function prev() { _cur = (_cur-1+_photos.length)%_photos.length; openPhoto(_cur); }
+  function next() { _cur = (_cur+1)%_photos.length; openPhoto(_cur); }
+  document.addEventListener('keydown', e => {
+    if (document.getElementById('lb-overlay').classList.contains('hidden')) return;
+    if (e.key==='ArrowLeft') prev();
+    if (e.key==='ArrowRight') next();
+    if (e.key==='Escape') closeLb();
+  });
+  document.getElementById('lb-overlay').addEventListener('click', e => { if(e.target===document.getElementById('lb-overlay')) closeLb(); });
+  </script>
+
+  ${pageFooter(settings)}
+`)
+})
+
 // ===================== 分組首頁（學期列表）=====================
 frontendRoutes.get('/group/:slug', async (c) => {
   const db = c.env.DB
@@ -772,6 +1184,7 @@ function navBar(settings: Record<string, string>, groups: any[] = []) {
       <div class="flex items-center gap-4 text-sm">
         <a href="/#groups" class="hover:text-amber-300 transition-colors hidden md:inline">分組</a>
         <a href="/#activities" class="hover:text-amber-300 transition-colors hidden md:inline">活動</a>
+        <a href="/highlights" class="hover:text-amber-300 transition-colors hidden md:inline">📸 精彩回顧</a>
         <a href="/honor" class="hover:text-amber-300 transition-colors hidden md:inline">🏅 榮譽榜</a>
         <a href="/coaches" class="hover:text-amber-300 transition-colors hidden md:inline">🧢 教練團</a>
         <a href="/stats" class="hover:text-amber-300 transition-colors hidden md:inline">📊 統計</a>
@@ -1031,7 +1444,7 @@ function renderSemesterPage(group: any, semester: any, images: any[], settings: 
 }
 
 // ===================== 首頁 =====================
-function renderHomePage(activities: any[], groups: any[], settings: Record<string, string>, announcements: any[]) {
+function renderHomePage(activities: any[], groups: any[], settings: Record<string, string>, announcements: any[], highlights: any[] = []) {
   const categoryLabel: Record<string, string> = {
     general: '一般活動',
     tecc: 'TECC 急救訓練',
@@ -1151,6 +1564,47 @@ function renderHomePage(activities: any[], groups: any[], settings: Record<strin
         : `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${activitiesHtml}</div>`
       }
     </section>
+
+    <!-- 精彩回顧相冊入口（仿原站） -->
+    ${highlights.length > 0 ? `
+    <section id="highlights" class="mb-14">
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+            <span class="text-[#1a472a]">📸</span> 精彩回顧
+          </h2>
+          <p class="text-gray-500 mt-1">Highlight Gallery · 歷年珍貴記憶</p>
+        </div>
+        <a href="/highlights" class="text-green-700 hover:text-green-900 text-sm font-medium flex items-center gap-1 hover:underline transition-colors">
+          查看全部 →
+        </a>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+        ${highlights.slice(0, 6).map((a: any) => {
+          const imgs = a.images ? a.images.split(',').filter(Boolean) : []
+          const cover = a.cover_image || imgs[0] || ''
+          return `
+          <a href="/highlights/${a.id}" class="group relative block aspect-[4/3] overflow-hidden rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 bg-gray-200">
+            ${cover
+              ? `<img src="${cover}" alt="${a.title}" loading="lazy"
+                   class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                   onerror="this.parentElement.style.background='#d1fae5'">`
+              : `<div class="w-full h-full bg-gradient-to-br from-green-100 to-emerald-200 flex items-center justify-center text-4xl">📸</div>`
+            }
+            <div class="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-transparent"></div>
+            <div class="absolute bottom-0 left-0 right-0 p-3">
+              <p class="text-white font-bold text-sm leading-tight">${a.title}</p>
+              ${a.date_display ? `<p class="text-gray-300 text-xs mt-0.5">${a.date_display}</p>` : ''}
+            </div>
+          </a>`
+        }).join('')}
+      </div>
+      <div class="text-center mt-6">
+        <a href="/highlights" class="inline-flex items-center gap-2 bg-green-700 hover:bg-green-600 text-white px-6 py-2.5 rounded-full font-medium transition-colors shadow-md hover:shadow-lg">
+          📸 查看所有精彩回顧
+        </a>
+      </div>
+    </section>` : ''}
 
     <!-- 關於我們 -->
     <section id="about" class="mb-10">

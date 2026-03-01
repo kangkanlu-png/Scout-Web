@@ -1022,9 +1022,18 @@ function activityForm(activity: any) {
             <label class="block text-sm font-medium text-gray-700 mb-1">排序（數字越小越前面）</label>
             <input type="number" id="f-display_order" value="${activity?.display_order || 0}" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
           </div>
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium text-gray-700 mb-1">封面圖片 URL（精彩回顧相冊封面）</label>
+            <input type="text" id="f-cover_image" value="${activity?.cover_image || ''}" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="https://example.com/photo.jpg">
+            <p class="text-xs text-gray-400 mt-1">此圖片將作為精彩回顧頁面的相冊封面縮圖</p>
+          </div>
           <div class="flex items-center gap-2">
             <input type="checkbox" id="f-is_published" ${activity?.is_published !== 0 ? 'checked' : ''} class="w-4 h-4 text-green-600">
             <label for="f-is_published" class="text-sm text-gray-700">發佈（顯示於前台）</label>
+          </div>
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="f-show_in_highlights" ${activity?.show_in_highlights ? 'checked' : ''} class="w-4 h-4 text-amber-500">
+            <label for="f-show_in_highlights" class="text-sm text-gray-700">📸 顯示在精彩回顧頁面</label>
           </div>
         </div>
         <div id="form-msg" class="hidden bg-green-50 text-green-700 border border-green-200 rounded-lg px-4 py-3 text-sm"></div>
@@ -1047,7 +1056,9 @@ function activityForm(activity: any) {
           category: document.getElementById('f-category').value,
           youtube_url: document.getElementById('f-youtube_url').value,
           display_order: parseInt(document.getElementById('f-display_order').value) || 0,
+          cover_image: document.getElementById('f-cover_image').value,
           is_published: document.getElementById('f-is_published').checked ? 1 : 0,
+          show_in_highlights: document.getElementById('f-show_in_highlights').checked ? 1 : 0,
         };
         const url = '${isEdit ? `/api/activities/${activity?.id}` : '/api/activities'}';
         const method = '${isEdit ? 'PUT' : 'POST'}';

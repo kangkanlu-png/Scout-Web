@@ -43,17 +43,18 @@ apiRoutes.get('/activities/:id', async (c) => {
 apiRoutes.post('/activities', async (c) => {
   const db = c.env.DB
   const body = await c.req.json()
-  const { title, title_en, description, description_en, activity_date, date_display, category, youtube_url, display_order, is_published } = body
+  const { title, title_en, description, description_en, activity_date, date_display, category, youtube_url, display_order, is_published, cover_image, show_in_highlights } = body
   if (!title) return c.json({ success: false, error: '標題為必填' }, 400)
 
   const result = await db.prepare(`
-    INSERT INTO activities (title, title_en, description, description_en, activity_date, date_display, category, youtube_url, display_order, is_published)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO activities (title, title_en, description, description_en, activity_date, date_display, category, youtube_url, display_order, is_published, cover_image, show_in_highlights)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     title, title_en || null, description || null, description_en || null,
     activity_date || null, date_display || null,
     category || 'general', youtube_url || null,
-    display_order || 0, is_published !== undefined ? is_published : 1
+    display_order || 0, is_published !== undefined ? is_published : 1,
+    cover_image || null, show_in_highlights ? 1 : 0
   ).run()
 
   return c.json({ success: true, id: result.meta.last_row_id })
@@ -64,19 +65,21 @@ apiRoutes.put('/activities/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { title, title_en, description, description_en, activity_date, date_display, category, youtube_url, display_order, is_published } = body
+  const { title, title_en, description, description_en, activity_date, date_display, category, youtube_url, display_order, is_published, cover_image, show_in_highlights } = body
 
   await db.prepare(`
     UPDATE activities SET
       title = ?, title_en = ?, description = ?, description_en = ?,
       activity_date = ?, date_display = ?, category = ?, youtube_url = ?,
-      display_order = ?, is_published = ?, updated_at = CURRENT_TIMESTAMP
+      display_order = ?, is_published = ?, cover_image = ?, show_in_highlights = ?,
+      updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).bind(
     title, title_en || null, description || null, description_en || null,
     activity_date || null, date_display || null,
     category || 'general', youtube_url || null,
     display_order || 0, is_published !== undefined ? is_published : 1,
+    cover_image || null, show_in_highlights ? 1 : 0,
     id
   ).run()
 
