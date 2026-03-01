@@ -460,6 +460,21 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
     groupsByTarget[k].push(req)
   })
 
+  // 正確的階段順序（依組別）
+  const sectionRankOrder: Record<string, string[]> = {
+    '童軍':    ['初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍'],
+    '行義童軍': ['初級行義','中級行義','高級行義','獅級行義','長城行義','國花行義'],
+    '羅浮童軍': ['授銜羅浮','服務羅浮'],
+  }
+  const rankOrder = sectionRankOrder[member.section] || []
+  const orderedTargets = [
+    ...rankOrder.filter(r => groupsByTarget[r]),
+    ...Object.keys(groupsByTarget).filter(r => !rankOrder.includes(r))
+  ]
+
+  // 找出「當前應該升級的階段」（rank_from === 目前階級）
+  const currentRank = member.rank_level || ''
+
   // 取得晉升申請中的進行中申請
   const activeApp = await db.prepare(`
     SELECT * FROM advancement_applications
@@ -493,41 +508,56 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
   const overallPct = allMandatory.length > 0
     ? Math.round((allCompleted.length / allMandatory.length) * 100) : 0
 
-  // 各階段卡片 HTML
-  const stageSections = Object.entries(groupsByTarget).map(([targetRank, reqs]) => {
+  // 各階段卡片 HTML（按正確的升級順序排列）
+  const stageSections = orderedTargets.map((targetRank, stageIdx) => {
+    const reqs = groupsByTarget[targetRank] || []
     const mandatory = reqs.filter((r: any) => r.is_mandatory)
     const completedMandatory = mandatory.filter((r: any) => isReqDone(r))
     const pct = mandatory.length > 0
       ? Math.round((completedMandatory.length / mandatory.length) * 100) : 0
-    const isCurrentTarget = !member.rank_level || member.rank_level === '' ||
-      (reqs[0]?.rank_from === member.rank_level)
-    const isFuture = !isCurrentTarget
+    // 當前目標：rank_from 等於目前階級，或目前無階級時第一個
+    const isCurrentTarget = currentRank
+      ? reqs.some((r: any) => r.rank_from === currentRank)
+      : stageIdx === 0
+    // 已完成階段：在當前目標之前的所有階段
+    const currentIdx = orderedTargets.findIndex(t =>
+      groupsByTarget[t]?.some((r: any) => r.rank_from === currentRank))
+    const isPast = stageIdx < currentIdx
+    const isFuture = stageIdx > currentIdx && currentIdx !== -1
 
     return `
-    <div class="bg-white rounded-2xl shadow-sm border ${isCurrentTarget ? 'border-green-200' : 'border-gray-100'} mb-4 overflow-hidden">
+    <div class="bg-white rounded-2xl shadow-sm border ${isCurrentTarget ? 'border-green-300 ring-2 ring-green-100' : isPast ? 'border-gray-100 opacity-70' : 'border-gray-100'} mb-4 overflow-hidden">
       <!-- 階段標題 -->
-      <div class="${isCurrentTarget ? 'bg-gradient-to-r from-green-600 to-emerald-500 text-white' : 'bg-gray-50 text-gray-700'} px-5 py-4">
+      <div class="${isCurrentTarget ? 'bg-gradient-to-r from-green-600 to-emerald-500 text-white' : isPast ? 'bg-gray-100 text-gray-500' : 'bg-gray-50 text-gray-600'} px-5 py-4">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full ${isCurrentTarget ? 'bg-white/20' : 'bg-gray-200'} flex items-center justify-center text-sm font-bold">
-              ${pct >= 100 ? '✓' : pct > 0 ? `${pct}%` : '—'}
+            <div class="w-10 h-10 rounded-full ${isCurrentTarget ? 'bg-white/20' : isPast ? 'bg-green-100' : 'bg-gray-200'} flex items-center justify-center text-sm font-bold">
+              ${isPast ? '<i class="fas fa-check text-green-600 text-base"></i>' : pct >= 100 ? '<i class="fas fa-check text-green-400"></i>' : pct > 0 ? `${pct}%` : `<span class="text-gray-400">${stageIdx+1}</span>`}
             </div>
             <div>
-              <h3 class="font-bold text-base">${targetRank}</h3>
-              <p class="${isCurrentTarget ? 'text-green-100' : 'text-gray-400'} text-xs">
+              <div class="flex items-center gap-2">
+                <h3 class="font-bold text-base">${targetRank}</h3>
+                ${isCurrentTarget ? '<span class="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full font-medium">🎯 進行中</span>' : ''}
+                ${isPast ? '<span class="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full font-medium">✅ 已達成</span>' : ''}
+                ${isFuture ? '<span class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">未來目標</span>' : ''}
+              </div>
+              <p class="${isCurrentTarget ? 'text-green-100' : 'text-gray-400'} text-xs mt-0.5">
                 ${reqs[0]?.rank_from ? `${reqs[0].rank_from} → ${targetRank}` : `升至 ${targetRank}`} ·
                 ${completedMandatory.length}/${mandatory.length} 必填完成
               </p>
             </div>
           </div>
           <div class="flex items-center gap-2">
-            ${pct >= 100 && !activeApp ? `
-            <a href="/member/advancement" class="${isCurrentTarget ? 'bg-white text-green-700' : 'bg-green-600 text-white'} text-xs font-medium px-3 py-1.5 rounded-full hover:opacity-90 transition-opacity">
-              🚀 可申請晉升
+            ${pct >= 100 && !activeApp && isCurrentTarget ? `
+            <a href="/member/advancement" class="bg-white text-green-700 text-xs font-medium px-3 py-1.5 rounded-full hover:opacity-90 transition-opacity shadow-sm">
+              🚀 申請晉升
             </a>` : ''}
-            ${pct < 100 ? `
-            <div class="w-24 bg-white/30 rounded-full h-1.5">
-              <div class="${isCurrentTarget ? 'bg-white' : 'bg-green-500'} h-1.5 rounded-full transition-all" style="width:${pct}%"></div>
+            ${pct < 100 && isCurrentTarget ? `
+            <div class="flex items-center gap-2">
+              <span class="text-white/80 text-xs">${pct}%</span>
+              <div class="w-24 bg-white/30 rounded-full h-2">
+                <div class="bg-white h-2 rounded-full transition-all" style="width:${pct}%"></div>
+              </div>
             </div>` : ''}
           </div>
         </div>
@@ -604,10 +634,17 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
           <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <i class="fas fa-chart-line text-green-600"></i>晉升進度
           </h1>
-          <p class="text-gray-500 text-sm mt-0.5">
-            目前階級：<strong class="text-green-700">${member.rank_level || '見習'}</strong>
-            · ${member.section}
-          </p>
+          <div class="flex flex-wrap items-center gap-3 mt-1">
+            <span class="text-gray-500 text-sm">目前階級：<strong class="text-green-700 text-base">${member.rank_level || '見習'}</strong></span>
+            <span class="text-gray-300">·</span>
+            <span class="text-gray-500 text-sm">${member.section}</span>
+            ${orderedTargets.length > 0 && currentRank ? (() => {
+              const nextIdx = orderedTargets.findIndex(t =>
+                groupsByTarget[t]?.some((r:any) => r.rank_from === currentRank))
+              const nextTarget = nextIdx >= 0 ? orderedTargets[nextIdx] : null
+              return nextTarget ? `<span class="text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full">🎯 目標：${nextTarget}</span>` : ''
+            })() : ''}
+          </div>
         </div>
         <div class="flex items-center gap-3">
           <div class="text-center">

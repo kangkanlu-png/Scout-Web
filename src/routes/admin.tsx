@@ -1695,7 +1695,11 @@ adminRoutes.get('/progress', authMiddleware, async (c) => {
 
   const memberOptions = members.results.map((m: any) => `<option value="${m.id}">[${m.section}] ${m.chinese_name}</option>`).join('')
 
-  const rankOptions = ['初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮'].map(r => `<option value="${r}">${r}</option>`).join('')
+  const rankOptions = [
+    '見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍',
+    '見習行義','初級行義','中級行義','高級行義','獅級行義','長城行義','國花行義',
+    '見習羅浮','授銜羅浮','服務羅浮'
+  ].map(r => `<option value="${r}">${r}</option>`).join('')
 
   return c.html(adminLayout('進程/榮譽管理', `
     <div class="flex items-center justify-between mb-4">
@@ -2116,8 +2120,11 @@ adminRoutes.get('/coaches', authMiddleware, async (c) => {
 // ===================== 輔助函式：成員表單 =====================
 function memberFormFields(prefix: string) {
   const sections = ['童軍','行義童軍','羅浮童軍','服務員','幼童軍','稚齡童軍']
-  const ranks = ['','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮']
-  const roles = ['隊員','小隊長','副小隊長','群長','副群長','器材長','副器材長','行政長','副行政長','輔導長']
+  const ranks = ['',
+    '見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍',
+    '見習行義','初級行義','中級行義','高級行義','獅級行義','長城行義','國花行義',
+    '見習羅浮','授銜羅浮','服務羅浮'
+  ]
   return `
     <div class="space-y-3">
       <div class="grid grid-cols-2 gap-3">
@@ -3076,7 +3083,11 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
   `).join('')
 
   const sections = ['童軍','行義童軍','羅浮童軍','服務員','幼童軍','稚齡童軍']
-  const ranks = ['','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮']
+  const ranks = ['',
+    '見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍',
+    '見習行義','初級行義','中級行義','高級行義','獅級行義','長城行義','國花行義',
+    '見習羅浮','授銜羅浮','服務羅浮'
+  ]
 
   return c.html(adminLayout(`成員：${member.chinese_name}`, `
     <div class="mb-4">
@@ -3717,16 +3728,39 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
     WHERE section = ? AND is_active = 1 ORDER BY rank_from
   `).bind(sectionFilter).all()
 
-  // 各組別預設的階級名稱
-  const sectionRanks: Record<string, string[]> = {
-    '童軍':    ['初級童軍','中級童軍','高級童軍','獅級童軍'],
-    '行義童軍': ['初級行義','中級行義','高級行義','資深行義'],
-    '羅浮童軍': ['初級羅浮','中級羅浮','高級羅浮','資深羅浮'],
+  // 各組別正確的階級名稱（依升級順序排列）
+  // 童軍 & 行義童軍：6 階段；羅浮童軍：3 階段
+  const sectionRanks: Record<string, { rank: string; from: string }[]> = {
+    '童軍': [
+      { rank: '初級童軍', from: '見習童軍' },
+      { rank: '中級童軍', from: '初級童軍' },
+      { rank: '高級童軍', from: '中級童軍' },
+      { rank: '獅級童軍', from: '高級童軍' },
+      { rank: '長城童軍', from: '獅級童軍' },
+      { rank: '國花童軍', from: '長城童軍' },
+    ],
+    '行義童軍': [
+      { rank: '初級行義', from: '見習行義' },
+      { rank: '中級行義', from: '初級行義' },
+      { rank: '高級行義', from: '中級行義' },
+      { rank: '獅級行義', from: '高級行義' },
+      { rank: '長城行義', from: '獅級行義' },
+      { rank: '國花行義', from: '長城行義' },
+    ],
+    '羅浮童軍': [
+      { rank: '授銜羅浮', from: '見習羅浮' },
+      { rank: '服務羅浮', from: '授銜羅浮' },
+    ],
   }
-  const targetRanks = sectionRanks[sectionFilter] || []
+  const rankPairsDefault = sectionRanks[sectionFilter] || []
+  const targetRanks = rankPairsDefault.map(p => p.rank)
+  // 建立 rank_to → rank_from 的映射（預設值）
+  const rankFromMap: Record<string,string> = {}
+  rankPairsDefault.forEach(p => { rankFromMap[p.rank] = p.from })
 
-  // 所有目標階段（已有條件 + 預設）
-  const allTargets = [...new Set([...Object.keys(groupsByTarget), ...targetRanks])]
+  // 所有目標階段（已有條件 + 預設，按正確順序排列）
+  const extraTargets = Object.keys(groupsByTarget).filter(t => !targetRanks.includes(t))
+  const allTargets = [...targetRanks, ...extraTargets]
 
   const reqTypeOptions = [
     { value: 'attendance', label: '出席', icon: '📅' },
@@ -3794,17 +3828,18 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
         <div class="grid sm:grid-cols-2 gap-4 mb-4">
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">目標階段 <span class="text-red-500">*</span></label>
-            <select id="new_rank_to" class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-green-500 focus:outline-none transition-colors bg-white">
+            <select id="new_rank_to" onchange="onRankToChange(this.value)"
+              class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-green-500 focus:outline-none transition-colors bg-white">
               <option value="">選擇進程階段...</option>
-              ${allTargets.map(t => `<option value="${t}">${t}</option>`).join('')}
+              ${allTargets.map(t => `<option value="${t}">${t}${rankFromMap[t]?' (從'+rankFromMap[t]+'升)':''}</option>`).join('')}
               <option value="__custom__">＋ 自訂階段名稱</option>
             </select>
             <input id="new_rank_to_custom" type="text" placeholder="輸入自訂階段名稱"
               class="hidden w-full mt-2 border-2 border-green-300 rounded-xl px-4 py-2.5 text-sm focus:border-green-500 focus:outline-none">
           </div>
           <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">前置階段（選填）</label>
-            <input id="new_rank_from" type="text" placeholder="例：見習童軍（可空白）"
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">前置階段（自動帶入，可修改）</label>
+            <input id="new_rank_from" type="text" placeholder="選擇目標階段後自動帶入"
               class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-green-500 focus:outline-none transition-colors">
           </div>
         </div>
@@ -3992,6 +4027,27 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
     // ===== 資料（Server-rendered）=====
     const SECTION = '${sectionFilter}';
     const RANK_PAIRS = ${JSON.stringify(rankPairs.results)};
+    // 階段 → 前置階段 的對應表
+    const RANK_FROM_MAP = ${JSON.stringify(rankFromMap)};
+
+    // ===== 目標階段選擇自動帶入前置階段 =====
+    function onRankToChange(val) {
+      const custom = document.getElementById('new_rank_to_custom');
+      const fromEl = document.getElementById('new_rank_from');
+      if (val === '__custom__') {
+        custom.classList.remove('hidden');
+        custom.focus();
+        fromEl.value = '';
+      } else {
+        custom.classList.add('hidden');
+        // 自動帶入前置階段
+        if (RANK_FROM_MAP[val]) {
+          fromEl.value = RANK_FROM_MAP[val];
+        } else {
+          fromEl.value = '';
+        }
+      }
+    }
 
     // ===== 頂部新增表單 =====
     function toggleNewStageForm() {
@@ -3999,14 +4055,6 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       f.classList.toggle('hidden');
       if (!f.classList.contains('hidden')) document.getElementById('new_title').focus();
     }
-
-    document.getElementById('new_rank_to').addEventListener('change', function() {
-      const custom = document.getElementById('new_rank_to_custom');
-      if (this.value === '__custom__') {
-        custom.classList.remove('hidden');
-        custom.focus();
-      } else { custom.classList.add('hidden'); }
-    });
 
     async function submitNewStandard() {
       const msg = document.getElementById('newFormMsg');
@@ -4049,7 +4097,7 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       if (!title) { alert('請填寫標準標題'); return; }
       const data = {
         section: SECTION,
-        rank_from: '', rank_to: rank,
+        rank_from: RANK_FROM_MAP[rank] || '', rank_to: rank,
         requirement_type: document.getElementById('ia_type_' + key).value,
         title: title,
         description: document.getElementById('ia_desc_' + key).value.trim(),
