@@ -2156,93 +2156,203 @@ adminRoutes.get('/attendance', authMiddleware, async (c) => {
     </div>
 
     <!-- 新增場次 Modal -->
-    <div id="add-session-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
-        <h3 class="text-lg font-bold mb-4">新增出席場次</h3>
-        <div class="space-y-3">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">場次名稱 *</label>
-            <input type="text" id="add-ses-title" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：第一次社課">
-          </div>
-          <div class="grid grid-cols-2 gap-3">
+    <div id="add-session-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-auto flex flex-col" style="max-height:90vh">
+        <div class="p-6 pb-3 flex-shrink-0">
+          <h3 class="text-lg font-bold mb-4">新增出席場次</h3>
+          <div class="space-y-3">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">日期 *</label>
-              <input type="date" id="add-ses-date" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <label class="block text-sm font-medium text-gray-700 mb-1">場次名稱 *</label>
+              <input type="text" id="add-ses-title" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：第一次社課">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">日期 *</label>
+                <input type="date" id="add-ses-date" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">學年度 *</label>
+                <select id="add-ses-year" onchange="loadSessionMembers()" class="w-full border rounded-lg px-3 py-2 text-sm font-medium text-green-700 bg-green-50">
+                  ${['113','114','115','116'].map(y => `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y} 學年</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">組別</label>
+                <select id="add-ses-section" onchange="loadSessionMembers()" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="junior">童軍</option>
+                  <option value="senior">行義童軍</option>
+                  <option value="rover">羅浮童軍</option>
+                  <option value="all">全體</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">場次編號</label>
+                <input type="number" id="add-ses-number" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="1">
+              </div>
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">組別</label>
-              <select id="add-ses-section" class="w-full border rounded-lg px-3 py-2 text-sm">
-                <option value="junior">童軍</option>
-                <option value="senior">行義童軍</option>
-                <option value="rover">羅浮童軍</option>
-                <option value="all">全體</option>
-              </select>
+              <label class="block text-sm font-medium text-gray-700 mb-1">課程主題</label>
+              <input type="text" id="add-ses-topic" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：繩結技術">
             </div>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">課程主題</label>
-            <input type="text" id="add-ses-topic" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：繩結技術">
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">場次編號</label>
-            <input type="number" id="add-ses-number" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="1">
-          </div>
-          <div class="bg-blue-50 rounded-lg p-3">
-            <div class="flex items-center justify-between">
-              <p class="text-xs text-blue-700">
-                📋 成員名單：系統將自動從 <strong>${currentYear} 學年在籍成員</strong>（共 ${enrollCount} 人）匯入。
-                ${enrollCount === 0 ? '<br>⚠️ 注意：目前無年度在籍成員，將使用全體 ACTIVE 成員作為備用。' : ''}
-              </p>
-              ${enrollCount > 0 ? `<button type="button" onclick="previewSessionMembers()" class="ml-2 text-xs text-blue-600 hover:underline whitespace-nowrap">👁 預覽名單</button>` : ''}
-            </div>
-            <div id="session-member-preview" class="hidden mt-2 text-xs text-blue-600 border-t border-blue-200 pt-2"></div>
           </div>
         </div>
-        <div class="flex gap-3 mt-4">
-          <button onclick="saveSession()" class="bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium">新增（自動匯入成員）</button>
+
+        <!-- 成員勾選區（可捲動） -->
+        <div class="px-6 flex-1 overflow-y-auto min-h-0">
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-sm font-medium text-gray-700">📋 選擇參加成員</label>
+            <div class="flex gap-2">
+              <button type="button" onclick="toggleAllSessionMembers(true)" class="text-xs text-blue-600 hover:underline">全選</button>
+              <span class="text-gray-300">|</span>
+              <button type="button" onclick="toggleAllSessionMembers(false)" class="text-xs text-gray-500 hover:underline">全不選</button>
+            </div>
+          </div>
+          <div id="session-member-list" class="border rounded-lg bg-gray-50 p-3 min-h-16">
+            <p class="text-xs text-gray-400 text-center py-4">載入中...</p>
+          </div>
+          <p id="session-member-count" class="text-xs text-gray-500 mt-1.5 text-right"></p>
+        </div>
+
+        <div class="p-6 pt-4 flex-shrink-0 flex gap-3 border-t">
+          <button onclick="saveSession()" class="bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium">＋ 新增場次</button>
           <button onclick="document.getElementById('add-session-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
         </div>
       </div>
     </div>
 
     <script>
-      async function previewSessionMembers() {
+      let sessionMembersAll = []; // 全部成員（含 id, name, unit）
+
+      async function loadSessionMembers() {
+        const year = document.getElementById('add-ses-year').value;
         const section = document.getElementById('add-ses-section').value;
-        const previewEl = document.getElementById('session-member-preview');
-        previewEl.innerHTML = '載入中...';
-        previewEl.classList.remove('hidden');
-        const sectionMap = {junior:'童軍',senior:'行義童軍',rover:'羅浮童軍',all:''};
+        const listEl = document.getElementById('session-member-list');
+        const countEl = document.getElementById('session-member-count');
+        listEl.innerHTML = '<p class="text-xs text-gray-400 text-center py-4">載入中...</p>';
+        countEl.textContent = '';
+
+        const sectionMap = {junior:'\u7ae5\u8ecd',senior:'\u884c\u7fa9\u7ae5\u8ecd',rover:'\u7f85\u6d6e\u7ae5\u8ecd',all:''};
         const sectionCN = sectionMap[section] || '';
-        const url = '/api/enrollments?year=${currentYear}' + (sectionCN ? '&section=' + encodeURIComponent(sectionCN) : '');
-        const res = await fetch(url);
-        const json = await res.json();
-        const members = json.data || [];
-        if (!members.length) { previewEl.innerHTML = '（此組別目前無在籍成員）'; return; }
-        previewEl.innerHTML = '<strong>將匯入成員（' + members.length + ' 人）：</strong><br>' +
-          members.slice(0, 10).map(m => '・' + m.chinese_name + (m.unit_name ? ' (' + m.unit_name + ')' : '')).join('<br>') +
-          (members.length > 10 ? '<br>...及其他 ' + (members.length - 10) + ' 人' : '');
+        const url = '/api/enrollments?year=' + year + (sectionCN ? '&section=' + encodeURIComponent(sectionCN) : '');
+
+        try {
+          const res = await fetch(url);
+          const json = await res.json();
+          sessionMembersAll = json.data || [];
+        } catch(e) {
+          listEl.innerHTML = '<p class="text-xs text-red-500 text-center py-4">\u8f09\u5165\u5931\u6557</p>';
+          return;
+        }
+
+        if (!sessionMembersAll.length) {
+          listEl.innerHTML = '<p class="text-xs text-amber-600 text-center py-4">\u26a0\ufe0f \u6b64\u5b78\u5e74\u5ea6\u6b64\u7d44\u5225\u5c1a\u7121\u5728\u7c4d\u6210\u54e1\uff0c\u8acb\u5148\u524d\u5f80\u300c\u6210\u54e1\u540d\u518a\u300d\u8a2d\u5b9a\u3002</p>';
+          countEl.textContent = '\u5171 0 \u4eba';
+          return;
+        }
+
+        // 依小隊分組
+        const byUnit = {};
+        sessionMembersAll.forEach(m => {
+          const u = m.unit_name || '\u672a\u5206\u5c0f\u968a';
+          if (!byUnit[u]) byUnit[u] = [];
+          byUnit[u].push(m);
+        });
+
+        let html = '';
+        Object.keys(byUnit).sort().forEach(unit => {
+          html += '<div class="mb-2"><div class="text-xs font-semibold text-gray-500 mb-1">' + unit + '</div><div class="flex flex-wrap gap-1">';
+          byUnit[unit].forEach(m => {
+            html += '<label class="flex items-center gap-1 cursor-pointer bg-white border rounded-lg px-2 py-1 text-xs hover:bg-blue-50 has-[:checked]:bg-blue-100 has-[:checked]:border-blue-400">'
+              + '<input type="checkbox" class="session-member-cb" value="' + m.member_id + '" checked>'
+              + '<span>' + m.chinese_name + '</span>'
+              + '</label>';
+          });
+          html += '</div></div>';
+        });
+        listEl.innerHTML = html;
+        updateSessionMemberCount();
+
+        // 更新計數
+        listEl.querySelectorAll('.session-member-cb').forEach(cb => {
+          cb.addEventListener('change', updateSessionMemberCount);
+        });
+      }
+
+      function updateSessionMemberCount() {
+        const total = document.querySelectorAll('.session-member-cb').length;
+        const checked = document.querySelectorAll('.session-member-cb:checked').length;
+        document.getElementById('session-member-count').textContent = '\u5df2\u9078 ' + checked + ' / ' + total + ' \u4eba';
+      }
+
+      function toggleAllSessionMembers(checked) {
+        document.querySelectorAll('.session-member-cb').forEach(cb => { cb.checked = checked; });
+        updateSessionMemberCount();
       }
 
       async function saveSession() {
+        const title = document.getElementById('add-ses-title').value.trim();
+        const date = document.getElementById('add-ses-date').value;
+        if (!title || !date) { alert('\u5834\u6b21\u540d\u7a31\u548c\u65e5\u671f\u70ba\u5fc5\u586b'); return; }
+
+        const checkedIds = Array.from(document.querySelectorAll('.session-member-cb:checked')).map(cb => cb.value);
+        const year = document.getElementById('add-ses-year').value;
+
         const data = {
-          title: document.getElementById('add-ses-title').value,
-          date: document.getElementById('add-ses-date').value,
+          title,
+          date,
           section: document.getElementById('add-ses-section').value,
-          topic: document.getElementById('add-ses-topic').value,
+          topic: document.getElementById('add-ses-topic').value.trim(),
           session_number: parseInt(document.getElementById('add-ses-number').value) || null,
-          year_label: '${currentYear}',
+          year_label: year,
+          member_ids: checkedIds,
         };
-        if (!data.title || !data.date) { alert('場次名稱和日期為必填'); return; }
-        const res = await fetch('/api/attendance/sessions', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
-        const json = await res.json();
-        if (res.ok) { window.location.href = '/admin/attendance/' + json.id; }
-        else alert('新增失敗');
+
+        if (checkedIds.length === 0) {
+          if (!confirm('\u76ee\u524d\u672a\u52fe\u9078\u4efb\u4f55\u6210\u54e1\uff0c\u78ba\u5b9a\u8981\u5efa\u7acb\u7a7a\u767d\u5834\u6b21\uff1f')) return;
+        }
+
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = '\u5efa\u7acb\u4e2d...';
+
+        try {
+          const res = await fetch('/api/attendance/sessions', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+          const json = await res.json();
+          if (res.ok) { window.location.href = '/admin/attendance/' + json.id; }
+          else { alert('\u65b0\u589e\u5931\u6557\uff1a' + (json.error || '')); btn.disabled = false; btn.textContent = '\uff0b \u65b0\u589e\u5834\u6b21'; }
+        } catch(e) {
+          alert('\u7db2\u8def\u932f\u8aa4\uff0c\u8acb\u91cd\u8a66');
+          btn.disabled = false; btn.textContent = '\uff0b \u65b0\u589e\u5834\u6b21';
+        }
       }
+
       async function deleteSession(id) {
-        if (!confirm('確定要刪除此場次及所有出席記錄嗎？')) return;
+        if (!confirm('\u78ba\u5b9a\u8981\u522a\u9664\u6b64\u5834\u6b21\u53ca\u6240\u6709\u51fa\u5e2d\u8a18\u9304\u55ce\uff1f')) return;
         const res = await fetch('/api/attendance/sessions/' + id, { method:'DELETE' });
-        if (res.ok) location.reload(); else alert('刪除失敗');
+        if (res.ok) location.reload(); else alert('\u522a\u9664\u5931\u6557');
       }
+
+      // 開啟 modal 時自動載入成員
+      document.getElementById('add-session-modal').addEventListener('click', function(e) {
+        if (e.target === this) this.classList.add('hidden');
+      });
+
+      // 初始化：頁面載入後不自動 fetch，等開啟 modal 時才載入
+      (function patchOpenModal() {
+        const origOpen = document.querySelector('[onclick*="add-session-modal"].classList.remove');
+        // 用 MutationObserver 偵測 modal 顯示
+        const modal = document.getElementById('add-session-modal');
+        const obs = new MutationObserver(function(muts) {
+          muts.forEach(function(m) {
+            if (m.attributeName === 'class' && !modal.classList.contains('hidden')) {
+              if (document.querySelectorAll('.session-member-cb').length === 0) loadSessionMembers();
+            }
+          });
+        });
+        obs.observe(modal, { attributes: true });
+      })();
     </script>
   `))
 })
