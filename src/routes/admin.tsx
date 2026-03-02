@@ -1261,14 +1261,15 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
   const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
   const currentYear = yearLabel || yearSetting?.value || '114'
 
-  // 取得此年度在籍成員
+  // 取得此年度在籍成員（含歷史參與年度統計）
   let enrollQuery = `
-    SELECT me.id as enroll_id, me.*, m.chinese_name, m.english_name, m.gender, m.national_id, m.dob, m.phone, m.email, m.parent_name
+    SELECT me.id as enroll_id, me.*, m.chinese_name, m.english_name, m.gender, m.national_id, m.dob, m.phone, m.email, m.parent_name,
+      (SELECT GROUP_CONCAT(year_label ORDER BY year_label) FROM member_enrollments WHERE member_id=m.id AND is_active=1 AND year_label != ?) as past_years
     FROM member_enrollments me
     JOIN members m ON m.id = me.member_id
     WHERE me.year_label = ? AND me.is_active = 1
   `
-  const params: any[] = [currentYear]
+  const params: any[] = [currentYear, currentYear]
   if (section) { enrollQuery += ` AND me.section = ?`; params.push(section) }
   if (search) { enrollQuery += ` AND (m.chinese_name LIKE ? OR m.english_name LIKE ?)`; params.push(`%${search}%`, `%${search}%`) }
   enrollQuery += ` ORDER BY me.section, me.unit_name, m.chinese_name`
@@ -1308,7 +1309,14 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
       </td>
       <td class="px-3 py-2.5 text-gray-500">${m.gender || '-'}</td>
       <td class="px-3 py-2.5">
-        <span class="text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded">${currentYear}</span>
+        ${m.past_years
+          ? (() => {
+              const years = m.past_years.split(',').filter((y: string) => y.trim());
+              const badges = years.slice(-3).map((y: string) => `<span class="inline-block text-xs text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded mr-0.5">${y.trim()}</span>`).join('');
+              return `<div title="曾參加：${m.past_years}">${badges}${years.length > 3 ? `<span class="text-xs text-gray-400">+${years.length-3}</span>` : ''}</div>`;
+            })()
+          : `<span class="text-xs text-gray-400">新生</span>`
+        }
       </td>
       <td class="px-3 py-2.5 text-gray-500">${m.national_id || '-'}</td>
       <td class="px-3 py-2.5 text-gray-500">${m.dob ? m.dob.substring(0,10) : '-'}</td>
@@ -1937,10 +1945,14 @@ adminRoutes.get('/attendance', authMiddleware, async (c) => {
             <input type="number" id="add-ses-number" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="1">
           </div>
           <div class="bg-blue-50 rounded-lg p-3">
-            <p class="text-xs text-blue-700">
-              📋 成員名單：系統將自動從 <strong>${currentYear} 學年在籍成員</strong>（共 ${enrollCount} 人）匯入。
-              ${enrollCount === 0 ? '<br>⚠️ 注意：目前無年度在籍成員，將使用全體 ACTIVE 成員作為備用。' : ''}
-            </p>
+            <div class="flex items-center justify-between">
+              <p class="text-xs text-blue-700">
+                📋 成員名單：系統將自動從 <strong>${currentYear} 學年在籍成員</strong>（共 ${enrollCount} 人）匯入。
+                ${enrollCount === 0 ? '<br>⚠️ 注意：目前無年度在籍成員，將使用全體 ACTIVE 成員作為備用。' : ''}
+              </p>
+              ${enrollCount > 0 ? `<button type="button" onclick="previewSessionMembers()" class="ml-2 text-xs text-blue-600 hover:underline whitespace-nowrap">👁 預覽名單</button>` : ''}
+            </div>
+            <div id="session-member-preview" class="hidden mt-2 text-xs text-blue-600 border-t border-blue-200 pt-2"></div>
           </div>
         </div>
         <div class="flex gap-3 mt-4">
@@ -1951,6 +1963,23 @@ adminRoutes.get('/attendance', authMiddleware, async (c) => {
     </div>
 
     <script>
+      async function previewSessionMembers() {
+        const section = document.getElementById('add-ses-section').value;
+        const previewEl = document.getElementById('session-member-preview');
+        previewEl.innerHTML = '載入中...';
+        previewEl.classList.remove('hidden');
+        const sectionMap = {junior:'童軍',senior:'行義童軍',rover:'羅浮童軍',all:''};
+        const sectionCN = sectionMap[section] || '';
+        const url = '/api/enrollments?year=${currentYear}' + (sectionCN ? '&section=' + encodeURIComponent(sectionCN) : '');
+        const res = await fetch(url);
+        const json = await res.json();
+        const members = json.data || [];
+        if (!members.length) { previewEl.innerHTML = '（此組別目前無在籍成員）'; return; }
+        previewEl.innerHTML = '<strong>將匯入成員（' + members.length + ' 人）：</strong><br>' +
+          members.slice(0, 10).map(m => '・' + m.chinese_name + (m.unit_name ? ' (' + m.unit_name + ')' : '')).join('<br>') +
+          (members.length > 10 ? '<br>...及其他 ' + (members.length - 10) + ' 人' : '');
+      }
+
       async function saveSession() {
         const data = {
           title: document.getElementById('add-ses-title').value,
@@ -1982,13 +2011,23 @@ adminRoutes.get('/attendance/:id', authMiddleware, async (c) => {
   const session = await db.prepare(`SELECT * FROM attendance_sessions WHERE id=?`).bind(sessionId).first() as any
   if (!session) return c.redirect('/admin/attendance')
 
+  // 取得目前年度（用於從 member_enrollments 讀取最新小隊/職位）
+  const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
+  const currentYear = yearSetting?.value || '114'
+
+  // 優先從 member_enrollments 取得小隊和角色（年度在籍資料）
   const records = await db.prepare(`
-    SELECT ar.*, m.chinese_name, m.english_name, m.section, m.unit_name, m.role_name
+    SELECT ar.*, m.chinese_name, m.english_name,
+      COALESCE(me.section, m.section) as section,
+      COALESCE(me.unit_name, m.unit_name) as unit_name,
+      COALESCE(me.role_name, m.role_name) as role_name,
+      COALESCE(me.rank_level, m.rank_level) as rank_level
     FROM attendance_records ar
     JOIN members m ON m.id = ar.member_id
+    LEFT JOIN member_enrollments me ON me.member_id = m.id AND me.year_label = ? AND me.is_active = 1
     WHERE ar.session_id = ?
-    ORDER BY m.unit_name, m.chinese_name
-  `).bind(sessionId).all()
+    ORDER BY COALESCE(me.unit_name, m.unit_name), m.chinese_name
+  `).bind(currentYear, sessionId).all()
 
   // 取得榮譽小隊記錄
   const honorPatrols = await db.prepare(`
@@ -2006,22 +2045,45 @@ adminRoutes.get('/attendance/:id', authMiddleware, async (c) => {
   const statusLabel: Record<string,string> = {present:'出席',absent:'缺席',leave:'公假',late:'遲到'}
   const isSubmitted = session.submitted === 1
 
-  const rows = records.results.map((r: any) => `
+  // 按小隊分組
+  const grouped: Record<string, any[]> = {}
+  for (const r of records.results as any[]) {
+    const group = r.unit_name || '（未指定小隊）'
+    if (!grouped[group]) grouped[group] = []
+    grouped[group].push(r)
+  }
+
+  const makeRow = (r: any) => `
     <tr class="hover:bg-gray-50 border-b" id="row-${r.member_id}">
-      <td class="px-4 py-3">
+      <td class="px-4 py-2.5">
         <div class="font-medium text-sm">${r.chinese_name}</div>
         ${r.english_name ? '<div class="text-xs text-gray-400">' + r.english_name + '</div>' : ''}
       </td>
-      <td class="px-4 py-3 text-xs text-gray-500">${r.unit_name || '-'}</td>
-      <td class="px-4 py-3 text-xs text-gray-500">${r.role_name || '-'}</td>
-      <td class="px-4 py-3">
+      <td class="px-4 py-2.5 text-xs text-gray-500">${r.role_name || '-'}</td>
+      <td class="px-4 py-2.5">
         ${isSubmitted
           ? '<span class="px-2 py-1 rounded text-xs font-medium ' + (r.status === 'present' ? 'bg-green-100 text-green-700' : r.status === 'absent' ? 'bg-red-100 text-red-700' : r.status === 'leave' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700') + '">' + (statusLabel[r.status] || r.status) + '</span>'
-          : '<select data-session="' + sessionId + '" data-member="' + r.member_id + '" onchange="updateRecord(this)" class="border rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"><option value="present" ' + (r.status === 'present' ? 'selected' : '') + '>出席</option><option value="absent" ' + (r.status === 'absent' ? 'selected' : '') + '>缺席</option><option value="leave" ' + (r.status === 'leave' ? 'selected' : '') + '>公假</option><option value="late" ' + (r.status === 'late' ? 'selected' : '') + '>遲到</option></select>'
+          : '<select data-session="' + sessionId + '" data-member="' + r.member_id + '" data-unit="' + (r.unit_name||'') + '" onchange="updateRecord(this)" class="border rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"><option value="present" ' + (r.status === 'present' ? 'selected' : '') + '>出席</option><option value="absent" ' + (r.status === 'absent' ? 'selected' : '') + '>缺席</option><option value="leave" ' + (r.status === 'leave' ? 'selected' : '') + '>公假</option><option value="late" ' + (r.status === 'late' ? 'selected' : '') + '>遲到</option></select>'
         }
       </td>
     </tr>
-  `).join('')
+  `
+
+  // 組建按小隊分組的表格
+  const groupedRows = Object.entries(grouped).map(([unitName, members]) => {
+    const presentInUnit = members.filter(r => r.status === 'present').length
+    return `
+      <div class="mb-4">
+        <div class="flex items-center justify-between bg-gray-50 px-4 py-2 border-b border-t">
+          <span class="text-sm font-semibold text-gray-700">🏕️ ${unitName} <span class="text-xs font-normal text-gray-400 ml-1">${presentInUnit}/${members.length}</span></span>
+          ${!isSubmitted ? `<button onclick="markUnit('${unitName.replace(/'/g,"\\'")}','present')" class="text-xs text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 px-2 py-0.5 rounded border border-green-200">全員出席</button>` : ''}
+        </div>
+        <table class="w-full">
+          <tbody>${members.map(makeRow).join('')}</tbody>
+        </table>
+      </div>
+    `
+  }).join('')
 
   const presentCount = records.results.filter((r: any) => r.status === 'present').length
   const total = records.results.length
@@ -2074,19 +2136,14 @@ adminRoutes.get('/attendance/:id', authMiddleware, async (c) => {
     `}
 
     <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
-      <table class="w-full">
-        <thead class="bg-gray-50 border-b">
-          <tr>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">姓名</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">小隊</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">職位</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">狀態</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows || '<tr><td colspan="4" class="py-8 text-center text-gray-400">尚無成員記錄</td></tr>'}
-        </tbody>
-      </table>
+      <div class="bg-gray-50 px-4 py-2 border-b">
+        <div class="grid grid-cols-3 text-xs font-semibold text-gray-500">
+          <span>姓名</span>
+          <span>職位</span>
+          <span>狀態</span>
+        </div>
+      </div>
+      ${groupedRows || '<div class="py-8 text-center text-gray-400">尚無成員記錄<br><small>請先在「成員名冊」設定本學年在籍成員</small></div>'}
     </div>
 
     <!-- 榮譽小隊區塊 -->
@@ -2121,7 +2178,7 @@ adminRoutes.get('/attendance/:id', authMiddleware, async (c) => {
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">學年度標籤</label>
-            <input type="text" id="honor-year" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：114">
+            <input type="text" id="honor-year" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：114" value="${currentYear}">
           </div>
           <div class="flex items-center gap-2">
             <input type="checkbox" id="honor-announce" class="rounded">
@@ -2157,6 +2214,21 @@ adminRoutes.get('/attendance/:id', authMiddleware, async (c) => {
         selects.forEach(s => { if (s.value === 'present') cnt++; });
         const el = document.querySelector('.text-2xl.font-bold.text-green-700');
         if (el) el.textContent = cnt;
+      }
+
+      // 針對某小隊批次設定狀態
+      async function markUnit(unitName, status) {
+        if (IS_SUBMITTED) return;
+        const selects = document.querySelectorAll('select[data-unit="' + unitName + '"]');
+        const promises = [];
+        selects.forEach(sel => {
+          sel.value = status;
+          promises.push(fetch('/api/attendance/records/' + sel.dataset.session + '/' + sel.dataset.member, {
+            method: 'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status})
+          }));
+        });
+        await Promise.all(promises);
+        updateCounter();
       }
 
       async function markAll(status) {

@@ -33,13 +33,13 @@ CREATE TABLE IF NOT EXISTS scout_units (
   is_active INTEGER NOT NULL DEFAULT 1
 );
 
--- 預設小隊資料
+-- 預設小隊資料（固定 5 個童軍小隊，含隊別屋號）
 INSERT OR IGNORE INTO scout_units (unit_name, section, unit_order) VALUES
-  ('遊俠小隊', 'junior', 1),
-  ('刺客小隊', 'junior', 2),
-  ('戰士小隊', 'junior', 3),
-  ('巫師小隊', 'junior', 4),
-  ('聖騎士小隊', 'junior', 5);
+  ('第一次隊童軍－遊俠小隊', 'junior', 1),
+  ('第二隊－刺客小隊', 'junior', 2),
+  ('第三隊－戰士小隊', 'junior', 3),
+  ('第四隊－巫師小隊', 'junior', 4),
+  ('第五隊－聖騎士小隊', 'junior', 5);
 
 CREATE INDEX IF NOT EXISTS idx_member_enrollments_member ON member_enrollments(member_id);
 CREATE INDEX IF NOT EXISTS idx_member_enrollments_year ON member_enrollments(year_label);
