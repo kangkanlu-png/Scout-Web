@@ -225,6 +225,19 @@ memberRoutes.get('/', memberAuthMiddleware, async (c) => {
   const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(memberId).first() as any
   if (!member) return c.redirect('/member/login')
 
+  // 取得今年在籍資料（含小隊、職位、進程）
+  const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
+  const currentYear = yearSetting?.value || '114'
+  const enrollment = await db.prepare(`
+    SELECT * FROM member_enrollments WHERE member_id=? AND year_label=? AND is_active=1
+  `).bind(memberId, currentYear).first() as any
+
+  // 年度在籍資料優先，否則用主表
+  const displaySection = enrollment?.section || member.section
+  const displayUnit = enrollment?.unit_name || member.unit_name
+  const displayRank = enrollment?.rank_level || member.rank_level
+  const displayRole = enrollment?.role_name || member.role_name
+
   // 取得出席統計
   const attendStats = await db.prepare(`
     SELECT
@@ -232,7 +245,7 @@ memberRoutes.get('/', memberAuthMiddleware, async (c) => {
       (SELECT COUNT(*) FROM attendance_sessions WHERE section = ? OR section = 'all') as total_count
     FROM attendance_records ar
     WHERE ar.member_id = ? AND ar.status = 'present'
-  `).bind(member.section, memberId).first() as any
+  `).bind(displaySection, memberId).first() as any
 
   // 取得請假記錄（最近 5 筆）
   const recentLeaves = await db.prepare(`
@@ -266,7 +279,7 @@ memberRoutes.get('/', memberAuthMiddleware, async (c) => {
 
   return c.html(`${memberHead('個人總覽')}
 <body class="bg-gray-50 min-h-screen">
-  ${memberNav(member.chinese_name, member.section)}
+  ${memberNav(member.chinese_name, displaySection)}
   <div class="max-w-5xl mx-auto px-4 py-6 fade-in">
 
     <!-- 個人資訊卡 -->
@@ -279,13 +292,14 @@ memberRoutes.get('/', memberAuthMiddleware, async (c) => {
           <div class="flex flex-wrap items-center gap-2 mb-1">
             <h1 class="text-2xl font-bold text-gray-800">${member.chinese_name}</h1>
             ${member.english_name ? `<span class="text-gray-400 text-sm">${member.english_name}</span>` : ''}
-            <span class="px-2 py-0.5 rounded-full text-xs font-medium ${sectionBadge[member.section] || 'bg-gray-100 text-gray-700'}">${member.section}</span>
+            <span class="px-2 py-0.5 rounded-full text-xs font-medium ${sectionBadge[displaySection] || 'bg-gray-100 text-gray-700'}">${displaySection}</span>
+            ${enrollment ? `<span class="px-2 py-0.5 rounded-full text-xs bg-green-50 text-green-700 border border-green-200">${currentYear}學年</span>` : ''}
           </div>
           <div class="flex flex-wrap gap-3 text-sm text-gray-500">
-            <span><i class="fas fa-medal mr-1 text-yellow-500"></i>${member.rank_level || '未設定階級'}</span>
-            <span><i class="fas fa-user-tag mr-1 text-blue-500"></i>${member.role_name || '隊員'}</span>
+            <span><i class="fas fa-medal mr-1 text-yellow-500"></i>${displayRank || '未設定階級'}</span>
+            <span><i class="fas fa-user-tag mr-1 text-blue-500"></i>${displayRole || '隊員'}</span>
             <span><i class="fas fa-users mr-1 text-green-500"></i>${member.troop || '54團'}</span>
-            ${member.unit_name ? `<span><i class="fas fa-sitemap mr-1 text-purple-500"></i>${member.unit_name}</span>` : ''}
+            ${displayUnit ? `<span><i class="fas fa-sitemap mr-1 text-purple-500"></i>${displayUnit}</span>` : ''}
           </div>
         </div>
         <div class="flex gap-2 flex-wrap">
@@ -811,6 +825,12 @@ memberRoutes.get('/attendance', memberAuthMiddleware, async (c) => {
   const memberId = sess.memberId
   const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(memberId).first() as any
 
+  // 年度在籍資料優先
+  const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
+  const currentYear = yearSetting?.value || '114'
+  const enrollment = await db.prepare(`SELECT section FROM member_enrollments WHERE member_id=? AND year_label=? AND is_active=1`).bind(memberId, currentYear).first() as any
+  const displaySection = enrollment?.section || member.section
+
   const sessions = await db.prepare(`
     SELECT as2.*, ar.status as my_status, ar.note as my_note,
       lr.id as leave_id, lr.status as leave_status, lr.leave_type
@@ -819,7 +839,7 @@ memberRoutes.get('/attendance', memberAuthMiddleware, async (c) => {
     LEFT JOIN leave_requests lr ON lr.session_id = as2.id AND lr.member_id = ?
     WHERE as2.section = ? OR as2.section = 'all'
     ORDER BY as2.date DESC LIMIT 50
-  `).bind(memberId, memberId, member.section).all()
+  `).bind(memberId, memberId, displaySection).all()
 
   const stats = await db.prepare(`
     SELECT
@@ -831,7 +851,7 @@ memberRoutes.get('/attendance', memberAuthMiddleware, async (c) => {
     LEFT JOIN attendance_records ar ON ar.session_id = as2.id AND ar.member_id = ?
     LEFT JOIN leave_requests lr ON lr.session_id = as2.id AND lr.member_id = ?
     WHERE as2.section = ? OR as2.section = 'all'
-  `).bind(memberId, memberId, member.section).first() as any
+  `).bind(memberId, memberId, displaySection).first() as any
 
   const total = stats?.total || 0
   const present = stats?.present || 0

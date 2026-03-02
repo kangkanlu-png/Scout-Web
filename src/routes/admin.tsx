@@ -1253,165 +1253,553 @@ function adminLayout(title: string, content: string) {
 // ===================== 成員管理 =====================
 adminRoutes.get('/members', authMiddleware, async (c) => {
   const db = c.env.DB
+  const yearLabel = c.req.query('year') || '114'
   const section = c.req.query('section') || ''
   const search = c.req.query('search') || ''
 
-  let query = `SELECT * FROM members WHERE membership_status = 'ACTIVE'`
-  const params: any[] = []
-  if (section) { query += ` AND section = ?`; params.push(section) }
-  if (search) { query += ` AND (chinese_name LIKE ? OR english_name LIKE ?)`; params.push(`%${search}%`, `%${search}%`) }
-  query += ` ORDER BY section, unit_name, chinese_name`
+  // 取得目前年度設定
+  const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
+  const currentYear = yearLabel || yearSetting?.value || '114'
 
-  const members = await db.prepare(query).bind(...params).all()
-  const total = await db.prepare(`SELECT COUNT(*) as c FROM members WHERE membership_status='ACTIVE'`).first() as any
+  // 取得此年度在籍成員
+  let enrollQuery = `
+    SELECT me.id as enroll_id, me.*, m.chinese_name, m.english_name, m.gender, m.national_id, m.dob, m.phone, m.email, m.parent_name
+    FROM member_enrollments me
+    JOIN members m ON m.id = me.member_id
+    WHERE me.year_label = ? AND me.is_active = 1
+  `
+  const params: any[] = [currentYear]
+  if (section) { enrollQuery += ` AND me.section = ?`; params.push(section) }
+  if (search) { enrollQuery += ` AND (m.chinese_name LIKE ? OR m.english_name LIKE ?)`; params.push(`%${search}%`, `%${search}%`) }
+  enrollQuery += ` ORDER BY me.section, me.unit_name, m.chinese_name`
+  const enrolled = await db.prepare(enrollQuery).bind(...params).all()
 
+  // 統計
+  const totalCount = enrolled.results.length
   const sectionCounts: Record<string, number> = {}
-  const sc = await db.prepare(`SELECT section, COUNT(*) as c FROM members WHERE membership_status='ACTIVE' GROUP BY section`).all()
-  sc.results.forEach((r: any) => { sectionCounts[r.section] = r.c })
+  enrolled.results.forEach((r: any) => {
+    if (!sectionCounts[r.section]) sectionCounts[r.section] = 0
+    sectionCounts[r.section]++
+  })
 
-  const sectionList = ['童軍','行義童軍','羅浮童軍','服務員','幼童軍','稚齡童軍']
-  const sectionTabs = sectionList.map(s => `
-    <a href="/admin/members?section=${encodeURIComponent(s)}${search ? '&search='+encodeURIComponent(search) : ''}"
-      class="px-4 py-2 rounded-full text-sm font-medium transition ${section === s ? 'bg-green-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}">
-      ${s} <span class="ml-1 text-xs opacity-70">${sectionCounts[s] || 0}</span>
+  // 小隊清單
+  const unitsRes = await db.prepare(`SELECT * FROM scout_units WHERE is_active=1 ORDER BY unit_order`).all()
+  const unitOptions = (unitsRes.results as any[]).map((u: any) =>
+    `<option value="${u.unit_name}">${u.unit_name}</option>`
+  ).join('')
+
+  const sectionList = ['童軍','行義童軍','羅浮童軍','服務員']
+  const ranks = ['','見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習行義','初級行義','中級行義','高級行義','見習羅浮','授銜羅浮','服務羅浮']
+
+  const sectionTabs = [['', '全部'],...sectionList.map(s => [s, s])].map(([v, l]) => `
+    <a href="/admin/members?year=${currentYear}${v ? '&section='+encodeURIComponent(v) : ''}${search ? '&search='+encodeURIComponent(search) : ''}"
+      class="px-3 py-1.5 rounded-full text-sm font-medium transition ${section === v ? 'bg-green-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}">
+      ${l} <span class="ml-1 text-xs opacity-70">${v ? (sectionCounts[v]||0) : totalCount}</span>
     </a>
   `).join('')
 
-  const rows = members.results.map((m: any) => `
-    <tr class="hover:bg-gray-50 border-b">
-      <td class="px-4 py-3">
-        <a href="/admin/members/${m.id}" class="font-medium text-green-700 hover:text-green-900 hover:underline">${m.chinese_name}</a>
-        ${m.english_name ? `<div class="text-xs text-gray-400">${m.english_name}</div>` : ''}
+  const rows = (enrolled.results as any[]).map((m: any, i: number) => `
+    <tr class="hover:bg-gray-50 border-b text-sm">
+      <td class="px-3 py-2.5 text-gray-400 text-xs">${i + 1}</td>
+      <td class="px-3 py-2.5 text-xs text-gray-500">54團</td>
+      <td class="px-3 py-2.5 font-medium">
+        <a href="/admin/members/${m.member_id}" class="text-green-700 hover:underline">${m.chinese_name}</a>
+        ${m.english_name ? '<div class="text-xs text-gray-400">' + m.english_name + '</div>' : ''}
       </td>
-      <td class="px-4 py-3 text-sm text-gray-600">${m.section}</td>
-      <td class="px-4 py-3 text-sm text-gray-600">${m.unit_name || '-'}</td>
-      <td class="px-4 py-3 text-sm text-gray-600">${m.role_name || '-'}</td>
-      <td class="px-4 py-3 text-sm text-gray-600">${m.rank_level || '-'}</td>
-      <td class="px-4 py-3 text-sm text-gray-500">${m.gender || '-'}</td>
-      <td class="px-4 py-3">
-        <button onclick="editMember('${m.id}')" class="text-blue-600 hover:text-blue-800 text-xs mr-3">✏️ 編輯</button>
-        <button onclick="deleteMember('${m.id}','${m.chinese_name}')" class="text-red-500 hover:text-red-700 text-xs">🗑 刪除</button>
+      <td class="px-3 py-2.5 text-gray-500">${m.gender || '-'}</td>
+      <td class="px-3 py-2.5">
+        <span class="text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded">${currentYear}</span>
+      </td>
+      <td class="px-3 py-2.5 text-gray-500">${m.national_id || '-'}</td>
+      <td class="px-3 py-2.5 text-gray-500">${m.dob ? m.dob.substring(0,10) : '-'}</td>
+      <td class="px-3 py-2.5">
+        <span class="px-2 py-0.5 rounded text-xs ${m.section === '童軍' ? 'bg-green-100 text-green-700' : m.section === '行義童軍' ? 'bg-blue-100 text-blue-700' : m.section === '羅浮童軍' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}">${m.section || '-'}</span>
+      </td>
+      <td class="px-3 py-2.5 text-gray-500">${m.rank_level || '-'}</td>
+      <td class="px-3 py-2.5 text-gray-500">${m.unit_name || '-'}</td>
+      <td class="px-3 py-2.5 text-gray-500">${m.role_name || '-'}</td>
+      <td class="px-3 py-2.5">
+        <button onclick="openEditEnroll(${JSON.stringify(m)})" class="text-blue-600 hover:text-blue-800 text-xs mr-2">✏️ 編輯</button>
+        <button onclick="removeEnroll(${m.enroll_id},'${m.chinese_name}')" class="text-red-400 hover:text-red-600 text-xs">移除</button>
       </td>
     </tr>
   `).join('')
 
-  return c.html(adminLayout('成員管理', `
-    <div class="flex items-center justify-between mb-4">
+  return c.html(adminLayout('成員名冊', `
+    <div class="flex flex-wrap items-center gap-2 mb-4">
       <div>
-        <p class="text-sm text-gray-500">共 ${total?.c || 0} 位在籍成員</p>
+        <label class="text-xs text-gray-500 mr-1">學年度</label>
+        <select id="year-select" onchange="changeYear(this.value)" class="border rounded-lg px-3 py-1.5 text-sm font-bold text-green-700">
+          ${['113','114','115','116'].map(y => `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y} 學年</option>`).join('')}
+        </select>
       </div>
-      <button onclick="document.getElementById('add-member-modal').classList.remove('hidden')"
-        class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">＋ 新增成員</button>
+      <span class="text-sm text-gray-500">共 <strong>${totalCount}</strong> 位在籍成員</span>
+      <div class="ml-auto flex gap-2">
+        <button onclick="document.getElementById('add-member-modal').classList.remove('hidden')"
+          class="bg-green-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium">＋ 新增團員</button>
+        <button onclick="openAddExisting()"
+          class="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium">📥 沿用舊資料</button>
+        <button onclick="document.getElementById('csv-import-modal').classList.remove('hidden')"
+          class="bg-orange-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium">📊 CSV 匯入</button>
+      </div>
     </div>
 
-    <!-- 搜尋 & 分類 -->
-    <div class="flex flex-wrap gap-2 mb-4 items-center">
-      <a href="/admin/members" class="px-4 py-2 rounded-full text-sm font-medium ${!section ? 'bg-green-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}">全部 <span class="ml-1 text-xs opacity-70">${total?.c || 0}</span></a>
+    <div class="flex flex-wrap gap-2 mb-3 items-center">
       ${sectionTabs}
       <form class="ml-auto flex gap-2" method="get" action="/admin/members">
+        <input type="hidden" name="year" value="${currentYear}">
         ${section ? `<input type="hidden" name="section" value="${section}">` : ''}
-        <input type="search" name="search" value="${search}" placeholder="搜尋姓名..." class="border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
-        <button type="submit" class="bg-gray-200 hover:bg-gray-300 px-3 py-1.5 rounded-lg text-sm">搜尋</button>
+        <input type="search" name="search" value="${search}" placeholder="搜尋姓名..." class="border rounded-lg px-3 py-1.5 text-sm w-32">
+        <button type="submit" class="bg-gray-200 hover:bg-gray-300 px-3 py-1.5 rounded-lg text-sm">🔍</button>
       </form>
     </div>
 
-    <!-- 成員列表 -->
-    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-      <table class="w-full">
+    <div class="bg-white rounded-xl shadow-sm overflow-x-auto">
+      <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b">
           <tr>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">姓名</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">組別</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">小隊</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">職位</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">級別</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">性別</th>
-            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">操作</th>
+            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">#</th>
+            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">團次</th>
+            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">姓名</th>
+            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">性別</th>
+            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">歷史</th>
+            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">身分證號</th>
+            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">生日</th>
+            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">階段</th>
+            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">進程</th>
+            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">小隊</th>
+            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">職務</th>
+            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">操作</th>
           </tr>
         </thead>
         <tbody>
-          ${rows || '<tr><td colspan="7" class="py-8 text-center text-gray-400">尚無成員資料</td></tr>'}
+          ${rows || '<tr><td colspan="12" class="py-10 text-center text-gray-400">本年度尚無成員，請點「新增團員」或「沿用舊資料」</td></tr>'}
         </tbody>
       </table>
     </div>
 
+    <!-- 新增/沿用舊人 Modal -->
+    <div id="add-existing-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col">
+        <div class="p-5 border-b">
+          <h3 class="text-lg font-bold">📥 從舊資料選擇要參加 ${currentYear} 學年的成員</h3>
+          <p class="text-sm text-gray-500 mt-1">勾選後點「確認加入」，這些成員將納入本學年度出席管理</p>
+          <input type="text" id="existing-search" oninput="filterExisting()" placeholder="搜尋姓名..." class="mt-3 w-full border rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div id="existing-list" class="flex-1 overflow-y-auto p-4">
+          <div class="text-center text-gray-400 py-8">載入中...</div>
+        </div>
+        <div class="p-4 border-t flex justify-between items-center">
+          <span id="existing-selected-count" class="text-sm text-gray-600">已選擇 0 人</span>
+          <div class="flex gap-2">
+            <button onclick="document.getElementById('add-existing-modal').classList.add('hidden')"
+              class="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm">取消</button>
+            <button onclick="confirmAddExisting()"
+              class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium">確認加入</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 新增成員 Modal -->
     <div id="add-member-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto p-6">
-        <h3 class="text-lg font-bold mb-4">新增成員</h3>
-        ${memberFormFields('add')}
-        <div class="flex gap-3 mt-4">
-          <button onclick="saveMember()" class="bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium">新增</button>
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="p-5 border-b">
+          <h3 class="text-lg font-bold">＋ 新增 ${currentYear} 學年團員</h3>
+        </div>
+        <div class="p-5 space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">中文姓名 *</label>
+              <input type="text" id="add-chinese_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="請輸入姓名">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">英文姓名</label>
+              <input type="text" id="add-english_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="English Name">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">性別</label>
+              <select id="add-gender" class="w-full border rounded-lg px-3 py-2 text-sm">
+                <option value="">未指定</option><option value="男">男</option><option value="女">女</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">身分證號</label>
+              <input type="text" id="add-national_id" class="w-full border rounded-lg px-3 py-2 text-sm uppercase" placeholder="A123456789">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">生日</label>
+              <input type="date" id="add-dob" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">組別 *</label>
+              <select id="add-section" class="w-full border rounded-lg px-3 py-2 text-sm">
+                ${sectionList.map(s => `<option value="${s}">${s}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">小隊</label>
+              <select id="add-unit_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+                <option value="">未指定</option>
+                ${unitOptions}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">職位</label>
+              <select id="add-role_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+                ${['隊員','小隊長','副小隊長','群長','副群長','器材長','行政長','輔導長'].map(r => `<option value="${r}">${r}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">進程</label>
+            <select id="add-rank_level" class="w-full border rounded-lg px-3 py-2 text-sm">
+              ${ranks.map(r => `<option value="${r}">${r || '未設定'}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div id="add-member-msg" class="hidden px-5 pb-3 text-sm"></div>
+        <div class="p-4 border-t flex gap-2">
+          <button onclick="saveNewMember()" class="bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium">新增</button>
           <button onclick="document.getElementById('add-member-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
         </div>
       </div>
     </div>
 
-    <!-- 編輯成員 Modal -->
-    <div id="edit-member-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto p-6">
-        <h3 class="text-lg font-bold mb-4">編輯成員</h3>
-        <input type="hidden" id="edit-member-id">
-        ${memberFormFields('edit')}
-        <div class="flex gap-3 mt-4">
-          <button onclick="updateMember()" class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium">更新</button>
-          <button onclick="document.getElementById('edit-member-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
+    <!-- 編輯在籍資料 Modal -->
+    <div id="edit-enroll-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="p-5 border-b">
+          <h3 class="text-lg font-bold">✏️ 編輯在籍資料</h3>
+          <p id="edit-enroll-name" class="text-sm text-gray-500 mt-1"></p>
+        </div>
+        <div class="p-5 space-y-3">
+          <input type="hidden" id="edit-enroll-id">
+          <input type="hidden" id="edit-enroll-member-id">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">組別</label>
+              <select id="edit-section" class="w-full border rounded-lg px-3 py-2 text-sm">
+                ${sectionList.map(s => `<option value="${s}">${s}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">小隊</label>
+              <select id="edit-unit_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+                <option value="">未指定</option>
+                ${unitOptions}
+              </select>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">職位</label>
+              <select id="edit-role_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+                ${['隊員','小隊長','副小隊長','群長','副群長','器材長','行政長','輔導長'].map(r => `<option value="${r}">${r}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">進程</label>
+              <select id="edit-rank_level" class="w-full border rounded-lg px-3 py-2 text-sm">
+                ${ranks.map(r => `<option value="${r}">${r || '未設定'}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 border-t flex gap-2">
+          <button onclick="saveEditEnroll()" class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium">更新</button>
+          <button onclick="document.getElementById('edit-enroll-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CSV/Excel 匯入 Modal -->
+    <div id="csv-import-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col">
+        <div class="p-5 border-b">
+          <h3 class="text-lg font-bold">📊 CSV / Excel 批次匯入</h3>
+          <p class="text-sm text-gray-500 mt-1">支援 .csv、.xlsx、.xls 格式，欄位對應：姓名、性別、身分證號、生日、組別、小隊、職位、進程</p>
+          <div class="mt-2 p-2 bg-blue-50 rounded-lg text-xs text-blue-700">
+            📌 欄位名稱範例：姓名（必填）、英文姓名、性別（男/女）、身分證號、生日（YYYY-MM-DD）、組別（童軍/行義童軍/羅浮童軍）、小隊（遊俠小隊等）、職位（隊員/小隊長等）、進程
+          </div>
+        </div>
+        <div class="p-5 flex-1 overflow-y-auto">
+          <div class="mb-4">
+            <input type="file" id="csv-file" accept=".csv,.txt,.xlsx,.xls" onchange="parseImportFile()" class="block w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:border file:rounded-lg file:text-sm file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
+          </div>
+          <div id="csv-preview" class="hidden">
+            <p class="text-sm font-medium text-gray-700 mb-2">預覽（共 <span id="csv-count">0</span> 筆，顯示前 5 筆）：</p>
+            <div class="border rounded-lg overflow-x-auto">
+              <table class="w-full text-xs">
+                <thead class="bg-gray-50"><tr id="csv-header"></tr></thead>
+                <tbody id="csv-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="csv-msg" class="hidden mt-3 text-sm p-3 rounded-lg"></div>
+        </div>
+        <div class="p-4 border-t flex justify-between items-center">
+          <button onclick="downloadTemplate()" class="text-xs text-blue-600 hover:underline">📥 下載範例 CSV</button>
+          <div class="flex gap-2">
+            <button onclick="document.getElementById('csv-import-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm">取消</button>
+            <button onclick="confirmCSVImport()" id="csv-import-btn" class="bg-orange-500 text-white px-5 py-2 rounded-lg text-sm font-medium disabled:opacity-50" disabled>匯入</button>
+          </div>
         </div>
       </div>
     </div>
 
     <script>
-      async function editMember(id) {
-        const res = await fetch('/api/members/' + id);
+      const CURRENT_YEAR = '${currentYear}';
+      let existingMembers = [];
+      let existingSelected = new Set();
+      let csvData = [];
+
+      function changeYear(y) {
+        window.location.href = '/admin/members?year=' + y;
+      }
+
+      // ===== 沿用舊資料 =====
+      async function openAddExisting() {
+        document.getElementById('add-existing-modal').classList.remove('hidden');
+        existingSelected = new Set();
+        updateExistingCount();
+        const res = await fetch('/api/enrollments/available?year=' + CURRENT_YEAR);
         const json = await res.json();
-        const m = json.data;
-        document.getElementById('edit-member-id').value = m.id;
-        document.getElementById('edit-chinese_name').value = m.chinese_name || '';
-        document.getElementById('edit-english_name').value = m.english_name || '';
-        document.getElementById('edit-gender').value = m.gender || '';
-        document.getElementById('edit-section').value = m.section || '';
-        document.getElementById('edit-rank_level').value = m.rank_level || '';
+        existingMembers = json.data || [];
+        renderExistingList(existingMembers);
+      }
+
+      function filterExisting() {
+        const q = document.getElementById('existing-search').value.toLowerCase();
+        const filtered = existingMembers.filter(m =>
+          m.chinese_name.includes(q) || (m.english_name||'').toLowerCase().includes(q)
+        );
+        renderExistingList(filtered);
+      }
+
+      function renderExistingList(list) {
+        const container = document.getElementById('existing-list');
+        if (!list.length) {
+          container.innerHTML = '<div class="text-center text-gray-400 py-8">無可沿用的舊成員（所有人均已在本年度名冊中）</div>';
+          return;
+        }
+        const sectionColor = {童軍:'bg-green-100 text-green-700',行義童軍:'bg-blue-100 text-blue-700',羅浮童軍:'bg-purple-100 text-purple-700',服務員:'bg-gray-100 text-gray-600'};
+        container.innerHTML = '<div class="grid grid-cols-1 md:grid-cols-2 gap-2">' +
+          list.map(m => {
+            const sel = existingSelected.has(m.id);
+            return '<div onclick="toggleExisting(\'' + m.id + '\')" class="p-3 border rounded-lg cursor-pointer flex items-center gap-3 hover:bg-blue-50 transition ' + (sel ? 'bg-blue-50 border-blue-400' : 'bg-white') + '">' +
+              '<div class="w-5 h-5 border-2 rounded flex items-center justify-center flex-shrink-0 ' + (sel ? 'bg-blue-600 border-blue-600' : 'border-gray-300') + '">' +
+              (sel ? '<span class="text-white text-xs font-bold">✓</span>' : '') + '</div>' +
+              '<div class="flex-1 min-w-0">' +
+              '<div class="font-medium text-sm">' + m.chinese_name + '</div>' +
+              '<div class="text-xs text-gray-500 flex gap-2 flex-wrap mt-0.5">' +
+              (m.last_section ? '<span class="' + (sectionColor[m.last_section]||'bg-gray-100 text-gray-600') + ' px-1.5 py-0.5 rounded">' + m.last_section + '</span>' : '') +
+              (m.last_unit ? '<span class="text-gray-400">' + m.last_unit + '</span>' : '') +
+              (m.last_year ? '<span class="text-gray-300">(' + m.last_year + '學年)</span>' : '') +
+              '</div></div></div>';
+          }).join('') + '</div>';
+      }
+
+      function toggleExisting(id) {
+        if (existingSelected.has(id)) existingSelected.delete(id);
+        else existingSelected.add(id);
+        updateExistingCount();
+        renderExistingList(existingMembers.filter(m => {
+          const q = document.getElementById('existing-search').value.toLowerCase();
+          return m.chinese_name.includes(q) || (m.english_name||'').toLowerCase().includes(q);
+        }));
+      }
+
+      function updateExistingCount() {
+        document.getElementById('existing-selected-count').textContent = '已選擇 ' + existingSelected.size + ' 人';
+      }
+
+      async function confirmAddExisting() {
+        if (!existingSelected.size) return alert('請先勾選成員');
+        const res = await fetch('/api/enrollments/batch', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ year_label: CURRENT_YEAR, member_ids: Array.from(existingSelected), copy_from_prev: true })
+        });
+        const json = await res.json();
+        if (res.ok && json.success) {
+          alert('已加入 ' + json.added + ' 位成員！');
+          location.reload();
+        } else { alert('加入失敗：' + (json.error||'未知錯誤')); }
+      }
+
+      // ===== 新增成員 =====
+      async function saveNewMember() {
+        const data = {
+          year_label: CURRENT_YEAR,
+          chinese_name: document.getElementById('add-chinese_name').value.trim(),
+          english_name: document.getElementById('add-english_name').value.trim(),
+          gender: document.getElementById('add-gender').value,
+          national_id: document.getElementById('add-national_id').value.trim().toUpperCase(),
+          dob: document.getElementById('add-dob').value || null,
+          section: document.getElementById('add-section').value,
+          unit_name: document.getElementById('add-unit_name').value,
+          role_name: document.getElementById('add-role_name').value,
+          rank_level: document.getElementById('add-rank_level').value,
+        };
+        if (!data.chinese_name) { alert('請填寫姓名'); return; }
+        const res = await fetch('/api/enrollments', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+        const json = await res.json();
+        const msg = document.getElementById('add-member-msg');
+        if (res.ok && json.success) {
+          msg.textContent = '✅ 新增成功！'; msg.className = 'px-5 pb-3 text-sm text-green-600'; msg.classList.remove('hidden');
+          setTimeout(() => location.reload(), 800);
+        } else {
+          msg.textContent = '❌ 失敗：' + (json.error||'未知錯誤'); msg.className = 'px-5 pb-3 text-sm text-red-600'; msg.classList.remove('hidden');
+        }
+      }
+
+      // ===== 編輯在籍資料 =====
+      function openEditEnroll(m) {
+        document.getElementById('edit-enroll-id').value = m.enroll_id;
+        document.getElementById('edit-enroll-member-id').value = m.member_id;
+        document.getElementById('edit-enroll-name').textContent = m.chinese_name + (m.english_name ? ' / ' + m.english_name : '');
+        document.getElementById('edit-section').value = m.section || '童軍';
         document.getElementById('edit-unit_name').value = m.unit_name || '';
-        document.getElementById('edit-role_name').value = m.role_name || '';
-        document.getElementById('edit-troop').value = m.troop || '';
-        document.getElementById('edit-phone').value = m.phone || '';
-        document.getElementById('edit-email').value = m.email || '';
-        document.getElementById('edit-parent_name').value = m.parent_name || '';
-        document.getElementById('edit-notes').value = m.notes || '';
-        document.getElementById('edit-member-modal').classList.remove('hidden');
+        document.getElementById('edit-role_name').value = m.role_name || '隊員';
+        document.getElementById('edit-rank_level').value = m.rank_level || '';
+        document.getElementById('edit-enroll-modal').classList.remove('hidden');
       }
-      async function saveMember() {
-        const data = getMemberFormData('add');
-        if (!data.chinese_name) { alert('姓名為必填'); return; }
-        const res = await fetch('/api/members', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
-        if (res.ok) location.reload(); else alert('儲存失敗');
-      }
-      async function updateMember() {
-        const id = document.getElementById('edit-member-id').value;
-        const data = getMemberFormData('edit');
-        const res = await fetch('/api/members/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+
+      async function saveEditEnroll() {
+        const id = document.getElementById('edit-enroll-id').value;
+        const data = {
+          section: document.getElementById('edit-section').value,
+          unit_name: document.getElementById('edit-unit_name').value,
+          role_name: document.getElementById('edit-role_name').value,
+          rank_level: document.getElementById('edit-rank_level').value,
+        };
+        const res = await fetch('/api/enrollments/' + id, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
         if (res.ok) location.reload(); else alert('更新失敗');
       }
-      async function deleteMember(id, name) {
-        if (!confirm('確定要刪除成員「' + name + '」嗎？')) return;
-        const res = await fetch('/api/members/' + id, { method:'DELETE' });
-        if (res.ok) location.reload(); else alert('刪除失敗');
+
+      async function removeEnroll(id, name) {
+        if (!confirm('確定要將「' + name + '」從本學年度名冊中移除？（成員資料仍保留）')) return;
+        const res = await fetch('/api/enrollments/' + id, { method: 'DELETE' });
+        if (res.ok) location.reload(); else alert('移除失敗');
       }
-      function getMemberFormData(prefix) {
-        return {
-          chinese_name: document.getElementById(prefix+'-chinese_name').value,
-          english_name: document.getElementById(prefix+'-english_name').value,
-          gender: document.getElementById(prefix+'-gender').value,
-          section: document.getElementById(prefix+'-section').value,
-          rank_level: document.getElementById(prefix+'-rank_level').value,
-          unit_name: document.getElementById(prefix+'-unit_name').value,
-          role_name: document.getElementById(prefix+'-role_name').value,
-          troop: document.getElementById(prefix+'-troop').value,
-          phone: document.getElementById(prefix+'-phone').value,
-          email: document.getElementById(prefix+'-email').value,
-          parent_name: document.getElementById(prefix+'-parent_name').value,
-          notes: document.getElementById(prefix+'-notes').value,
-        };
+
+      // ===== CSV / Excel 匯入 =====
+      let xlsxLoaded = false;
+      async function loadXLSX() {
+        if (xlsxLoaded || typeof XLSX !== 'undefined') { xlsxLoaded = true; return; }
+        return new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+          s.onload = () => { xlsxLoaded = true; resolve(); };
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+
+      function renderImportPreview(headers, data) {
+        document.getElementById('csv-count').textContent = data.length;
+        document.getElementById('csv-header').innerHTML = headers.map(h => '<th class="px-2 py-1 text-left font-medium text-gray-600">' + h + '</th>').join('');
+        document.getElementById('csv-body').innerHTML = data.slice(0, 5).map(row =>
+          '<tr class="border-t">' + headers.map(h => '<td class="px-2 py-1">' + (row[h]||'-') + '</td>').join('') + '</tr>'
+        ).join('');
+        document.getElementById('csv-preview').classList.remove('hidden');
+        document.getElementById('csv-import-btn').disabled = false;
+      }
+
+      async function parseImportFile() {
+        const file = document.getElementById('csv-file').files[0];
+        if (!file) return;
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (ext === 'xlsx' || ext === 'xls') {
+          // Excel 格式：用 SheetJS 解析
+          await loadXLSX();
+          const ab = await file.arrayBuffer();
+          const wb = XLSX.read(ab, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const raw = XLSX.utils.sheet_to_json(ws, { header: 1 });
+          if (!raw || raw.length < 2) { alert('Excel 內容為空或格式不符'); return; }
+          const headers = raw[0].map(h => String(h).trim());
+          csvData = raw.slice(1).filter(row => row.some(c => c !== '' && c !== null && c !== undefined)).map(row => {
+            const obj = {};
+            headers.forEach((h, i) => { obj[h] = row[i] !== undefined && row[i] !== null ? String(row[i]).trim() : ''; });
+            return obj;
+          });
+          renderImportPreview(headers, csvData);
+        } else {
+          // CSV 格式
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const text = e.target.result;
+            const lines = text.trim().split('\\n').map(l => l.split(',').map(c => c.trim().replace(/^"|"$/g,'')));
+            if (lines.length < 2) { alert('CSV 內容為空'); return; }
+            const headers = lines[0];
+            csvData = lines.slice(1).filter(l => l.some(c => c)).map(row => {
+              const obj = {};
+              headers.forEach((h, i) => { obj[h] = row[i] || ''; });
+              return obj;
+            });
+            renderImportPreview(headers, csvData);
+          };
+          reader.readAsText(file, 'UTF-8');
+        }
+      }
+
+      // 下載範例 CSV
+      function downloadTemplate() {
+        const header = '姓名,英文姓名,性別,身分證號,生日,組別,小隊,職位,進程';
+        const sample = '王小明,Wang Xiao Ming,男,A123456789,2010-01-15,童軍,遊俠小隊,隊員,初級童軍';
+        const csv = header + '\\n' + sample;
+        const blob = new Blob(['\\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = '成員匯入範例.csv';
+        link.click();
+      }
+
+      async function confirmCSVImport() {
+        if (!csvData.length) return;
+        const btn = document.getElementById('csv-import-btn');
+        btn.disabled = true; btn.textContent = '匯入中...';
+        const msg = document.getElementById('csv-msg');
+        let success = 0, fail = 0, skip = 0;
+        for (const row of csvData) {
+          const name = row['姓名'] || row['chinese_name'] || row['Name'] || '';
+          if (!name) { skip++; continue; }
+          // 處理生日格式（Excel 數字日期轉換）
+          let dob = row['生日'] || row['dob'] || null;
+          if (dob && typeof dob === 'string' && /^\\d{5}$/.test(dob.trim())) {
+            // Excel serial date
+            const d = new Date((parseInt(dob) - 25569) * 86400 * 1000);
+            dob = d.toISOString().split('T')[0];
+          }
+          const body = {
+            year_label: CURRENT_YEAR,
+            chinese_name: name,
+            english_name: row['英文姓名'] || row['english_name'] || row['English Name'] || '',
+            gender: row['性別'] || row['gender'] || '',
+            national_id: row['身分證號'] || row['national_id'] || '',
+            dob: dob,
+            section: row['組別'] || row['section'] || '童軍',
+            unit_name: row['小隊'] || row['unit_name'] || '',
+            role_name: row['職位'] || row['role_name'] || '隊員',
+            rank_level: row['進程'] || row['rank_level'] || '',
+          };
+          try {
+            const res = await fetch('/api/enrollments', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+            if (res.ok) success++; else fail++;
+          } catch(e) { fail++; }
+        }
+        msg.textContent = '✅ 匯入完成：' + success + ' 筆成功' + (fail ? '，' + fail + ' 筆失敗' : '') + (skip ? '，' + skip + ' 筆跳過（無姓名）' : '');
+        msg.className = 'mt-3 text-sm p-3 rounded-lg ' + (fail ? 'bg-yellow-50 text-yellow-700' : 'bg-green-50 text-green-700');
+        msg.classList.remove('hidden');
+        btn.textContent = '匯入完成';
+        setTimeout(() => location.reload(), 1500);
       }
     </script>
   `))
@@ -1421,6 +1809,14 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
 adminRoutes.get('/attendance', authMiddleware, async (c) => {
   const db = c.env.DB
   const section = c.req.query('section') || ''
+
+  // 取得目前年度
+  const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
+  const currentYear = yearSetting?.value || '114'
+
+  // 統計今年在籍人數
+  const enrollCountRes = await db.prepare(`SELECT COUNT(*) as c FROM member_enrollments WHERE year_label=? AND is_active=1`).bind(currentYear).first() as any
+  const enrollCount = enrollCountRes?.c || 0
 
   let query = `
     SELECT ats.*,
@@ -1469,6 +1865,26 @@ adminRoutes.get('/attendance', authMiddleware, async (c) => {
       <button onclick="document.getElementById('add-session-modal').classList.remove('hidden')"
         class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">＋ 新增場次</button>
     </div>
+
+    <!-- 年度在籍提示 -->
+    <div class="mb-4 p-4 rounded-xl border ${enrollCount > 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}">
+      <div class="flex items-center gap-3">
+        <span class="text-lg">${enrollCount > 0 ? '✅' : '⚠️'}</span>
+        <div>
+          <p class="text-sm font-medium ${enrollCount > 0 ? 'text-green-800' : 'text-amber-800'}">
+            ${currentYear} 學年在籍成員：<strong>${enrollCount}</strong> 人
+          </p>
+          <p class="text-xs ${enrollCount > 0 ? 'text-green-600' : 'text-amber-600'} mt-0.5">
+            ${enrollCount > 0
+              ? '新增場次時，系統將自動帶入這些成員。如需更改名單，請前往「成員名冊」管理。'
+              : '⚠️ 本學年尚未設定在籍成員！新增場次將使用舊的 members 清單作為備用。請先前往「成員名冊」設定本年度參加人員。'
+            }
+          </p>
+        </div>
+        ${enrollCount === 0 ? '<a href="/admin/members" class="ml-auto text-xs bg-amber-600 text-white px-3 py-1.5 rounded-lg hover:bg-amber-700 whitespace-nowrap">→ 設定成員名冊</a>' : ''}
+      </div>
+    </div>
+
     <div class="flex flex-wrap gap-2 mb-4">${sectionTabs}</div>
 
     <div class="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -1520,6 +1936,12 @@ adminRoutes.get('/attendance', authMiddleware, async (c) => {
             <label class="block text-sm font-medium text-gray-700 mb-1">場次編號</label>
             <input type="number" id="add-ses-number" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="1">
           </div>
+          <div class="bg-blue-50 rounded-lg p-3">
+            <p class="text-xs text-blue-700">
+              📋 成員名單：系統將自動從 <strong>${currentYear} 學年在籍成員</strong>（共 ${enrollCount} 人）匯入。
+              ${enrollCount === 0 ? '<br>⚠️ 注意：目前無年度在籍成員，將使用全體 ACTIVE 成員作為備用。' : ''}
+            </p>
+          </div>
         </div>
         <div class="flex gap-3 mt-4">
           <button onclick="saveSession()" class="bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium">新增（自動匯入成員）</button>
@@ -1536,6 +1958,7 @@ adminRoutes.get('/attendance', authMiddleware, async (c) => {
           section: document.getElementById('add-ses-section').value,
           topic: document.getElementById('add-ses-topic').value,
           session_number: parseInt(document.getElementById('add-ses-number').value) || null,
+          year_label: '${currentYear}',
         };
         if (!data.title || !data.date) { alert('場次名稱和日期為必填'); return; }
         const res = await fetch('/api/attendance/sessions', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
@@ -1572,11 +1995,12 @@ adminRoutes.get('/attendance/:id', authMiddleware, async (c) => {
     SELECT * FROM honor_patrol_records WHERE session_id=? ORDER BY created_at DESC
   `).bind(sessionId).all()
 
-  // 取得小隊清單（from members）
+  // 取得固定小隊清單（from scout_units）
   const unitsRes = await db.prepare(`
-    SELECT DISTINCT unit_name FROM members WHERE unit_name IS NOT NULL AND unit_name != '' ORDER BY unit_name
+    SELECT unit_name FROM scout_units WHERE is_active=1 ORDER BY unit_order, unit_name
   `).all()
-  const unitOptions = (unitsRes.results as any[]).map((u: any) => `<option value="${u.unit_name}">${u.unit_name}</option>`).join('')
+  const scoutUnitList = (unitsRes.results as any[]).map((u: any) => u.unit_name)
+  const unitOptions = scoutUnitList.map((n: string) => `<option value="${n}">${n}</option>`).join('')
 
   const sectionLabel: Record<string,string> = {junior:'童軍',senior:'行義童軍',rover:'羅浮童軍',all:'全體'}
   const statusLabel: Record<string,string> = {present:'出席',absent:'缺席',leave:'公假',late:'遲到'}
@@ -3189,6 +3613,16 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
   const member = await db.prepare(`SELECT * FROM members WHERE id=?`).bind(id).first() as any
   if (!member) return c.redirect('/admin/members')
 
+  // 取得年度在籍記錄（歷史）
+  const enrollments = await db.prepare(`
+    SELECT * FROM member_enrollments WHERE member_id=? AND is_active=1 ORDER BY year_label DESC
+  `).bind(id).all()
+
+  // 取得目前年度
+  const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
+  const currentYear = yearSetting?.value || '114'
+  const currentEnrollment = (enrollments.results as any[]).find(e => e.year_label === currentYear) || null
+
   const progress = await db.prepare(`
     SELECT * FROM progress_records WHERE member_id=? ORDER BY awarded_at DESC
   `).bind(id).all()
@@ -3277,16 +3711,31 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
           <div class="text-xl font-bold text-gray-800">${member.chinese_name}</div>
           ${member.english_name ? `<div class="text-sm text-gray-400">${member.english_name}</div>` : ''}
           <div class="mt-3 space-y-2">
-            <div class="flex justify-between text-sm"><span class="text-gray-500">組別</span><span class="font-medium">${member.section}</span></div>
-            <div class="flex justify-between text-sm"><span class="text-gray-500">小隊</span><span>${member.unit_name||'-'}</span></div>
-            <div class="flex justify-between text-sm"><span class="text-gray-500">職位</span><span>${member.role_name||'-'}</span></div>
-            <div class="flex justify-between text-sm"><span class="text-gray-500">級別</span><span>${member.rank_level||'-'}</span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">組別</span><span class="font-medium">${currentEnrollment?.section || member.section}</span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">小隊</span><span>${currentEnrollment?.unit_name || member.unit_name||'-'}</span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">職位</span><span>${currentEnrollment?.role_name || member.role_name||'-'}</span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">進程</span><span>${currentEnrollment?.rank_level || member.rank_level||'-'}</span></div>
             <div class="flex justify-between text-sm"><span class="text-gray-500">所屬團</span><span>${member.troop||'-'}</span></div>
             <div class="flex justify-between text-sm"><span class="text-gray-500">性別</span><span>${member.gender||'-'}</span></div>
             ${member.phone ? `<div class="flex justify-between text-sm"><span class="text-gray-500">電話</span><span>${member.phone}</span></div>` : ''}
             ${member.email ? `<div class="flex justify-between text-sm"><span class="text-gray-500">Email</span><a href="mailto:${member.email}" class="text-blue-600 text-xs">${member.email}</a></div>` : ''}
             ${member.parent_name ? `<div class="flex justify-between text-sm"><span class="text-gray-500">家長</span><span>${member.parent_name}</span></div>` : ''}
           </div>
+        </div>
+
+        <!-- 年度在籍 -->
+        <div class="bg-white rounded-xl shadow-sm p-5">
+          <div class="text-sm font-semibold text-gray-700 mb-3">📅 歷年在籍記錄</div>
+          ${(enrollments.results as any[]).length === 0
+            ? '<p class="text-xs text-gray-400 text-center py-3">尚無年度在籍記錄</p>'
+            : `<div class="space-y-2">${(enrollments.results as any[]).map(e => `
+              <div class="flex items-center justify-between text-xs border-b pb-1">
+                <span class="font-medium text-gray-700">${e.year_label}學年</span>
+                <span class="text-gray-500">${e.section||'-'} ｜ ${e.unit_name||'-'} ｜ ${e.role_name||'-'}</span>
+                ${e.rank_level ? `<span class="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded">${e.rank_level}</span>` : ''}
+              </div>`).join('')}</div>`
+          }
+          <a href="/admin/members?year=${currentYear}" class="block mt-3 text-xs text-center text-green-700 hover:underline">→ 管理 ${currentYear} 學年名冊</a>
         </div>
 
         <!-- 出席統計 -->

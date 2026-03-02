@@ -297,6 +297,146 @@ apiRoutes.put('/settings', async (c) => {
   return c.json({ success: true })
 })
 
+// ==================== 年度在籍管理 API ====================
+
+// 取得某年度的在籍成員（含成員基本資料）
+apiRoutes.get('/enrollments', async (c) => {
+  const db = c.env.DB
+  const year = c.req.query('year') || '114'
+  const section = c.req.query('section')
+  let query = `
+    SELECT me.*, m.chinese_name, m.english_name, m.gender, m.national_id, m.dob, m.phone, m.email
+    FROM member_enrollments me
+    JOIN members m ON m.id = me.member_id
+    WHERE me.year_label = ? AND me.is_active = 1
+  `
+  const params: any[] = [year]
+  if (section) { query += ` AND me.section = ?`; params.push(section) }
+  query += ` ORDER BY me.section, me.unit_name, m.chinese_name`
+  const result = await db.prepare(query).bind(...params).all()
+  return c.json({ success: true, data: result.results })
+})
+
+// 取得「未加入某年度」的舊成員（用於沿用舊資料）
+apiRoutes.get('/enrollments/available', async (c) => {
+  const db = c.env.DB
+  const year = c.req.query('year') || '114'
+  const search = c.req.query('search') || ''
+  let query = `
+    SELECT m.*, me_prev.year_label as last_year, me_prev.section as last_section, me_prev.rank_level as last_rank, me_prev.unit_name as last_unit
+    FROM members m
+    LEFT JOIN member_enrollments me_prev ON me_prev.member_id = m.id AND me_prev.year_label = (
+      SELECT MAX(year_label) FROM member_enrollments WHERE member_id = m.id
+    )
+    WHERE m.id NOT IN (
+      SELECT member_id FROM member_enrollments WHERE year_label = ? AND is_active = 1
+    )
+    AND m.membership_status = 'ACTIVE'
+  `
+  const params: any[] = [year]
+  if (search) { query += ` AND (m.chinese_name LIKE ? OR m.english_name LIKE ?)`; params.push(`%${search}%`, `%${search}%`) }
+  query += ` ORDER BY me_prev.year_label DESC, m.chinese_name`
+  const result = await db.prepare(query).bind(...params).all()
+  return c.json({ success: true, data: result.results })
+})
+
+// 批次將成員加入某年度（沿用舊資料）
+apiRoutes.post('/enrollments/batch', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  const { year_label, member_ids, copy_from_prev } = body
+  if (!year_label || !member_ids?.length) return c.json({ success: false, error: '參數不完整' }, 400)
+  let added = 0
+  for (const member_id of member_ids) {
+    // 從成員主表取得基本資料（作為備用）
+    const memberBase = await db.prepare(`
+      SELECT section, rank_level, unit_name, role_name, troop FROM members WHERE id = ?
+    `).bind(member_id).first() as any
+    
+    // 嘗試從最近一次在籍記錄取得資料
+    const prev = copy_from_prev ? await db.prepare(`
+      SELECT * FROM member_enrollments WHERE member_id = ? ORDER BY year_label DESC LIMIT 1
+    `).bind(member_id).first() as any : null
+    
+    await db.prepare(`
+      INSERT OR IGNORE INTO member_enrollments (member_id, year_label, section, rank_level, unit_name, role_name, troop, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+    `).bind(member_id, year_label,
+      prev?.section || memberBase?.section || null,
+      prev?.rank_level || memberBase?.rank_level || null,
+      prev?.unit_name || memberBase?.unit_name || null,
+      prev?.role_name || memberBase?.role_name || '隊員',
+      prev?.troop || memberBase?.troop || '54團').run()
+    added++
+  }
+  return c.json({ success: true, added })
+})
+
+// 新增單一成員到年度在籍（同時可新增成員主表）
+apiRoutes.post('/enrollments', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  const { year_label, member_id, chinese_name, english_name, gender, national_id, dob,
+    section, rank_level, unit_name, role_name, troop, phone, email, parent_name, notes } = body
+  if (!year_label) return c.json({ success: false, error: '年度為必填' }, 400)
+  let mId = member_id
+  if (!mId) {
+    // 新增成員主表
+    if (!chinese_name) return c.json({ success: false, error: '姓名為必填' }, 400)
+    mId = `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    await db.prepare(`
+      INSERT INTO members (id, chinese_name, english_name, gender, national_id, dob, phone, email, parent_name, section, rank_level, unit_name, role_name, troop, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(mId, chinese_name, english_name || null, gender || null, national_id || null,
+      dob || null, phone || null, email || null, parent_name || null,
+      section || '童軍', rank_level || null, unit_name || null, role_name || '隊員', troop || '54團', notes || null).run()
+  }
+  await db.prepare(`
+    INSERT OR REPLACE INTO member_enrollments (member_id, year_label, section, rank_level, unit_name, role_name, troop, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+  `).bind(mId, year_label, section || null, rank_level || null, unit_name || null,
+    role_name || '隊員', troop || '54團').run()
+  // 同步更新成員主表
+  await db.prepare(`
+    UPDATE members SET section=?, rank_level=?, unit_name=?, role_name=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
+  `).bind(section || null, rank_level || null, unit_name || null, role_name || '隊員', mId).run()
+  return c.json({ success: true, id: mId })
+})
+
+// 更新年度在籍資料
+apiRoutes.put('/enrollments/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { section, rank_level, unit_name, role_name, troop, is_active, notes } = body
+  await db.prepare(`
+    UPDATE member_enrollments SET section=?, rank_level=?, unit_name=?, role_name=?, troop=?, is_active=?, notes=?, updated_at=CURRENT_TIMESTAMP
+    WHERE id=?
+  `).bind(section || null, rank_level || null, unit_name || null, role_name || '隊員',
+    troop || '54團', is_active ?? 1, notes || null, id).run()
+  return c.json({ success: true })
+})
+
+// 移除某年度的在籍成員（軟刪除：is_active=0）
+apiRoutes.delete('/enrollments/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  await db.prepare(`UPDATE member_enrollments SET is_active=0 WHERE id=?`).bind(id).run()
+  return c.json({ success: true })
+})
+
+// 取得可用小隊清單
+apiRoutes.get('/scout-units', async (c) => {
+  const db = c.env.DB
+  const section = c.req.query('section')
+  let query = `SELECT * FROM scout_units WHERE is_active=1`
+  const params: any[] = []
+  if (section) { query += ` AND section=?`; params.push(section) }
+  query += ` ORDER BY unit_order, unit_name`
+  const result = await db.prepare(query).bind(...params).all()
+  return c.json({ success: true, data: result.results })
+})
+
 // ==================== 人員管理 API ====================
 
 // 取得所有成員（支援篩選）
@@ -446,7 +586,7 @@ apiRoutes.get('/attendance/sessions/:id', async (c) => {
 apiRoutes.post('/attendance/sessions', async (c) => {
   const db = c.env.DB
   const body = await c.req.json()
-  const { id, title, date, section, session_number, topic, notes } = body
+  const { id, title, date, section, session_number, topic, notes, year_label, member_ids } = body
   if (!title || !date) return c.json({ success: false, error: '標題和日期為必填' }, 400)
   
   const sessionId = id || `as-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -455,28 +595,44 @@ apiRoutes.post('/attendance/sessions', async (c) => {
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).bind(sessionId, title, date, section || 'all', session_number || null, topic || null, notes || null).run()
   
-  // 自動加入對應組別的所有成員
-  let memberQuery = `SELECT id FROM members WHERE membership_status = 'ACTIVE'`
-  const memberParams: any[] = []
-  if (section && section !== 'all') {
-    const sectionMap: Record<string, string> = {
-      junior: '童軍', senior: '行義童軍', rover: '羅浮童軍'
+  let membersList: any[] = []
+  
+  if (member_ids && member_ids.length > 0) {
+    // 使用指定的人員名單
+    for (const mid of member_ids) {
+      membersList.push({ id: mid })
     }
-    if (sectionMap[section]) {
-      memberQuery += ` AND section = ?`
-      memberParams.push(sectionMap[section])
+  } else {
+    // 優先從年度在籍成員取人
+    const yearStr = year_label || (await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any)?.value || '114'
+    const sectionMap: Record<string, string> = { junior: '童軍', senior: '行義童軍', rover: '羅浮童軍' }
+    const sectionCN = sectionMap[section] || ''
+    
+    let enrollQuery = `SELECT member_id as id FROM member_enrollments WHERE year_label = ? AND is_active = 1`
+    const enrollParams: any[] = [yearStr]
+    if (sectionCN) { enrollQuery += ` AND section = ?`; enrollParams.push(sectionCN) }
+    
+    const enrolled = await db.prepare(enrollQuery).bind(...enrollParams).all()
+    membersList = enrolled.results as any[]
+    
+    // 若年度在籍無資料，fallback 到原本的 active members
+    if (!membersList.length) {
+      let memberQuery = `SELECT id FROM members WHERE membership_status = 'ACTIVE'`
+      const memberParams: any[] = []
+      if (sectionCN) { memberQuery += ` AND section = ?`; memberParams.push(sectionCN) }
+      const fallback = await db.prepare(memberQuery).bind(...memberParams).all()
+      membersList = fallback.results as any[]
     }
   }
-  const members = await db.prepare(memberQuery).bind(...memberParams).all()
   
-  for (const member of members.results as any[]) {
+  for (const member of membersList) {
     await db.prepare(`
       INSERT OR IGNORE INTO attendance_records (session_id, member_id, status)
       VALUES (?, ?, 'present')
     `).bind(sessionId, member.id).run()
   }
   
-  return c.json({ success: true, id: sessionId })
+  return c.json({ success: true, id: sessionId, member_count: membersList.length })
 })
 
 // 確認送出點名（鎖定場次）
@@ -1075,6 +1231,81 @@ async function getMemberIdFromCookie(c: any): Promise<string | null> {
     return data.memberId
   } catch { return null }
 }
+
+// 取得目前登入的成員資料
+apiRoutes.get('/member/profile', async (c) => {
+  const db = c.env.DB
+  const memberId = await getMemberIdFromCookie(c)
+  if (!memberId) return c.json({ success: false, error: '未登入' }, 401)
+
+  const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(memberId).first() as any
+  if (!member) return c.json({ success: false, error: '找不到成員資料' }, 404)
+
+  // 取得今年在籍資料（含小隊、職位）
+  const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
+  const currentYear = yearSetting?.value || '114'
+  const enrollment = await db.prepare(`
+    SELECT * FROM member_enrollments WHERE member_id=? AND year_label=? AND is_active=1
+  `).bind(memberId, currentYear).first() as any
+
+  // 取得進程記錄
+  const progress = await db.prepare(`
+    SELECT * FROM progress_records WHERE member_id=? ORDER BY awarded_at DESC LIMIT 20
+  `).bind(memberId).all()
+
+  return c.json({
+    success: true,
+    data: {
+      ...member,
+      current_year: currentYear,
+      enrollment: enrollment || null,
+      // 年度在籍資料優先，否則使用 members 主表的資料
+      display_section: enrollment?.section || member.section,
+      display_unit: enrollment?.unit_name || member.unit_name,
+      display_rank: enrollment?.rank_level || member.rank_level,
+      display_role: enrollment?.role_name || member.role_name,
+      progress: progress.results
+    }
+  })
+})
+
+// 取得目前登入成員的出席記錄
+apiRoutes.get('/member/attendance', async (c) => {
+  const db = c.env.DB
+  const memberId = await getMemberIdFromCookie(c)
+  if (!memberId) return c.json({ success: false, error: '未登入' }, 401)
+
+  const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
+  const currentYear = yearSetting?.value || '114'
+  const year = c.req.query('year') || currentYear
+
+  // 取得出席記錄（JOIN attendance_sessions 以獲取日期和標題）
+  const records = await db.prepare(`
+    SELECT ar.status, ar.note,
+      ats.id as session_id, ats.title, ats.date, ats.section, ats.topic, ats.submitted
+    FROM attendance_records ar
+    JOIN attendance_sessions ats ON ats.id = ar.session_id
+    WHERE ar.member_id = ?
+    ORDER BY ats.date DESC
+  `).bind(memberId).all()
+
+  // 統計
+  const all = records.results as any[]
+  const total = all.length
+  const present = all.filter(r => r.status === 'present').length
+  const absent = all.filter(r => r.status === 'absent').length
+  const leave = all.filter(r => r.status === 'leave').length
+  const late = all.filter(r => r.status === 'late').length
+
+  return c.json({
+    success: true,
+    data: {
+      records: all,
+      stats: { total, present, absent, leave, late,
+        rate: total > 0 ? Math.round(present / total * 100) : 0 }
+    }
+  })
+})
 
 // 請假申請 API
 apiRoutes.post('/member/leave', async (c) => {
