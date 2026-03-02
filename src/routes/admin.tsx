@@ -1846,10 +1846,11 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
           const ws = wb.Sheets[wb.SheetNames[0]];
           const raw = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
           if (!raw || raw.length < 2) { alert('Excel 內容為空或格式不符'); return; }
-          // 找到標題行（含「姓名」的那行）
+          // 找到標題行：某欄位【完全等於】已知欄位名稱（避免說明文字誤判）
+          const KNOWN_HEADERS = new Set(['姓名','中文姓名','英文名','英文姓名','身分證號','生日','性別','童軍階段','童軍進程','電話','小隊','職務','團次','Name','Chinese Name']);
           let headerIdx = 0;
-          for (let i = 0; i < Math.min(5, raw.length); i++) {
-            if (raw[i].some(c => String(c).includes('姓名') || String(c).includes('Name'))) {
+          for (let i = 0; i < Math.min(6, raw.length); i++) {
+            if (raw[i].some(c => KNOWN_HEADERS.has(String(c).trim()))) {
               headerIdx = i; break;
             }
           }
@@ -1858,13 +1859,19 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
             .filter(row => row.some(c => c !== '' && c !== null && c !== undefined))
             .filter(row => {
               const nameIdx = headers.findIndex(h => h === '姓名' || h === '中文姓名');
-              return nameIdx >= 0 && row[nameIdx] && String(row[nameIdx]).trim();
+              // 若找不到姓名欄位，仍允許匯入（寬鬆模式）
+              if (nameIdx < 0) return true;
+              return row[nameIdx] && String(row[nameIdx]).trim();
             })
             .map(row => {
               const obj = {};
               headers.forEach((h, i) => { obj[h] = row[i] !== undefined && row[i] !== null ? String(row[i]).trim() : ''; });
               return obj;
             });
+          if (csvData.length === 0) {
+            alert('⚠️ 找不到有效資料列，請確認 Excel 格式：\n第1列可為說明，第2列必須是欄位標頭（含「姓名」），第3列起為資料。');
+            return;
+          }
           renderImportPreview(headers, csvData);
         } else {
           const reader = new FileReader();
