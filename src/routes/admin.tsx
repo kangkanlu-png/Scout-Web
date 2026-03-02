@@ -1577,7 +1577,7 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
           </div>
         </div>
         <div class="p-4 border-t flex justify-between items-center">
-          <button onclick="downloadTemplate()" class="text-xs text-blue-600 hover:underline">📥 下載範例 CSV（官方格式）</button>
+          <a href="/static/members_import_template.xlsx" download="成員匯入範例.xlsx" class="text-xs text-green-700 hover:underline font-medium">📊 下載 Excel 範例檔（含說明）</a>
           <div class="flex gap-2">
             <button onclick="document.getElementById('csv-import-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm">取消</button>
             <button onclick="confirmCSVImport()" id="csv-import-btn" class="bg-orange-500 text-white px-5 py-2 rounded-lg text-sm font-medium disabled:opacity-50" disabled>📥 開始匯入</button>
@@ -1897,36 +1897,14 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
         }
       }
 
-      // 下載官方格式 CSV 範例
+      // 下載 Excel 範例（指向靜態檔案）
       function downloadTemplate() {
-        const header = '團次,姓名,英文名,身分證號,生日,性別,童軍階段,童軍進程,電話,小隊,職務,家長姓名,家長電話';
-        const samples = [
-          '54,王小明,Wang Xiao Ming,A123456789,091/06/14,男,童軍,初級童軍,0912345678,第一次隊童軍－遊俠小隊,隊員,王大明,0922111222',
-          '54,陳小華,Chen Xiao Hua,F230123456,95.3.15,女,行義童軍,獅級行義,0923456789,遊俠小隊,隊員,,',
-          '54,李大同,Lee Da Tong,H225123456,950820,男,羅浮童軍,見習羅浮,,,群長,,'
-        ];
-        const csv = '\uFEFF' + header + '\n' + samples.join('\n');
-        try {
-          // 優先用 Blob + createObjectURL
-          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.setAttribute('href', url);
-          link.setAttribute('download', '成員匯入範例_官方格式.csv');
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
-        } catch(e) {
-          // 降級：用 data URI
-          const encoded = encodeURIComponent(csv);
-          const link = document.createElement('a');
-          link.setAttribute('href', 'data:text/csv;charset=utf-8,' + encoded);
-          link.setAttribute('download', '成員匯入範例_官方格式.csv');
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        }
+        const link = document.createElement('a');
+        link.href = '/static/members_import_template.xlsx';
+        link.download = '成員匯入範例.xlsx';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
       }
 
       async function confirmCSVImport() {
@@ -3773,13 +3751,12 @@ adminRoutes.get('/members/import', authMiddleware, async (c) => {
     let parsedRows = []
 
     function downloadTemplate() {
-      const header = COLUMNS.join(',')
-      const example = '王小明,Wang Xiaoming,男,童軍,台灣小隊,隊員,初級童軍,54團,0912345678,test@email.com,王大明,'
-      const csv = '\\uFEFF' + header + '\\n' + example
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url; a.download = 'members_template.csv'; a.click()
+      const link = document.createElement('a');
+      link.href = '/static/members_import_template.xlsx';
+      link.download = '成員匯入範例.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
 
     function previewCSV(event) {
