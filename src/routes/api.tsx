@@ -379,28 +379,92 @@ apiRoutes.post('/enrollments', async (c) => {
   const { year_label, member_id, chinese_name, english_name, gender, national_id, dob,
     section, rank_level, unit_name, role_name, troop, phone, email, parent_name, notes } = body
   if (!year_label) return c.json({ success: false, error: '年度為必填' }, 400)
+  if (!chinese_name && !member_id) return c.json({ success: false, error: '姓名為必填' }, 400)
+
   let mId = member_id
+
   if (!mId) {
-    // 新增成員主表
-    if (!chinese_name) return c.json({ success: false, error: '姓名為必填' }, 400)
-    mId = `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-    await db.prepare(`
-      INSERT INTO members (id, chinese_name, english_name, gender, national_id, dob, phone, email, parent_name, section, rank_level, unit_name, role_name, troop, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(mId, chinese_name, english_name || null, gender || null, national_id || null,
-      dob || null, phone || null, email || null, parent_name || null,
-      section || '童軍', rank_level || null, unit_name || null, role_name || '隊員', troop || '54團', notes || null).run()
+    // 先嘗試用身分證號或姓名找現有成員
+    let existingMember: any = null
+    if (national_id && national_id.trim()) {
+      existingMember = await db.prepare(
+        `SELECT id FROM members WHERE national_id = ? AND membership_status != 'DELETED'`
+      ).bind(national_id.trim().toUpperCase()).first() as any
+    }
+    if (!existingMember && chinese_name) {
+      existingMember = await db.prepare(
+        `SELECT id FROM members WHERE chinese_name = ? AND membership_status != 'DELETED' LIMIT 1`
+      ).bind(chinese_name.trim()).first() as any
+    }
+
+    if (existingMember) {
+      // 更新現有成員資料（如果有新資訊）
+      mId = existingMember.id
+      const updates: string[] = []
+      const vals: any[] = []
+      if (english_name) { updates.push('english_name=?'); vals.push(english_name) }
+      if (gender) { updates.push('gender=?'); vals.push(gender) }
+      if (dob) { updates.push('dob=?'); vals.push(dob) }
+      if (phone) { updates.push('phone=?'); vals.push(phone) }
+      if (parent_name) { updates.push('parent_name=?'); vals.push(parent_name) }
+      if (section) { updates.push('section=?'); vals.push(section) }
+      if (rank_level) { updates.push('rank_level=?'); vals.push(rank_level) }
+      if (unit_name) { updates.push('unit_name=?'); vals.push(unit_name) }
+      if (role_name) { updates.push('role_name=?'); vals.push(role_name) }
+      if (updates.length) {
+        updates.push('updated_at=CURRENT_TIMESTAMP')
+        vals.push(mId)
+        await db.prepare(`UPDATE members SET ${updates.join(',')} WHERE id=?`).bind(...vals).run()
+      }
+    } else {
+      // 建立新成員
+      mId = `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+      const finalTroop = troop || '54團'
+      await db.prepare(`
+        INSERT INTO members (id, chinese_name, english_name, gender, national_id, dob, phone, email, parent_name, section, rank_level, unit_name, role_name, troop, notes, membership_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+      `).bind(mId, chinese_name.trim(), english_name || null, gender || null,
+        national_id ? national_id.trim().toUpperCase() : null,
+        dob || null, phone || null, email || null, parent_name || null,
+        section || '童軍', rank_level || null, unit_name || null,
+        role_name || '隊員', finalTroop, notes || null).run()
+    }
   }
-  await db.prepare(`
-    INSERT OR REPLACE INTO member_enrollments (member_id, year_label, section, rank_level, unit_name, role_name, troop, is_active)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-  `).bind(mId, year_label, section || null, rank_level || null, unit_name || null,
-    role_name || '隊員', troop || '54團').run()
-  // 同步更新成員主表
-  await db.prepare(`
-    UPDATE members SET section=?, rank_level=?, unit_name=?, role_name=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
-  `).bind(section || null, rank_level || null, unit_name || null, role_name || '隊員', mId).run()
-  return c.json({ success: true, id: mId })
+
+  // 新增或更新年度在籍記錄
+  // 先檢查是否已有此年度記錄
+  const existEnroll = await db.prepare(
+    `SELECT id, is_active FROM member_enrollments WHERE member_id=? AND year_label=?`
+  ).bind(mId, year_label).first() as any
+
+  if (existEnroll) {
+    // 已有記錄：重新啟用並更新
+    await db.prepare(`
+      UPDATE member_enrollments SET section=?, rank_level=?, unit_name=?, role_name=?, troop=?, is_active=1, updated_at=CURRENT_TIMESTAMP
+      WHERE member_id=? AND year_label=?
+    `).bind(section || null, rank_level || null, unit_name || null,
+      role_name || '隊員', troop || '54團', mId, year_label).run()
+  } else {
+    await db.prepare(`
+      INSERT INTO member_enrollments (member_id, year_label, section, rank_level, unit_name, role_name, troop, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+    `).bind(mId, year_label, section || null, rank_level || null, unit_name || null,
+      role_name || '隊員', troop || '54團').run()
+  }
+
+  // 同步更新成員主表的最新資料
+  if (section || rank_level || unit_name || role_name) {
+    const syncUpdates: string[] = ['updated_at=CURRENT_TIMESTAMP']
+    const syncVals: any[] = []
+    if (section) { syncUpdates.push('section=?'); syncVals.push(section) }
+    if (rank_level) { syncUpdates.push('rank_level=?'); syncVals.push(rank_level) }
+    if (unit_name !== undefined) { syncUpdates.push('unit_name=?'); syncVals.push(unit_name || null) }
+    if (role_name) { syncUpdates.push('role_name=?'); syncVals.push(role_name) }
+    syncVals.push(mId)
+    await db.prepare(`UPDATE members SET ${syncUpdates.join(',')} WHERE id=?`).bind(...syncVals).run()
+  }
+
+  return c.json({ success: true, id: mId, updated: !!existEnroll })
 })
 
 // 更新年度在籍資料

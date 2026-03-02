@@ -1327,7 +1327,7 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
       <td class="px-3 py-2.5 text-gray-500">${m.unit_name || '-'}</td>
       <td class="px-3 py-2.5 text-gray-500">${m.role_name || '-'}</td>
       <td class="px-3 py-2.5">
-        <button onclick="openEditEnroll(${JSON.stringify(m)})" class="text-blue-600 hover:text-blue-800 text-xs mr-2">✏️ 編輯</button>
+        <button onclick="openEditEnroll(${JSON.stringify(m).replace(/"/g, '&quot;')})" class="text-blue-600 hover:text-blue-800 text-xs mr-2">✏️ 編輯</button>
         <button onclick="removeEnroll(${m.enroll_id},'${m.chinese_name}')" class="text-red-400 hover:text-red-600 text-xs">移除</button>
       </td>
     </tr>
@@ -1529,12 +1529,16 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
 
     <!-- CSV/Excel 匯入 Modal -->
     <div id="csv-import-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl mx-4 max-h-[90vh] flex flex-col">
         <div class="p-5 border-b">
-          <h3 class="text-lg font-bold">📊 CSV / Excel 批次匯入</h3>
-          <p class="text-sm text-gray-500 mt-1">支援 .csv、.xlsx、.xls 格式，欄位對應：姓名、性別、身分證號、生日、組別、小隊、職位、進程</p>
-          <div class="mt-2 p-2 bg-blue-50 rounded-lg text-xs text-blue-700">
-            📌 欄位名稱範例：姓名（必填）、英文姓名、性別（男/女）、身分證號、生日（YYYY-MM-DD）、組別（童軍/行義童軍/羅浮童軍）、小隊（遊俠小隊等）、職位（隊員/小隊長等）、進程
+          <h3 class="text-lg font-bold">📊 Excel / CSV 批次匯入</h3>
+          <p class="text-sm text-gray-500 mt-1">支援 .xlsx、.xls、.csv 格式，自動對應欄位名稱</p>
+          <div class="mt-2 p-3 bg-blue-50 rounded-lg text-xs text-blue-800 space-y-1">
+            <p class="font-semibold">📋 支援欄位（自動對應系統格式）：</p>
+            <p>• <strong>必填：</strong>姓名（或「中文姓名」）</p>
+            <p>• <strong>個人：</strong>英文名（英文姓名）、性別（男/女）、身分證號、生日（支援民國年：091/06/14、91.7.27、950705、西元：2002-01-15）</p>
+            <p>• <strong>童軍：</strong>童軍階段（組別）→ 童軍/行義童軍/羅浮童軍、童軍進程（進程）、小隊、職務（職位/職務）</p>
+            <p>• <strong>聯絡：</strong>電話、家長姓名、家長電話、團次</p>
           </div>
         </div>
         <div class="p-5 flex-1 overflow-y-auto">
@@ -1542,7 +1546,10 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
             <input type="file" id="csv-file" accept=".csv,.txt,.xlsx,.xls" onchange="parseImportFile()" class="block w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:border file:rounded-lg file:text-sm file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
           </div>
           <div id="csv-preview" class="hidden">
-            <p class="text-sm font-medium text-gray-700 mb-2">預覽（共 <span id="csv-count">0</span> 筆，顯示前 5 筆）：</p>
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-sm font-medium text-gray-700">預覽（共 <span id="csv-count">0</span> 筆，顯示前 5 筆）</p>
+              <div class="text-xs text-gray-500">辨識到欄位：<span id="csv-fields" class="text-green-700 font-medium"></span></div>
+            </div>
             <div class="border rounded-lg overflow-x-auto">
               <table class="w-full text-xs">
                 <thead class="bg-gray-50"><tr id="csv-header"></tr></thead>
@@ -1551,12 +1558,21 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
             </div>
           </div>
           <div id="csv-msg" class="hidden mt-3 text-sm p-3 rounded-lg"></div>
+          <div id="csv-progress" class="hidden mt-3">
+            <div class="flex items-center justify-between text-xs text-gray-600 mb-1">
+              <span>匯入進度</span>
+              <span id="csv-progress-text">0 / 0</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div id="csv-progress-bar" class="bg-green-600 h-2 rounded-full transition-all" style="width:0%"></div>
+            </div>
+          </div>
         </div>
         <div class="p-4 border-t flex justify-between items-center">
-          <button onclick="downloadTemplate()" class="text-xs text-blue-600 hover:underline">📥 下載範例 CSV</button>
+          <button onclick="downloadTemplate()" class="text-xs text-blue-600 hover:underline">📥 下載範例 CSV（官方格式）</button>
           <div class="flex gap-2">
             <button onclick="document.getElementById('csv-import-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm">取消</button>
-            <button onclick="confirmCSVImport()" id="csv-import-btn" class="bg-orange-500 text-white px-5 py-2 rounded-lg text-sm font-medium disabled:opacity-50" disabled>匯入</button>
+            <button onclick="confirmCSVImport()" id="csv-import-btn" class="bg-orange-500 text-white px-5 py-2 rounded-lg text-sm font-medium disabled:opacity-50" disabled>📥 開始匯入</button>
           </div>
         </div>
       </div>
@@ -1710,11 +1726,98 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
         });
       }
 
+      // 民國年日期轉換 → 西元 YYYY-MM-DD
+      function convertROCDate(raw) {
+        if (!raw) return null;
+        const s = String(raw).trim();
+        if (!s || s === 'None') return null;
+
+        // 已是西元格式 2002-01-15 或 2002/01/15
+        if (/^20\d{2}[-/]\d{1,2}[-/]\d{1,2}$/.test(s)) {
+          return s.replace(/\//g, '-').replace(/(\d{4})-(\d{1,2})-(\d{1,2})/, (_, y, m, d) =>
+            y + '-' + m.padStart(2,'0') + '-' + d.padStart(2,'0'));
+        }
+
+        // 民國年 091/06/14 或 91/06/14
+        const slashMatch = s.match(/^(\d{2,3})[\/](\d{1,2})[\/](\d{1,2})$/);
+        if (slashMatch) {
+          const roc = parseInt(slashMatch[1]);
+          const ad = roc + 1911;
+          return ad + '-' + slashMatch[2].padStart(2,'0') + '-' + slashMatch[3].padStart(2,'0');
+        }
+
+        // 民國年 91.7.27 or 91.07.27
+        const dotMatch = s.match(/^(\d{2,3})\.(\d{1,2})\.(\d{1,2})$/);
+        if (dotMatch) {
+          const roc = parseInt(dotMatch[1]);
+          const ad = roc + 1911;
+          return ad + '-' + dotMatch[2].padStart(2,'0') + '-' + dotMatch[3].padStart(2,'0');
+        }
+
+        // 民國年純數字 950705 (6位) 或 9570518 (7位)
+        if (/^\d{6,7}$/.test(s)) {
+          const num = parseInt(s);
+          if (s.length === 6) {
+            // YYMMDD - 民國兩位年
+            const yy = parseInt(s.slice(0,2));
+            const mm = s.slice(2,4);
+            const dd = s.slice(4,6);
+            const ad = yy + 1911;
+            return ad + '-' + mm + '-' + dd;
+          } else {
+            // YYYMMDD - 民國三位年
+            const yyy = parseInt(s.slice(0,3));
+            const mm = s.slice(3,5);
+            const dd = s.slice(5,7);
+            const ad = yyy + 1911;
+            return ad + '-' + mm + '-' + dd;
+          }
+        }
+
+        // Excel serial date (數字)
+        if (/^\d{5}$/.test(s)) {
+          const d = new Date((parseInt(s) - 25569) * 86400 * 1000);
+          return d.toISOString().split('T')[0];
+        }
+
+        // 嘗試直接解析
+        const parsed = new Date(s);
+        if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 1900) {
+          return parsed.toISOString().split('T')[0];
+        }
+
+        return null;
+      }
+
+      // 從欄位名稱取值（支援多種欄位名）
+      function getField(row, keys, fallback = '') {
+        for (const k of keys) {
+          if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '') {
+            return String(row[k]).trim();
+          }
+        }
+        return fallback;
+      }
+
+      // 欄位說明顯示
       function renderImportPreview(headers, data) {
         document.getElementById('csv-count').textContent = data.length;
-        document.getElementById('csv-header').innerHTML = headers.map(h => '<th class="px-2 py-1 text-left font-medium text-gray-600">' + h + '</th>').join('');
+        // 偵測到的有效欄位
+        const knownFieldMap = {
+          '姓名': '姓名✓', '英文名': '英文名✓', '英文姓名': '英文姓名✓',
+          '身分證號': '身分證✓', '生日': '生日✓', '性別': '性別✓',
+          '童軍階段': '階段✓', '組別': '組別✓', '童軍進程': '進程✓', '進程': '進程✓',
+          '小隊': '小隊✓', '職務': '職務✓', '職位': '職位✓',
+          '電話': '電話✓', '家長姓名': '家長✓', '團次': '團次✓'
+        };
+        const detected = headers.filter(h => knownFieldMap[h]).map(h => knownFieldMap[h]);
+        document.getElementById('csv-fields').textContent = detected.length ? detected.join('、') : '（請確認欄位名稱）';
+
+        document.getElementById('csv-header').innerHTML = headers.map(h =>
+          '<th class="px-2 py-1 text-left font-medium ' + (knownFieldMap[h] ? 'text-green-700' : 'text-gray-400') + '">' + h + '</th>'
+        ).join('');
         document.getElementById('csv-body').innerHTML = data.slice(0, 5).map(row =>
-          '<tr class="border-t">' + headers.map(h => '<td class="px-2 py-1">' + (row[h]||'-') + '</td>').join('') + '</tr>'
+          '<tr class="border-t">' + headers.map(h => '<td class="px-2 py-1 whitespace-nowrap">' + (row[h]||'-') + '</td>').join('') + '</tr>'
         ).join('');
         document.getElementById('csv-preview').classList.remove('hidden');
         document.getElementById('csv-import-btn').disabled = false;
@@ -1723,33 +1826,61 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
       async function parseImportFile() {
         const file = document.getElementById('csv-file').files[0];
         if (!file) return;
+        csvData = [];
+        document.getElementById('csv-preview').classList.add('hidden');
+        document.getElementById('csv-import-btn').disabled = true;
+
         const ext = file.name.split('.').pop().toLowerCase();
         if (ext === 'xlsx' || ext === 'xls') {
-          // Excel 格式：用 SheetJS 解析
           await loadXLSX();
           const ab = await file.arrayBuffer();
-          const wb = XLSX.read(ab, { type: 'array' });
+          const wb = XLSX.read(ab, { type: 'array', cellDates: false });
           const ws = wb.Sheets[wb.SheetNames[0]];
-          const raw = XLSX.utils.sheet_to_json(ws, { header: 1 });
+          const raw = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
           if (!raw || raw.length < 2) { alert('Excel 內容為空或格式不符'); return; }
-          const headers = raw[0].map(h => String(h).trim());
-          csvData = raw.slice(1).filter(row => row.some(c => c !== '' && c !== null && c !== undefined)).map(row => {
-            const obj = {};
-            headers.forEach((h, i) => { obj[h] = row[i] !== undefined && row[i] !== null ? String(row[i]).trim() : ''; });
-            return obj;
-          });
+          // 找到標題行（含「姓名」的那行）
+          let headerIdx = 0;
+          for (let i = 0; i < Math.min(5, raw.length); i++) {
+            if (raw[i].some(c => String(c).includes('姓名') || String(c).includes('Name'))) {
+              headerIdx = i; break;
+            }
+          }
+          const headers = raw[headerIdx].map(h => String(h).trim());
+          csvData = raw.slice(headerIdx + 1)
+            .filter(row => row.some(c => c !== '' && c !== null && c !== undefined))
+            .filter(row => {
+              const nameIdx = headers.findIndex(h => h === '姓名' || h === '中文姓名');
+              return nameIdx >= 0 && row[nameIdx] && String(row[nameIdx]).trim();
+            })
+            .map(row => {
+              const obj = {};
+              headers.forEach((h, i) => { obj[h] = row[i] !== undefined && row[i] !== null ? String(row[i]).trim() : ''; });
+              return obj;
+            });
           renderImportPreview(headers, csvData);
         } else {
-          // CSV 格式
           const reader = new FileReader();
           reader.onload = (e) => {
-            const text = e.target.result;
-            const lines = text.trim().split('\\n').map(l => l.split(',').map(c => c.trim().replace(/^"|"$/g,'')));
+            let text = e.target.result;
+            // 移除 BOM
+            if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+            const lines = text.trim().split(/\r?\n/).map(l => {
+              // 簡單 CSV 解析（支援引號）
+              const cells = [];
+              let cur = '', inQ = false;
+              for (let i = 0; i < l.length; i++) {
+                if (l[i] === '"') { inQ = !inQ; }
+                else if (l[i] === ',' && !inQ) { cells.push(cur.trim()); cur = ''; }
+                else { cur += l[i]; }
+              }
+              cells.push(cur.trim());
+              return cells;
+            });
             if (lines.length < 2) { alert('CSV 內容為空'); return; }
-            const headers = lines[0];
+            const headers = lines[0].map(h => h.replace(/^"|"$/g,'').trim());
             csvData = lines.slice(1).filter(l => l.some(c => c)).map(row => {
               const obj = {};
-              headers.forEach((h, i) => { obj[h] = row[i] || ''; });
+              headers.forEach((h, i) => { obj[h] = (row[i] || '').replace(/^"|"$/g,'').trim(); });
               return obj;
             });
             renderImportPreview(headers, csvData);
@@ -1758,16 +1889,36 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
         }
       }
 
-      // 下載範例 CSV
+      // 下載官方格式 CSV 範例
       function downloadTemplate() {
-        const header = '姓名,英文姓名,性別,身分證號,生日,組別,小隊,職位,進程';
-        const sample = '王小明,Wang Xiao Ming,男,A123456789,2010-01-15,童軍,遊俠小隊,隊員,初級童軍';
-        const csv = header + '\\n' + sample;
-        const blob = new Blob(['\\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = '成員匯入範例.csv';
-        link.click();
+        const header = '團次,姓名,英文名,身分證號,生日,性別,童軍階段,童軍進程,電話,小隊,職務,家長姓名,家長電話';
+        const samples = [
+          '54,王小明,Wang Xiao Ming,A123456789,091/06/14,男,童軍,初級童軍,0912345678,第一次隊童軍－遊俠小隊,隊員,王大明,0922111222',
+          '54,陳小華,Chen Xiao Hua,F230123456,95.3.15,女,行義童軍,獅級行義,0923456789,遊俠小隊,隊員,,',
+          '54,李大同,Lee Da Tong,H225123456,950820,男,羅浮童軍,見習羅浮,,,群長,,'
+        ];
+        const csv = '\uFEFF' + header + '\n' + samples.join('\n');
+        try {
+          // 優先用 Blob + createObjectURL
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.setAttribute('href', url);
+          link.setAttribute('download', '成員匯入範例_官方格式.csv');
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch(e) {
+          // 降級：用 data URI
+          const encoded = encodeURIComponent(csv);
+          const link = document.createElement('a');
+          link.setAttribute('href', 'data:text/csv;charset=utf-8,' + encoded);
+          link.setAttribute('download', '成員匯入範例_官方格式.csv');
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
       }
 
       async function confirmCSVImport() {
@@ -1775,39 +1926,98 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
         const btn = document.getElementById('csv-import-btn');
         btn.disabled = true; btn.textContent = '匯入中...';
         const msg = document.getElementById('csv-msg');
-        let success = 0, fail = 0, skip = 0;
-        for (const row of csvData) {
-          const name = row['姓名'] || row['chinese_name'] || row['Name'] || '';
+        const progressEl = document.getElementById('csv-progress');
+        const progressBar = document.getElementById('csv-progress-bar');
+        const progressText = document.getElementById('csv-progress-text');
+        progressEl.classList.remove('hidden');
+        msg.classList.add('hidden');
+
+        let success = 0, updated = 0, fail = 0, skip = 0;
+        const errors = [];
+
+        for (let i = 0; i < csvData.length; i++) {
+          const row = csvData[i];
+          // 更新進度條
+          const pct = Math.round((i / csvData.length) * 100);
+          progressBar.style.width = pct + '%';
+          progressText.textContent = (i+1) + ' / ' + csvData.length;
+
+          // 取得姓名（支援多種欄位名）
+          const name = getField(row, ['姓名', '中文姓名', 'chinese_name', 'Name'], '');
           if (!name) { skip++; continue; }
-          // 處理生日格式（Excel 數字日期轉換）
-          let dob = row['生日'] || row['dob'] || null;
-          if (dob && typeof dob === 'string' && /^\\d{5}$/.test(dob.trim())) {
-            // Excel serial date
-            const d = new Date((parseInt(dob) - 25569) * 86400 * 1000);
-            dob = d.toISOString().split('T')[0];
-          }
+
+          // 取得日期（支援民國年各種格式）
+          const rawDob = getField(row, ['生日', 'dob', 'birthday', 'DOB'], '');
+          const dob = convertROCDate(rawDob) || null;
+
+          // 取得組別（童軍階段 → section）
+          const sectionRaw = getField(row, ['童軍階段', '組別', 'section', '階段'], '童軍');
+          // 標準化 section 名稱
+          const sectionMap = {'童軍':'童軍','行義童軍':'行義童軍','羅浮童軍':'羅浮童軍','服務員':'服務員',
+            'junior':'童軍','senior':'行義童軍','rover':'羅浮童軍',
+            '行義':'行義童軍','羅浮':'羅浮童軍'};
+          const section = sectionMap[sectionRaw] || sectionRaw || '童軍';
+
+          // 職務欄位（職務/職位）
+          const roleRaw = getField(row, ['職務', '職位', 'role_name', 'role'], '隊員');
+          const roleName = roleRaw || '隊員';
+
+          // 團次
+          const troopRaw = getField(row, ['團次', 'troop'], '54');
+          const troop = troopRaw ? troopRaw + '團' : '54團';
+
           const body = {
             year_label: CURRENT_YEAR,
             chinese_name: name,
-            english_name: row['英文姓名'] || row['english_name'] || row['English Name'] || '',
-            gender: row['性別'] || row['gender'] || '',
-            national_id: row['身分證號'] || row['national_id'] || '',
+            english_name: getField(row, ['英文名', '英文姓名', 'english_name', 'English Name'], ''),
+            gender: getField(row, ['性別', 'gender'], ''),
+            national_id: getField(row, ['身分證號', '身份證號', 'national_id', 'ID'], '').toUpperCase(),
             dob: dob,
-            section: row['組別'] || row['section'] || '童軍',
-            unit_name: row['小隊'] || row['unit_name'] || '',
-            role_name: row['職位'] || row['role_name'] || '隊員',
-            rank_level: row['進程'] || row['rank_level'] || '',
+            section: section,
+            unit_name: getField(row, ['小隊', 'unit_name', 'unit'], ''),
+            role_name: roleName,
+            rank_level: getField(row, ['童軍進程', '進程', 'rank_level', 'rank'], ''),
+            phone: getField(row, ['電話', 'phone', '手機'], ''),
+            parent_name: getField(row, ['家長姓名', '家長', 'parent_name'], ''),
+            troop: troop,
           };
+
           try {
-            const res = await fetch('/api/enrollments', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-            if (res.ok) success++; else fail++;
-          } catch(e) { fail++; }
+            const res = await fetch('/api/enrollments', {
+              method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+            });
+            const json = await res.json();
+            if (res.ok && json.success) {
+              success++;
+            } else if (res.status === 409 || (json.error && json.error.includes('已有'))) {
+              // 已有此成員，算作更新
+              updated++;
+            } else {
+              fail++;
+              errors.push(name + ': ' + (json.error || '未知錯誤'));
+            }
+          } catch(e) { fail++; errors.push(name + ': 網路錯誤'); }
         }
-        msg.textContent = '✅ 匯入完成：' + success + ' 筆成功' + (fail ? '，' + fail + ' 筆失敗' : '') + (skip ? '，' + skip + ' 筆跳過（無姓名）' : '');
-        msg.className = 'mt-3 text-sm p-3 rounded-lg ' + (fail ? 'bg-yellow-50 text-yellow-700' : 'bg-green-50 text-green-700');
+
+        progressBar.style.width = '100%';
+        progressText.textContent = csvData.length + ' / ' + csvData.length;
+
+        let msgText = '✅ 匯入完成！';
+        if (success) msgText += ' 新增 ' + success + ' 人';
+        if (updated) msgText += '、沿用/更新 ' + updated + ' 人';
+        if (skip) msgText += '、跳過 ' + skip + ' 筆（無姓名）';
+        if (fail) {
+          msgText += '、失敗 ' + fail + ' 筆';
+          if (errors.length) msgText += '\n錯誤：' + errors.slice(0,3).join('；');
+        }
+        msg.textContent = msgText;
+        msg.className = 'mt-3 text-sm p-3 rounded-lg whitespace-pre-line ' + (fail ? 'bg-yellow-50 text-yellow-700' : 'bg-green-50 text-green-700');
         msg.classList.remove('hidden');
-        btn.textContent = '匯入完成';
-        setTimeout(() => location.reload(), 1500);
+        btn.textContent = '✅ 匯入完成';
+
+        if (success > 0 || updated > 0) {
+          setTimeout(() => location.reload(), 2000);
+        }
       }
     </script>
   `))
