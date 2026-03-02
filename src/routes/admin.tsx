@@ -1625,7 +1625,7 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
         container.innerHTML = '<div class="grid grid-cols-1 md:grid-cols-2 gap-2">' +
           list.map(m => {
             const sel = existingSelected.has(m.id);
-            return '<div onclick="toggleExisting(\'' + m.id + '\')" class="p-3 border rounded-lg cursor-pointer flex items-center gap-3 hover:bg-blue-50 transition ' + (sel ? 'bg-blue-50 border-blue-400' : 'bg-white') + '">' +
+            return '<div onclick="toggleExisting(this.dataset.id)" data-id="' + m.id + '" class="p-3 border rounded-lg cursor-pointer flex items-center gap-3 hover:bg-blue-50 transition ' + (sel ? 'bg-blue-50 border-blue-400' : 'bg-white') + '">' +
               '<div class="w-5 h-5 border-2 rounded flex items-center justify-center flex-shrink-0 ' + (sel ? 'bg-blue-600 border-blue-600' : 'border-gray-300') + '">' +
               (sel ? '<span class="text-white text-xs font-bold">✓</span>' : '') + '</div>' +
               '<div class="flex-1 min-w-0">' +
@@ -1725,13 +1725,25 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
       let xlsxLoaded = false;
       async function loadXLSX() {
         if (xlsxLoaded || typeof XLSX !== 'undefined') { xlsxLoaded = true; return; }
-        return new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
-          s.onload = () => { xlsxLoaded = true; resolve(); };
-          s.onerror = reject;
-          document.head.appendChild(s);
-        });
+        // 優先從本地靜態資源，避免 CDN 依賴
+        const cdns = [
+          '/static/xlsx.full.min.js',
+          'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+          'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js'
+        ];
+        for (const src of cdns) {
+          try {
+            await new Promise((resolve, reject) => {
+              const s = document.createElement('script');
+              s.src = src;
+              s.onload = () => { xlsxLoaded = true; resolve(); };
+              s.onerror = reject;
+              document.head.appendChild(s);
+            });
+            if (typeof XLSX !== 'undefined') return; // 載入成功
+          } catch(e) { /* 嘗試下一個來源 */ }
+        }
+        throw new Error('無法載入 Excel 解析套件，請確認網路連線後重試');
       }
 
       // 民國年日期轉換 → 西元 YYYY-MM-DD
@@ -1840,12 +1852,35 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
 
         const ext = file.name.split('.').pop().toLowerCase();
         if (ext === 'xlsx' || ext === 'xls') {
-          await loadXLSX();
-          const ab = await file.arrayBuffer();
-          const wb = XLSX.read(ab, { type: 'array', cellDates: false });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          const raw = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
-          if (!raw || raw.length < 2) { alert('Excel 內容為空或格式不符'); return; }
+          try {
+            await loadXLSX();
+          } catch(e) {
+            alert('\u274c 無法載入 Excel 解析套件：' + e.message + '，請改用 .csv 格式或確認網路連線。');
+            return;
+          }
+          // 用 FileReader (base64) 讀取，相容性優於 arrayBuffer
+          const raw = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              try {
+                const data = e.target.result;
+                const wb = XLSX.read(data, { type: 'binary', cellDates: false, raw: false });
+                const ws = wb.Sheets[wb.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+                resolve(rows);
+              } catch(err) { reject(err); }
+            };
+            reader.onerror = reject;
+            reader.readAsBinaryString(file);
+          }).catch(err => {
+            alert('❌ Excel 解析失敗：' + err.message);
+            return null;
+          });
+
+          if (!raw || raw.length < 2) {
+            if (raw) alert('⚠️ Excel 內容為空或格式不符');
+            return;
+          }
           // 找到標題行：某欄位【完全等於】已知欄位名稱（避免說明文字誤判）
           const KNOWN_HEADERS = new Set(['姓名','中文姓名','英文名','英文姓名','身分證號','生日','性別','童軍階段','童軍進程','電話','小隊','職務','團次','Name','Chinese Name']);
           let headerIdx = 0;
@@ -1859,7 +1894,6 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
             .filter(row => row.some(c => c !== '' && c !== null && c !== undefined))
             .filter(row => {
               const nameIdx = headers.findIndex(h => h === '姓名' || h === '中文姓名');
-              // 若找不到姓名欄位，仍允許匯入（寬鬆模式）
               if (nameIdx < 0) return true;
               return row[nameIdx] && String(row[nameIdx]).trim();
             })
@@ -1869,7 +1903,7 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
               return obj;
             });
           if (csvData.length === 0) {
-            alert('⚠️ 找不到有效資料列，請確認 Excel 格式：\n第1列可為說明，第2列必須是欄位標頭（含「姓名」），第3列起為資料。');
+            alert('\u26a0\ufe0f 找不到有效資料列，請確認 Excel 格式：第2列必須是欄位標頭，第3列起為資料。');
             return;
           }
           renderImportPreview(headers, csvData);
@@ -1879,7 +1913,7 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
             let text = e.target.result;
             // 移除 BOM
             if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-            const lines = text.trim().split(/\r?\n/).map(l => {
+            const NL=String.fromCharCode(10); const CR=String.fromCharCode(13); const lines = text.trim().replace(new RegExp(CR+NL,'g'),NL).replace(new RegExp(CR,'g'),NL).split(NL).map(l => {
               // 簡單 CSV 解析（支援引號）
               const cells = [];
               let cur = '', inQ = false;
@@ -2006,7 +2040,7 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
         if (skip) msgText += '、跳過 ' + skip + ' 筆（無姓名）';
         if (fail) {
           msgText += '、失敗 ' + fail + ' 筆';
-          if (errors.length) msgText += '\n錯誤：' + errors.slice(0,3).join('；');
+          if (errors.length) msgText += ' 錯誤：' + errors.slice(0,3).join('；');
         }
         msg.textContent = msgText;
         msg.className = 'mt-3 text-sm p-3 rounded-lg whitespace-pre-line ' + (fail ? 'bg-yellow-50 text-yellow-700' : 'bg-green-50 text-green-700');
