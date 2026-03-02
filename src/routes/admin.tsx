@@ -1542,6 +1542,14 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
           </div>
         </div>
         <div class="p-5 flex-1 overflow-y-auto">
+          <!-- 匯入年份選擇 -->
+          <div class="mb-4 flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <label class="text-sm font-medium text-amber-800 whitespace-nowrap">📅 匯入至學年度：</label>
+            <select id="csv-import-year" class="border rounded-lg px-3 py-1.5 text-sm font-bold text-green-700 bg-white">
+              ${['113','114','115','116'].map(y => `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y} 學年</option>`).join('')}
+            </select>
+            <span class="text-xs text-amber-600">請確認年份後再選擇檔案</span>
+          </div>
           <div class="mb-4">
             <input type="file" id="csv-file" accept=".csv,.txt,.xlsx,.xls" onchange="parseImportFile()" class="block w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:border file:rounded-lg file:text-sm file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
           </div>
@@ -1923,8 +1931,10 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
 
       async function confirmCSVImport() {
         if (!csvData.length) return;
+        // 取得使用者選擇的匯入年份
+        const importYear = document.getElementById('csv-import-year').value || CURRENT_YEAR;
         const btn = document.getElementById('csv-import-btn');
-        btn.disabled = true; btn.textContent = '匯入中...';
+        btn.disabled = true; btn.textContent = '匯入中 (' + importYear + '學年)...';
         const msg = document.getElementById('csv-msg');
         const progressEl = document.getElementById('csv-progress');
         const progressBar = document.getElementById('csv-progress-bar');
@@ -1962,12 +1972,15 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
           const roleRaw = getField(row, ['職務', '職位', 'role_name', 'role'], '隊員');
           const roleName = roleRaw || '隊員';
 
-          // 團次
+          // 團次（若已含「團」字則不再重複加）
           const troopRaw = getField(row, ['團次', 'troop'], '54');
-          const troop = troopRaw ? troopRaw + '團' : '54團';
+          let troop = '54團';
+          if (troopRaw) {
+            troop = /團$/.test(String(troopRaw)) ? String(troopRaw) : String(troopRaw) + '團';
+          }
 
           const body = {
-            year_label: CURRENT_YEAR,
+            year_label: importYear,
             chinese_name: name,
             english_name: getField(row, ['英文名', '英文姓名', 'english_name', 'English Name'], ''),
             gender: getField(row, ['性別', 'gender'], ''),
@@ -2002,7 +2015,7 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
         progressBar.style.width = '100%';
         progressText.textContent = csvData.length + ' / ' + csvData.length;
 
-        let msgText = '✅ 匯入完成！';
+        let msgText = '✅ 匯入完成！（' + importYear + ' 學年）';
         if (success) msgText += ' 新增 ' + success + ' 人';
         if (updated) msgText += '、沿用/更新 ' + updated + ' 人';
         if (skip) msgText += '、跳過 ' + skip + ' 筆（無姓名）';
@@ -2016,7 +2029,8 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
         btn.textContent = '✅ 匯入完成';
 
         if (success > 0 || updated > 0) {
-          setTimeout(() => location.reload(), 2000);
+          // 跳轉到匯入年度的成員頁面
+          setTimeout(() => { window.location.href = '/admin/members?year=' + importYear; }, 2000);
         }
       }
     </script>
@@ -2996,10 +3010,11 @@ adminRoutes.get('/coaches', authMiddleware, async (c) => {
 // ===================== 輔助函式：成員表單 =====================
 function memberFormFields(prefix: string) {
   const sections = ['童軍','行義童軍','羅浮童軍','服務員','幼童軍','稚齡童軍']
+  const roles = ['隊員','小隊長','副小隊長','團長','副團長','群長','副群長','隊輔','服務員','群顧問','']
   const ranks = ['',
     '見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍',
     '見習行義','初級行義','中級行義','高級行義','獅級行義','長城行義','國花行義',
-    '見習羅浮','授銜羅浮','服務羅浮'
+    '見習羅浮','授銜羅浮','服務羅浮','未入團'
   ]
   return `
     <div class="space-y-3">
