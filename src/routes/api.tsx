@@ -43,18 +43,29 @@ apiRoutes.get('/activities/:id', async (c) => {
 apiRoutes.post('/activities', async (c) => {
   const db = c.env.DB
   const body = await c.req.json()
-  const { title, title_en, description, description_en, activity_date, date_display, category, youtube_url, display_order, is_published, cover_image, show_in_highlights } = body
+  const { 
+    title, title_en, description, description_en, activity_date, date_display, category, 
+    youtube_url, display_order, is_published, cover_image, show_in_highlights,
+    location, cost, content, registration_start, registration_end, max_participants, is_registration_open, activity_end_date
+  } = body
   if (!title) return c.json({ success: false, error: '標題為必填' }, 400)
 
   const result = await db.prepare(`
-    INSERT INTO activities (title, title_en, description, description_en, activity_date, date_display, category, youtube_url, display_order, is_published, cover_image, show_in_highlights)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO activities (
+      title, title_en, description, description_en, activity_date, date_display, category, 
+      youtube_url, display_order, is_published, cover_image, show_in_highlights,
+      location, cost, content, registration_start, registration_end, max_participants, is_registration_open, activity_end_date
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     title, title_en || null, description || null, description_en || null,
     activity_date || null, date_display || null,
     category || 'general', youtube_url || null,
     display_order || 0, is_published !== undefined ? is_published : 1,
-    cover_image || null, show_in_highlights ? 1 : 0
+    cover_image || null, show_in_highlights ? 1 : 0,
+    location || null, cost || null, content || null, 
+    registration_start || null, registration_end || null, 
+    max_participants || null, is_registration_open ? 1 : 0, activity_end_date || null
   ).run()
 
   return c.json({ success: true, id: result.meta.last_row_id })
@@ -65,13 +76,19 @@ apiRoutes.put('/activities/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { title, title_en, description, description_en, activity_date, date_display, category, youtube_url, display_order, is_published, cover_image, show_in_highlights } = body
+  const { 
+    title, title_en, description, description_en, activity_date, date_display, category, 
+    youtube_url, display_order, is_published, cover_image, show_in_highlights,
+    location, cost, content, registration_start, registration_end, max_participants, is_registration_open, activity_end_date
+  } = body
 
   await db.prepare(`
     UPDATE activities SET
       title = ?, title_en = ?, description = ?, description_en = ?,
       activity_date = ?, date_display = ?, category = ?, youtube_url = ?,
       display_order = ?, is_published = ?, cover_image = ?, show_in_highlights = ?,
+      location = ?, cost = ?, content = ?, registration_start = ?, registration_end = ?, 
+      max_participants = ?, is_registration_open = ?, activity_end_date = ?,
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).bind(
@@ -80,6 +97,9 @@ apiRoutes.put('/activities/:id', async (c) => {
     category || 'general', youtube_url || null,
     display_order || 0, is_published !== undefined ? is_published : 1,
     cover_image || null, show_in_highlights ? 1 : 0,
+    location || null, cost || null, content || null, 
+    registration_start || null, registration_end || null, 
+    max_participants || null, is_registration_open ? 1 : 0, activity_end_date || null,
     id
   ).run()
 
@@ -92,6 +112,105 @@ apiRoutes.delete('/activities/:id', async (c) => {
   const id = c.req.param('id')
   await db.prepare(`DELETE FROM activities WHERE id = ?`).bind(id).run()
   return c.json({ success: true })
+})
+
+// ==================== 活動報名 API ====================
+
+// 取得某活動的報名名單 (管理員用)
+apiRoutes.get('/activities/:id/registrations', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const status = c.req.query('status')
+  
+  let query = `
+    SELECT ar.*, m.chinese_name, m.english_name, m.section, m.unit_name, m.phone, m.email
+    FROM activity_registrations ar
+    JOIN members m ON m.id = ar.member_id
+    WHERE ar.activity_id = ?
+  `
+  const params: any[] = [id]
+  
+  if (status) {
+    query += ` AND ar.status = ?`
+    params.push(status)
+  }
+  
+  query += ` ORDER BY ar.created_at DESC`
+  
+  const result = await db.prepare(query).bind(...params).all()
+  return c.json({ success: true, data: result.results })
+})
+
+// 報名活動 (會員用)
+apiRoutes.post('/activities/:id/register', async (c) => {
+  const db = c.env.DB
+  const activityId = c.req.param('id')
+  const memberId = await getMemberIdFromCookie(c)
+  if (!memberId) return c.json({ success: false, error: '未登入' }, 401)
+  
+  const body = await c.req.json()
+  const { user_notes, registration_data } = body
+  
+  // 檢查活動是否存在且開放報名
+  const activity = await db.prepare(`SELECT * FROM activities WHERE id = ?`).bind(activityId).first() as any
+  if (!activity) return c.json({ success: false, error: '找不到活動' }, 404)
+  if (!activity.is_registration_open) return c.json({ success: false, error: '此活動未開放報名' }, 400)
+  
+  // 檢查是否已報名
+  const existing = await db.prepare(`SELECT id FROM activity_registrations WHERE activity_id = ? AND member_id = ?`).bind(activityId, memberId).first()
+  if (existing) return c.json({ success: false, error: '您已報名此活動' }, 409)
+  
+  // 檢查名額 (若有設定)
+  if (activity.max_participants) {
+    const count = await db.prepare(`SELECT COUNT(*) as cnt FROM activity_registrations WHERE activity_id = ? AND status IN ('pending', 'approved')`).bind(activityId).first() as any
+    if (count.cnt >= activity.max_participants) {
+      return c.json({ success: false, error: '名額已滿' }, 400)
+    }
+  }
+  
+  await db.prepare(`
+    INSERT INTO activity_registrations (activity_id, member_id, status, user_notes, registration_data)
+    VALUES (?, ?, 'pending', ?, ?)
+  `).bind(activityId, memberId, user_notes || null, registration_data ? JSON.stringify(registration_data) : null).run()
+  
+  return c.json({ success: true })
+})
+
+// 審核報名 (管理員用)
+apiRoutes.put('/registrations/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { status, admin_notes } = body
+  
+  if (!['pending', 'approved', 'rejected', 'cancelled', 'waiting'].includes(status)) {
+    return c.json({ success: false, error: '無效的狀態' }, 400)
+  }
+  
+  await db.prepare(`
+    UPDATE activity_registrations 
+    SET status = ?, admin_notes = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(status, admin_notes || null, id).run()
+  
+  return c.json({ success: true })
+})
+
+// 取得我的報名紀錄 (會員用)
+apiRoutes.get('/registrations/my', async (c) => {
+  const db = c.env.DB
+  const memberId = await getMemberIdFromCookie(c)
+  if (!memberId) return c.json({ success: false, error: '未登入' }, 401)
+  
+  const result = await db.prepare(`
+    SELECT ar.*, a.title as activity_title, a.activity_date, a.activity_end_date, a.date_display, a.location
+    FROM activity_registrations ar
+    JOIN activities a ON a.id = ar.activity_id
+    WHERE ar.member_id = ?
+    ORDER BY ar.created_at DESC
+  `).bind(memberId).all()
+  
+  return c.json({ success: true, data: result.results })
 })
 
 // ==================== 活動圖片 API ====================
@@ -299,6 +418,69 @@ apiRoutes.put('/settings', async (c) => {
 
 // ==================== 年度在籍管理 API ====================
 
+// ==================== 輔助函式：同步階級與進程標準 ====================
+async function syncRankRequirements(db: D1Database, memberId: string, section: string, rank: string) {
+  if (!rank || !section) return
+
+  // 定義階級順序 (包含所有可能的前置階級)
+  const rankOrders: Record<string, string[]> = {
+    '童軍': ['見習童軍', '初級童軍', '中級童軍', '高級童軍', '獅級童軍', '長城童軍', '國花童軍'],
+    '行義童軍': ['見習行義', '初級行義', '中級行義', '高級行義', '獅級行義', '長城行義', '國花行義'], // 配合您之前的要求，行義使用與童軍相同體系，但若資料庫存的是舊制，這裡需對應
+    '羅浮童軍': ['見習羅浮', '授銜羅浮', '服務羅浮']
+  }
+
+  // 處理行義童軍可能共用童軍階級名稱的情況
+  let targetOrder = rankOrders[section]
+  if (section === '行義童軍' && !targetOrder.includes(rank) && rankOrders['童軍'].includes(rank)) {
+     // 如果行義是用 "高級童軍" 這種名稱
+     targetOrder = rankOrders['童軍'] 
+  }
+
+  if (!targetOrder) return
+
+  const targetIndex = targetOrder.indexOf(rank)
+  if (targetIndex === -1) return
+
+  // 找出所有需要標記為完成的階級 (包含目前階級及之前所有階級)
+  const passedRanks = targetOrder.slice(0, targetIndex + 1)
+
+  // 1. 自動補齊「進程紀錄 (大階段)」
+  for (const r of passedRanks) {
+    if (!r) continue
+    // 檢查是否已有紀錄，若無則補登
+    const exist = await db.prepare(`SELECT id FROM progress_records WHERE member_id=? AND record_type='rank' AND award_name=?`).bind(memberId, r).first()
+    if (!exist) {
+      await db.prepare(`
+        INSERT INTO progress_records (id, member_id, record_type, award_name, awarded_at, notes)
+        VALUES (?, ?, 'rank', ?, CURRENT_DATE, '系統自動同步')
+      `).bind(`pr-auto-${Date.now()}-${Math.random()}`, memberId, r).run()
+    }
+  }
+
+  // 2. 自動勾選所有相關的「細項標準」
+  // 找出這些階級對應的所有 requirement_id
+  const requirements = await db.prepare(`
+    SELECT id, required_count FROM advancement_requirements 
+    WHERE section = ? AND rank_to IN (${passedRanks.map(()=>'?').join(',')}) AND is_active = 1
+  `).bind(section, ...passedRanks).all()
+
+  for (const req of requirements.results as any[]) {
+    // 寫入 advancement_progress，標記為 approved
+    await db.prepare(`
+      INSERT INTO advancement_progress (id, member_id, requirement_id, achieved_count, status, reviewed_at, reviewed_by)
+      VALUES (?, ?, ?, ?, 'approved', CURRENT_TIMESTAMP, 'system')
+      ON CONFLICT(member_id, requirement_id) DO UPDATE SET
+        achieved_count = ?, status = 'approved', reviewed_at = CURRENT_TIMESTAMP
+    `).bind(
+      `ap-auto-${Date.now()}-${Math.random()}`, 
+      memberId, 
+      req.id, 
+      req.required_count, 
+      req.required_count
+    ).run()
+  }
+}
+
 // 取得某年度的在籍成員（含成員基本資料）
 apiRoutes.get('/enrollments', async (c) => {
   const db = c.env.DB
@@ -336,6 +518,31 @@ apiRoutes.get('/enrollments/available', async (c) => {
   const params: any[] = [year]
   if (search) { query += ` AND (m.chinese_name LIKE ? OR m.english_name LIKE ?)`; params.push(`%${search}%`, `%${search}%`) }
   query += ` ORDER BY me_prev.year_label DESC, m.chinese_name`
+  const result = await db.prepare(query).bind(...params).all()
+  return c.json({ success: true, data: result.results })
+})
+
+// 取得「停團/非在籍」成員 (用於管理列表)
+apiRoutes.get('/members/inactive', async (c) => {
+  const db = c.env.DB
+  const currentYear = c.req.query('year') || '114'
+  const search = c.req.query('search') || ''
+  
+  // 定義：所有曾經加入過，但「目前年度沒有有效學籍」的人員
+  // 包含 membership_status = 'ACTIVE' (暫離) 或 'INACTIVE' (已停團)
+  let query = `
+    SELECT m.*, 
+      (SELECT MAX(year_label) FROM member_enrollments WHERE member_id = m.id AND is_active=1) as last_active_year,
+      (SELECT section FROM member_enrollments WHERE member_id = m.id ORDER BY year_label DESC LIMIT 1) as last_section
+    FROM members m
+    WHERE m.id NOT IN (
+      SELECT member_id FROM member_enrollments WHERE year_label = ? AND is_active = 1
+    )
+  `
+  const params: any[] = [currentYear]
+  if (search) { query += ` AND (m.chinese_name LIKE ? OR m.english_name LIKE ?)`; params.push(`%${search}%`, `%${search}%`) }
+  query += ` ORDER BY last_active_year DESC, m.chinese_name`
+  
   const result = await db.prepare(query).bind(...params).all()
   return c.json({ success: true, data: result.results })
 })
@@ -462,6 +669,11 @@ apiRoutes.post('/enrollments', async (c) => {
     if (role_name) { syncUpdates.push('role_name=?'); syncVals.push(role_name) }
     syncVals.push(mId)
     await db.prepare(`UPDATE members SET ${syncUpdates.join(',')} WHERE id=?`).bind(...syncVals).run()
+    
+    // 自動同步進程標準勾選
+    if (rank_level && section) {
+      await syncRankRequirements(db, mId, section, rank_level)
+    }
   }
 
   return c.json({ success: true, id: mId, updated: !!existEnroll })
@@ -473,11 +685,41 @@ apiRoutes.put('/enrollments/:id', async (c) => {
   const id = c.req.param('id')
   const body = await c.req.json()
   const { section, rank_level, unit_name, role_name, troop, is_active, notes } = body
+  
+  // 取得 member_id 以便同步
+  const enroll = await db.prepare(`SELECT member_id FROM member_enrollments WHERE id=?`).bind(id).first() as any
+  
   await db.prepare(`
     UPDATE member_enrollments SET section=?, rank_level=?, unit_name=?, role_name=?, troop=?, is_active=?, notes=?, updated_at=CURRENT_TIMESTAMP
     WHERE id=?
   `).bind(section || null, rank_level || null, unit_name || null, role_name || '隊員',
     troop || '54團', is_active ?? 1, notes || null, id).run()
+
+  // 同步更新成員主表
+  if (enroll && (section || rank_level)) {
+    const mId = enroll.member_id
+    const updates: string[] = []
+    const vals: any[] = []
+    if (section) { updates.push('section=?'); vals.push(section) }
+    if (rank_level) { updates.push('rank_level=?'); vals.push(rank_level) }
+    if (updates.length) {
+      updates.push('updated_at=CURRENT_TIMESTAMP')
+      vals.push(mId)
+      await db.prepare(`UPDATE members SET ${updates.join(',')} WHERE id=?`).bind(...vals).run()
+      
+      // 自動同步進程標準勾選
+      if (rank_level) {
+        // 如果只更新 rank_level 沒傳 section，要先查 section
+        let finalSection = section
+        if (!finalSection) {
+           const m = await db.prepare(`SELECT section FROM members WHERE id=?`).bind(mId).first() as any
+           finalSection = m?.section
+        }
+        await syncRankRequirements(db, mId, finalSection, rank_level)
+      }
+    }
+  }
+
   return c.json({ success: true })
 })
 
@@ -590,6 +832,15 @@ apiRoutes.put('/members/:id', async (c) => {
     phone || null, email || null, parent_name || null, section || '童軍', rank_level || null,
     unit_name || null, role_name || '隊員', troop || '54團', membership_status || 'ACTIVE', notes || null, id
   ).run()
+
+  // 自動同步進程標準勾選（當有設定階級時）
+  if (rank_level && section) {
+    await syncRankRequirements(db, id, section, rank_level)
+  } else if (rank_level) {
+    // 若未傳 section，查主表
+    const m = await db.prepare(`SELECT section FROM members WHERE id=?`).bind(id).first() as any
+    if (m?.section) await syncRankRequirements(db, id, m.section, rank_level)
+  }
   
   return c.json({ success: true })
 })
@@ -1547,50 +1798,249 @@ apiRoutes.put('/admin/advancement/:id', async (c) => {
   return c.json({ success: true })
 })
 
-// ==================== 管理員：晉升條件管理 ====================
+// ==================== 專科章 API ====================
 
-// 取得晉升條件
-apiRoutes.get('/admin/advancement-requirements', async (c) => {
+// 取得所有專科章定義
+apiRoutes.get('/specialty-badges', async (c) => {
   const db = c.env.DB
-  const section = c.req.query('section')
-  let query = `SELECT * FROM advancement_requirements WHERE is_active = 1`
+  const category = c.req.query('category')
+  let query = `SELECT * FROM specialty_badges WHERE is_active = 1`
   const params: any[] = []
-  if (section) { query += ` AND section = ?`; params.push(section) }
-  query += ` ORDER BY section, rank_from, display_order`
+  if (category) { query += ` AND category = ?`; params.push(category) }
+  query += ` ORDER BY category, display_order, name`
   const result = await db.prepare(query).bind(...params).all()
   return c.json({ success: true, data: result.results })
 })
 
-// 新增晉升條件
+// 新增專科章
+apiRoutes.post('/specialty-badges', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  const { name, category, image_url, description, display_order } = body
+  if (!name) return c.json({ success: false, error: '名稱為必填' }, 400)
+  
+  const result = await db.prepare(`
+    INSERT INTO specialty_badges (name, category, image_url, description, display_order)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(name, category || '其他', image_url || null, description || null, display_order || 0).run()
+  
+  return c.json({ success: true, id: result.meta.last_row_id })
+})
+
+// 更新專科章
+apiRoutes.put('/specialty-badges/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { name, category, image_url, description, display_order, is_active } = body
+  
+  await db.prepare(`
+    UPDATE specialty_badges SET 
+      name=?, category=?, image_url=?, description=?, display_order=?, is_active=?
+    WHERE id=?
+  `).bind(name, category || '其他', image_url || null, description || null, display_order || 0, is_active ?? 1, id).run()
+  
+  return c.json({ success: true })
+})
+
+// 刪除專科章 (軟刪除)
+apiRoutes.delete('/specialty-badges/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  await db.prepare(`UPDATE specialty_badges SET is_active=0 WHERE id=?`).bind(id).run()
+  return c.json({ success: true })
+})
+
+// ==================== 學員專科章與進程擴充 API ====================
+
+// 快速切換進程標準完成狀態 (Toggle)
+apiRoutes.post('/members/:id/toggle-requirement', async (c) => {
+  const db = c.env.DB
+  const memberId = c.req.param('id')
+  const { requirement_id, completed } = await c.req.json()
+  
+  if (completed) {
+    // 標記為完成 (achieved_count = required_count, status = approved)
+    const req = await db.prepare(`SELECT required_count FROM advancement_requirements WHERE id = ?`).bind(requirement_id).first() as any
+    const count = req?.required_count || 1
+    
+    await db.prepare(`
+      INSERT INTO advancement_progress (id, member_id, requirement_id, achieved_count, status, reviewed_at, reviewed_by)
+      VALUES (?, ?, ?, ?, 'approved', CURRENT_TIMESTAMP, 'admin')
+      ON CONFLICT(member_id, requirement_id) DO UPDATE SET
+        achieved_count = ?,
+        status = 'approved',
+        reviewed_at = CURRENT_TIMESTAMP,
+        reviewed_by = 'admin'
+    `).bind(`ap-${Date.now()}`, memberId, requirement_id, count, count).run()
+  } else {
+    // 標記為未完成 (刪除紀錄或歸零)
+    await db.prepare(`DELETE FROM advancement_progress WHERE member_id = ? AND requirement_id = ?`).bind(memberId, requirement_id).run()
+  }
+  return c.json({ success: true })
+})
+
+// 快速切換專科章狀態 (Toggle)
+apiRoutes.post('/members/:id/toggle-badge', async (c) => {
+  const db = c.env.DB
+  const memberId = c.req.param('id')
+  const { badge_id, obtained } = await c.req.json()
+  
+  if (obtained) {
+    // 新增 (如果不存在)
+    try {
+      await db.prepare(`
+        INSERT INTO member_specialty_badges (member_id, badge_id, obtained_date, examiner)
+        VALUES (?, ?, ?, '團長')
+      `).bind(memberId, badge_id, new Date().toISOString().slice(0,10)).run()
+    } catch (e:any) {
+      if (!e.message.includes('UNIQUE')) throw e
+    }
+  } else {
+    // 移除
+    await db.prepare(`DELETE FROM member_specialty_badges WHERE member_id = ? AND badge_id = ?`).bind(memberId, badge_id).run()
+  }
+  return c.json({ success: true })
+})
+
+// 取得學員的專科章
+apiRoutes.get('/members/:id/badges', async (c) => {
+  const db = c.env.DB
+  const memberId = c.req.param('id')
+  const result = await db.prepare(`
+    SELECT msb.*, sb.name, sb.category, sb.image_url
+    FROM member_specialty_badges msb
+    JOIN specialty_badges sb ON sb.id = msb.badge_id
+    WHERE msb.member_id = ?
+    ORDER BY sb.category, sb.display_order
+  `).bind(memberId).all()
+  return c.json({ success: true, data: result.results })
+})
+
+// 新增學員專科章紀錄
+apiRoutes.post('/members/:id/badges', async (c) => {
+  const db = c.env.DB
+  const memberId = c.req.param('id')
+  const body = await c.req.json()
+  const { badge_id, obtained_date, examiner, notes } = body
+  
+  if (!badge_id) return c.json({ success: false, error: '未選擇專科章' }, 400)
+  
+  try {
+    const result = await db.prepare(`
+      INSERT INTO member_specialty_badges (member_id, badge_id, obtained_date, examiner, notes)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(memberId, badge_id, obtained_date || new Date().toISOString().slice(0,10), examiner || null, notes || null).run()
+    return c.json({ success: true, id: result.meta.last_row_id })
+  } catch (e: any) {
+    if (e.message.includes('UNIQUE')) return c.json({ success: false, error: '該學員已擁有此專科章' }, 409)
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// 刪除學員專科章紀錄
+apiRoutes.delete('/members/:id/badges/:badgeRecordId', async (c) => {
+  const db = c.env.DB
+  const { id, badgeRecordId } = c.req.param()
+  await db.prepare(`DELETE FROM member_specialty_badges WHERE id = ? AND member_id = ?`).bind(badgeRecordId, id).run()
+  return c.json({ success: true })
+})
+
+// 管理員直接晉升 (新增進程紀錄)
+apiRoutes.post('/admin/members/:id/promote', async (c) => {
+  const db = c.env.DB
+  const memberId = c.req.param('id')
+  const body = await c.req.json()
+  const { rank_to, approved_date, notes } = body
+  
+  if (!rank_to) return c.json({ success: false, error: '目標階級為必填' }, 400)
+  
+  const id = `pr-adm-${Date.now()}`
+  const date = approved_date || new Date().toISOString().slice(0,10)
+  
+  // 1. 新增進程紀錄
+  await db.prepare(`
+    INSERT INTO progress_records (id, member_id, record_type, award_name, awarded_at, notes)
+    VALUES (?, ?, 'rank', ?, ?, ?)
+  `).bind(id, memberId, rank_to, date, notes || '團長直接晉升').run()
+  
+  // 2. 更新學員目前階級 (如果日期比現在新，可能不更新? 但通常是補登，所以直接更新)
+  // 只有當新階級的順序高於目前階級時才更新 (這裡簡化處理，直接更新為最新操作的階級)
+  await db.prepare(`UPDATE members SET rank_level = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+    .bind(rank_to, memberId).run()
+    
+  // 3. 如果有待審核的相關申請，一併結案
+  await db.prepare(`
+    UPDATE advancement_applications SET status='approved', reviewed_by='admin', reviewed_at=CURRENT_TIMESTAMP
+    WHERE member_id=? AND rank_to=? AND status IN ('pending', 'reviewing')
+  `).bind(memberId, rank_to).run()
+  
+  return c.json({ success: true })
+})
+
+// 更新進程紀錄日期 (補登修正)
+apiRoutes.put('/admin/progress-records/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { awarded_at } = body
+  
+  await db.prepare(`UPDATE progress_records SET awarded_at=? WHERE id=?`).bind(awarded_at, id).run()
+  return c.json({ success: true })
+})
+
+// ==================== 管理員：晉升條件管理 ====================
+
+// 取得晉升條件 (支援版本)
+apiRoutes.get('/admin/advancement-requirements', async (c) => {
+  const db = c.env.DB
+  const section = c.req.query('section')
+  const version = c.req.query('version_year') // 支援版本篩選
+  
+  // 預設抓最新版本 (如果沒傳 version)
+  // 但為了後台管理方便，如果沒傳 version 應該列出所有？或者預設 113？
+  // 這裡邏輯：如果有傳 version 就篩選，沒傳就抓所有 active 的
+  
+  let query = `SELECT * FROM advancement_requirements WHERE is_active = 1`
+  const params: any[] = []
+  if (section) { query += ` AND section = ?`; params.push(section) }
+  if (version) { query += ` AND version_year = ?`; params.push(version) }
+  
+  query += ` ORDER BY version_year DESC, section, rank_from, display_order`
+  const result = await db.prepare(query).bind(...params).all()
+  return c.json({ success: true, data: result.results })
+})
+
+// 新增晉升條件 (支援版本)
 apiRoutes.post('/admin/advancement-requirements', async (c) => {
   const db = c.env.DB
   const body = await c.req.json()
-  const { section, rank_from, rank_to, requirement_type, title, description, required_count, unit, is_mandatory, display_order } = body
+  const { section, rank_from, rank_to, requirement_type, title, description, required_count, unit, is_mandatory, display_order, version_year } = body
   if (!section || !rank_to || !title) {
     return c.json({ success: false, error: '缺少必填欄位（需要 section, rank_to, title）' }, 400)
   }
   const id = `req-${Date.now()}-${Math.random().toString(36).substring(2,7)}`
   await db.prepare(`
-    INSERT INTO advancement_requirements (id, section, rank_from, rank_to, requirement_type, title, description, required_count, unit, is_mandatory, display_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO advancement_requirements (id, section, rank_from, rank_to, requirement_type, title, description, required_count, unit, is_mandatory, display_order, version_year)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(id, section, rank_from, rank_to, requirement_type || 'other', title, description || null,
-    required_count || 1, unit || '次', is_mandatory !== false ? 1 : 0, display_order || 0).run()
+    required_count || 1, unit || '次', is_mandatory !== false ? 1 : 0, display_order || 0, version_year || '113').run()
   return c.json({ success: true, id })
 })
 
-// 更新晉升條件
+// 更新晉升條件 (支援版本)
 apiRoutes.put('/admin/advancement-requirements/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { title, description, required_count, unit, is_mandatory, display_order, is_active } = body
+  const { title, description, required_count, unit, is_mandatory, display_order, is_active, version_year } = body
   await db.prepare(`
     UPDATE advancement_requirements SET
       title = ?, description = ?, required_count = ?, unit = ?,
-      is_mandatory = ?, display_order = ?, is_active = ?
+      is_mandatory = ?, display_order = ?, is_active = ?, version_year = ?
     WHERE id = ?
   `).bind(title, description || null, required_count || 1, unit || '次',
-    is_mandatory !== false ? 1 : 0, display_order || 0, is_active !== false ? 1 : 0, id).run()
+    is_mandatory !== false ? 1 : 0, display_order || 0, is_active !== false ? 1 : 0, version_year || '113', id).run()
   return c.json({ success: true })
 })
 
@@ -1600,6 +2050,34 @@ apiRoutes.delete('/admin/advancement-requirements/:id', async (c) => {
   const id = c.req.param('id')
   await db.prepare(`UPDATE advancement_requirements SET is_active = 0 WHERE id = ?`).bind(id).run()
   return c.json({ success: true })
+})
+
+// 複製進程標準 (從舊版本複製到新版本)
+apiRoutes.post('/admin/advancement-requirements/clone', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  const { from_version, to_version, section } = body 
+
+  if (!from_version || !to_version) return c.json({ success: false, error: '請指定來源與目標版本' }, 400)
+  if (from_version === to_version) return c.json({ success: false, error: '來源與目標版本不能相同' }, 400)
+
+  let copyQuery = `
+    INSERT INTO advancement_requirements (
+      id, section, rank_from, rank_to, requirement_type, title, description, 
+      required_count, unit, is_mandatory, display_order, version_year, is_active
+    )
+    SELECT 
+      'req-' || hex(randomblob(4)) || '-' || strftime('%s','now') || rowid, 
+      section, rank_from, rank_to, requirement_type, title, description, 
+      required_count, unit, is_mandatory, display_order, ?, 1
+    FROM advancement_requirements
+    WHERE version_year = ? AND is_active = 1
+  `
+  const copyParams: any[] = [to_version, from_version]
+  if (section) { copyQuery += ` AND section = ?`; copyParams.push(section) }
+
+  const result = await db.prepare(copyQuery).bind(...copyParams).run()
+  return c.json({ success: true, copied_count: result.meta.changes })
 })
 
 // 取得成員帳號列表

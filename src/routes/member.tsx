@@ -115,6 +115,9 @@ function memberNav(memberName: string, section: string) {
       <a href="/member/official-leave" class="text-xs whitespace-nowrap px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
         <i class="fas fa-calendar-alt mr-1"></i>公假行事曆
       </a>
+      <a href="/member/activities" class="text-xs whitespace-nowrap px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
+        <i class="fas fa-campground mr-1"></i>活動報名
+      </a>
     </div>
   </div>
 </nav>`
@@ -818,6 +821,177 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
 })
 
 
+// ===================== 活動報名 =====================
+memberRoutes.get('/activities', memberAuthMiddleware, async (c) => {
+  const db = c.env.DB
+  const sess = c.get('memberSession') as any
+  const memberId = sess.memberId
+  const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(memberId).first() as any
+
+  // 取得開放報名的活動
+  const activities = await db.prepare(`
+    SELECT a.*, 
+      (SELECT status FROM activity_registrations WHERE activity_id = a.id AND member_id = ?) as my_status
+    FROM activities a
+    WHERE a.is_published = 1
+    ORDER BY a.activity_date DESC
+  `).bind(memberId).all()
+
+  // 分類活動
+  const upcoming: any[] = []
+  const past: any[] = []
+  const today = new Date().toISOString().substring(0, 10)
+
+  activities.results.forEach((a: any) => {
+    if (a.activity_date >= today) upcoming.push(a)
+    else past.push(a)
+  })
+
+  // 狀態標籤
+  const statusLabel: Record<string, string> = {
+    pending: '<span class="px-2 py-1 rounded bg-yellow-100 text-yellow-800 text-xs">審核中</span>',
+    approved: '<span class="px-2 py-1 rounded bg-green-100 text-green-800 text-xs">✅ 已錄取</span>',
+    rejected: '<span class="px-2 py-1 rounded bg-red-100 text-red-800 text-xs">未錄取</span>',
+    waiting: '<span class="px-2 py-1 rounded bg-blue-100 text-blue-800 text-xs">候補中</span>',
+    cancelled: '<span class="px-2 py-1 rounded bg-gray-100 text-gray-600 text-xs">已取消</span>'
+  }
+
+  const renderActivityCard = (a: any) => {
+    const isRegOpen = a.is_registration_open && 
+      (!a.registration_start || new Date(a.registration_start) <= new Date()) &&
+      (!a.registration_end || new Date(a.registration_end) >= new Date())
+    
+    return `
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
+      <div class="md:flex">
+        <div class="md:w-1/3 h-48 md:h-auto bg-gray-200 relative">
+          <img src="${a.cover_image || 'https://placehold.co/600x400?text=Activity'}" class="w-full h-full object-cover">
+          ${a.my_status ? `<div class="absolute top-2 right-2">${statusLabel[a.my_status]}</div>` : ''}
+        </div>
+        <div class="p-5 md:w-2/3 flex flex-col justify-between">
+          <div>
+            <div class="flex justify-between items-start">
+              <span class="text-xs font-bold text-green-600 mb-1 block">${a.category}</span>
+              ${a.cost ? `<span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">${a.cost}</span>` : ''}
+            </div>
+            <h3 class="text-lg font-bold text-gray-800 mb-2">${a.title}</h3>
+            <div class="text-sm text-gray-500 space-y-1 mb-3">
+              <div class="flex items-center gap-2"><i class="fas fa-calendar-alt w-4"></i> ${a.date_display || a.activity_date}</div>
+              ${a.location ? `<div class="flex items-center gap-2"><i class="fas fa-map-marker-alt w-4"></i> ${a.location}</div>` : ''}
+            </div>
+            <p class="text-sm text-gray-600 line-clamp-2">${a.description || ''}</p>
+          </div>
+          
+          <div class="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
+            ${isRegOpen && !a.my_status ? `
+              <button onclick="openRegisterModal(${a.id}, '${a.title}')" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                我要報名
+              </button>
+            ` : a.my_status ? `
+              <span class="text-sm text-gray-500">您已報名此活動</span>
+            ` : `
+              <span class="text-sm text-gray-400">報名未開放或已截止</span>
+            `}
+            <button onclick="showDetails(${a.id})" class="text-blue-600 text-sm hover:underline">查看詳情</button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 詳情區塊 (Hidden by default) -->
+      <div id="details-${a.id}" class="hidden p-5 border-t border-gray-100 bg-gray-50 text-sm">
+        <h4 class="font-bold text-gray-700 mb-2">活動內容</h4>
+        <div class="prose prose-sm max-w-none text-gray-600 mb-4">${a.content || a.description || '無詳細內容'}</div>
+        ${a.registration_end ? `<p class="text-xs text-red-500">報名截止：${a.registration_end.replace('T', ' ')}</p>` : ''}
+      </div>
+    </div>
+    `
+  }
+
+  return c.html(`${memberHead('活動報名')}
+  <body class="bg-gray-50 min-h-screen">
+    ${memberNav(member.chinese_name, member.section)}
+    <div class="max-w-4xl mx-auto px-4 py-8 fade-in">
+      <h1 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+        <i class="fas fa-campground text-green-600"></i> 活動報名
+      </h1>
+
+      <div class="space-y-8">
+        <section>
+          <h2 class="text-lg font-bold text-gray-700 mb-4 border-l-4 border-green-500 pl-3">即將到來的活動</h2>
+          ${upcoming.length > 0 ? `<div class="space-y-4">${upcoming.map(renderActivityCard).join('')}</div>` : 
+            `<div class="text-center py-8 text-gray-400 bg-white rounded-xl border border-gray-100">目前沒有即將到來的活動</div>`}
+        </section>
+
+        <section>
+          <h2 class="text-lg font-bold text-gray-700 mb-4 border-l-4 border-gray-400 pl-3">歷史活動</h2>
+          ${past.length > 0 ? `<div class="space-y-4 opacity-75 hover:opacity-100 transition-opacity">${past.map(renderActivityCard).join('')}</div>` : 
+            `<div class="text-center py-8 text-gray-400">尚無歷史活動</div>`}
+        </section>
+      </div>
+    </div>
+
+    <!-- 報名 Modal -->
+    <div id="regModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+        <div class="p-5 border-b border-gray-100">
+          <h3 class="text-lg font-bold text-gray-800">報名活動</h3>
+          <p id="regTitle" class="text-sm text-green-600"></p>
+        </div>
+        <div class="p-5">
+          <input type="hidden" id="regActivityId">
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">備註 (飲食習慣、特殊需求等)</label>
+            <textarea id="regNotes" rows="3" class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 outline-none"></textarea>
+          </div>
+          <div class="flex gap-3">
+            <button onclick="submitRegistration()" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg text-sm font-medium">確認報名</button>
+            <button onclick="document.getElementById('regModal').classList.add('hidden')" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-lg text-sm">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function showDetails(id) {
+        const el = document.getElementById('details-' + id);
+        el.classList.toggle('hidden');
+      }
+
+      function openRegisterModal(id, title) {
+        document.getElementById('regActivityId').value = id;
+        document.getElementById('regTitle').textContent = title;
+        document.getElementById('regNotes').value = '';
+        document.getElementById('regModal').classList.remove('hidden');
+      }
+
+      async function submitRegistration() {
+        const id = document.getElementById('regActivityId').value;
+        const notes = document.getElementById('regNotes').value;
+        
+        if (!confirm('確定要報名此活動嗎？')) return;
+
+        try {
+          const res = await fetch('/api/activities/' + id + '/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_notes: notes })
+          });
+          
+          const result = await res.json();
+          if (result.success) {
+            alert('報名成功！請等待管理員審核。');
+            location.reload();
+          } else {
+            alert('報名失敗：' + (result.error || '未知錯誤'));
+          }
+        } catch (e) {
+          alert('系統錯誤，請稍後再試');
+        }
+      }
+    </script>
+  </body></html>`)
+})
+
 // ===================== 出席記錄頁面 =====================
 memberRoutes.get('/attendance', memberAuthMiddleware, async (c) => {
   const db = c.env.DB
@@ -1161,6 +1335,42 @@ memberRoutes.get('/advancement', memberAuthMiddleware, async (c) => {
     if (!seen.has(k)) { seen.add(k); rankPaths.push({ from: r.rank_from, to: r.rank_to }) }
   })
 
+  // 取得所有專科章 (用於儀表板)
+  const allBadges = await db.prepare(`SELECT * FROM specialty_badges WHERE is_active=1`).all()
+  const badgeMap: Record<string, number> = {} // name -> id
+  allBadges.results.forEach((b:any) => badgeMap[b.name] = b.id)
+
+  // 取得我擁有的專科章
+  const myBadges = await db.prepare(`
+    SELECT msb.badge_id, sb.name, msb.obtained_date 
+    FROM member_specialty_badges msb
+    JOIN specialty_badges sb ON sb.id = msb.badge_id
+    WHERE msb.member_id = ?
+  `).bind(memberId).all()
+  const myBadgeSet = new Set(myBadges.results.map((b:any) => b.name)) // 用名稱比對比較直觀
+  const myBadgeCount = myBadges.results.length
+
+  // 定義重要階段的必備專科章 (Hardcoded for display)
+  const rankRequirements = [
+    { 
+      rank: '獅級必備', color: 'yellow',
+      badges: ['露營', '旅行', '社區公民'],
+      note: '總數 5 枚'
+    },
+    { 
+      rank: '長城必備', color: 'red',
+      badges: ['國家公民', '急救', '游泳', '自行車', '越野'], // 游泳/自行車/越野 擇一，這裡列出全部並標註
+      note: '總數 11 枚',
+      logic: (has: Set<string>) => has.has('國家公民') && has.has('急救') && (has.has('游泳') || has.has('自行車') || has.has('越野'))
+    },
+    { 
+      rank: '國花必備', color: 'purple',
+      badges: ['世界公民', '生態保育', '測量', '植物', '昆蟲', '賞鳥', '音樂', '舞蹈', '攝影'], 
+      note: '總數 18 枚',
+      logic: (has: Set<string>) => has.has('世界公民') && has.has('生態保育') && has.has('測量')
+    }
+  ]
+
   const statusLabel: Record<string, string> = {
     pending: '⏳ 待審核', reviewing: '🔍 審核中', approved: '✅ 已通過', rejected: '❌ 未通過'
   }
@@ -1172,6 +1382,53 @@ memberRoutes.get('/advancement', memberAuthMiddleware, async (c) => {
     <div class="mb-6">
       <h1 class="text-2xl font-bold text-gray-800">晉升申請</h1>
       <p class="text-gray-500 text-sm">目前階級：<strong class="text-green-700">${member.rank_level || '未設定'}</strong></p>
+    </div>
+
+    <!-- 專科章與晉級檢核儀表板 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+      <h2 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <i class="fas fa-medal text-amber-500"></i>專科章儀表板 (目前擁有: ${myBadgeCount} 枚)
+      </h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        ${rankRequirements.map(req => {
+          const isDone = req.logic ? req.logic(myBadgeSet) : req.badges.every(b => myBadgeSet.has(b))
+          // 特殊處理「擇一」的顯示邏輯 (僅顯示文字)
+          const displayBadges = req.rank === '長城必備' ? 
+            ['國家公民', '急救', '運動技能(游泳/自行車/越野 擇一)'] :
+            req.rank === '國花必備' ?
+            ['世界公民', '生態保育', '測量', '生物(植物/昆蟲/賞鳥 擇一)', '藝術(音樂/舞蹈/攝影 擇一)'] :
+            req.badges
+
+          return `
+          <div class="rounded-xl border-2 ${isDone ? 'border-' + req.color + '-400 bg-' + req.color + '-50' : 'border-gray-100 bg-gray-50'} p-4">
+            <div class="flex justify-between items-center mb-3">
+              <h3 class="font-bold text-gray-700">${req.rank}</h3>
+              ${isDone ? '<i class="fas fa-check-circle text-green-500"></i>' : ''}
+            </div>
+            <ul class="space-y-2 text-sm">
+              ${displayBadges.map(bName => {
+                // 檢查是否擁有 (針對擇一的情況，只要有一項符合就打勾)
+                let checked = false
+                if (bName.includes('運動技能')) checked = myBadgeSet.has('游泳') || myBadgeSet.has('自行車') || myBadgeSet.has('越野')
+                else if (bName.includes('生物')) checked = myBadgeSet.has('植物') || myBadgeSet.has('昆蟲') || myBadgeSet.has('賞鳥')
+                else if (bName.includes('藝術')) checked = myBadgeSet.has('音樂') || myBadgeSet.has('舞蹈') || myBadgeSet.has('攝影')
+                else checked = myBadgeSet.has(bName)
+                
+                return `
+                <li class="flex items-center gap-2 ${checked ? 'text-gray-800 font-medium' : 'text-gray-400'}">
+                  <div class="w-4 h-4 rounded border flex items-center justify-center ${checked ? 'bg-' + req.color + '-500 border-' + req.color + '-500' : 'border-gray-300 bg-white'}">
+                    ${checked ? '<i class="fas fa-check text-white text-[10px]"></i>' : ''}
+                  </div>
+                  ${bName}
+                </li>`
+              }).join('')}
+              <li class="flex items-center gap-2 pt-2 mt-2 border-t border-gray-200 text-xs text-gray-500">
+                <i class="fas fa-info-circle"></i> ${req.note}
+              </li>
+            </ul>
+          </div>`
+        }).join('')}
+      </div>
     </div>
 
     <!-- 申請新晉升 -->
