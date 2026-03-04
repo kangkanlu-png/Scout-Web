@@ -480,7 +480,7 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
   // 正確的階段順序（依組別）
   const sectionRankOrder: Record<string, string[]> = {
     '童軍':    ['初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍'],
-    '行義童軍': ['初級行義','中級行義','高級行義','獅級行義','長城行義','國花行義'],
+    '行義童軍': ['見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍'],
     '羅浮童軍': ['授銜羅浮','服務羅浮'],
   }
   const rankOrder = sectionRankOrder[member.section] || []
@@ -498,6 +498,160 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
     WHERE member_id = ? AND status IN ('pending','reviewing')
     ORDER BY created_at DESC LIMIT 1
   `).bind(memberId).first() as any
+
+  // 取得專科章資料（用於進程頁面的晉級檢核區塊）
+  const allBadgesProgress = await db.prepare(`SELECT * FROM specialty_badges WHERE is_active=1`).all()
+  const myBadgesProgress = await db.prepare(`
+    SELECT msb.badge_id, sb.name, msb.obtained_date
+    FROM member_specialty_badges msb
+    JOIN specialty_badges sb ON sb.id = msb.badge_id
+    WHERE msb.member_id = ?
+  `).bind(memberId).all()
+  const myBadgeSetProgress = new Set(myBadgesProgress.results.map((b:any) => b.name))
+  const myBadgeCountProgress = myBadgesProgress.results.length
+
+  // 適用於童軍與行義童軍的晉級必備章定義
+  const rankBadgeReqsProgress = member.section !== '羅浮童軍' ? [
+    {
+      rank: '獅級童軍', totalRequired: 5, color: 'amber',
+      bgColor: 'bg-amber-50', textColor: 'text-amber-800', borderColor: 'border-amber-300',
+      requiredBadges: [
+        { name: '露營', isOptional: false, choices: [] as string[] },
+        { name: '旅行', isOptional: false, choices: [] as string[] },
+        { name: '社區公民', isOptional: false, choices: [] as string[] }
+      ],
+      electiveBadges: 2,
+      description: '含 3 枚必備章 + 自選 2 枚任意技能章'
+    },
+    {
+      rank: '長城童軍', totalRequired: 11, color: 'red',
+      bgColor: 'bg-red-50', textColor: 'text-red-800', borderColor: 'border-red-300',
+      requiredBadges: [
+        { name: '國家公民', isOptional: false, choices: [] as string[] },
+        { name: '急救', isOptional: false, choices: [] as string[] },
+        { name: '運動技能', isOptional: true, choices: ['游泳', '自行車', '越野'] }
+      ],
+      electiveBadges: 8,
+      description: '含 3 枚必備章（運動擇一）+ 自選 8 枚'
+    },
+    {
+      rank: '國花童軍', totalRequired: 18, color: 'purple',
+      bgColor: 'bg-purple-50', textColor: 'text-purple-800', borderColor: 'border-purple-300',
+      requiredBadges: [
+        { name: '世界公民', isOptional: false, choices: [] as string[] },
+        { name: '生態保育', isOptional: false, choices: [] as string[] },
+        { name: '測量', isOptional: false, choices: [] as string[] },
+        { name: '生物類', isOptional: true, choices: ['植物', '昆蟲', '賞鳥'] },
+        { name: '藝術類', isOptional: true, choices: ['音樂', '舞蹈', '攝影'] }
+      ],
+      electiveBadges: 13,
+      description: '含 5 枚必備章（生物、藝術各擇一）+ 自選 13 枚'
+    }
+  ] : [] as any[]
+
+  function checkBadgeReqProgress(req: { name: string, isOptional: boolean, choices: string[] }, has: Set<string>): boolean {
+    if (req.isOptional && req.choices.length > 0) return req.choices.some(c => has.has(c))
+    return has.has(req.name)
+  }
+
+  // 生成「專科章與晉級檢核」儀表板 HTML
+  const badgeDashboardHtml = rankBadgeReqsProgress.length > 0 ? `
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-gray-800 flex items-center gap-2 text-lg">
+        <i class="fas fa-medal text-amber-500"></i>專科章與晉級檢核
+      </h2>
+      <div class="text-right">
+        <span class="text-2xl font-bold text-amber-600">${myBadgeCountProgress}</span>
+        <span class="text-xs text-gray-400 ml-1">枚已取得</span>
+      </div>
+    </div>
+
+    <!-- 整體進度概覽列 -->
+    <div class="flex items-center justify-around bg-gray-50 rounded-xl p-3 mb-4">
+      ${rankBadgeReqsProgress.map((req: any, idx: number) => {
+        const allReqDone = req.requiredBadges.every((b:any) => checkBadgeReqProgress(b, myBadgeSetProgress))
+        const hasEnough = myBadgeCountProgress >= req.totalRequired
+        const isFullyDone = allReqDone && hasEnough
+        return `
+        ${idx > 0 ? '<i class="fas fa-chevron-right text-gray-300 text-xs"></i>' : ''}
+        <div class="flex flex-col items-center gap-1">
+          <div class="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold shadow-sm
+            ${isFullyDone ? 'bg-green-500 text-white' : allReqDone ? 'bg-' + req.color + '-100 text-' + req.color + '-700 border-2 border-' + req.color + '-300' : 'bg-gray-200 text-gray-400'}">
+            ${isFullyDone ? '<i class="fas fa-check"></i>' : myBadgeCountProgress + '/' + req.totalRequired}
+          </div>
+          <div class="text-xs font-medium ${isFullyDone ? 'text-green-700' : 'text-gray-500'} text-center leading-tight">
+            ${req.rank.replace('童軍', '')}<br>
+            <span class="text-gray-400 font-normal">${req.totalRequired}枚</span>
+          </div>
+        </div>`
+      }).join('')}
+    </div>
+
+    <!-- 三個階段的必備章詳情卡 -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      ${rankBadgeReqsProgress.map((req: any) => {
+        const allReqDone = req.requiredBadges.every((b:any) => checkBadgeReqProgress(b, myBadgeSetProgress))
+        const hasEnough = myBadgeCountProgress >= req.totalRequired
+        const isFullyDone = allReqDone && hasEnough
+        const doneReqCount = req.requiredBadges.filter((b:any) => checkBadgeReqProgress(b, myBadgeSetProgress)).length
+        const pct = Math.min(100, Math.round(myBadgeCountProgress / req.totalRequired * 100))
+
+        return `
+        <div class="rounded-xl border-2 p-3.5 ${isFullyDone ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'}">
+          <!-- 標題列 -->
+          <div class="flex items-center justify-between mb-2.5">
+            <div>
+              <div class="font-bold text-sm ${isFullyDone ? 'text-green-800' : req.textColor}">${req.rank}</div>
+              <div class="text-xs text-gray-400">共需 ${req.totalRequired} 枚</div>
+            </div>
+            ${isFullyDone
+              ? '<div class="w-7 h-7 bg-green-500 rounded-full flex items-center justify-center"><i class="fas fa-check text-white text-xs"></i></div>'
+              : `<div class="text-sm font-bold ${req.textColor}">${doneReqCount}/${req.requiredBadges.length} 必備</div>`
+            }
+          </div>
+
+          <!-- 必備章列表 -->
+          <div class="space-y-1.5 mb-2.5">
+            ${req.requiredBadges.map((badge:any) => {
+              const obtained = checkBadgeReqProgress(badge, myBadgeSetProgress)
+              const obtainedName = badge.isOptional ? (badge.choices.find((c:string) => myBadgeSetProgress.has(c)) || '') : ''
+              return `
+              <div class="flex items-center gap-2 ${obtained ? '' : 'opacity-60'}">
+                <div class="w-5 h-5 rounded flex-shrink-0 flex items-center justify-center
+                  ${obtained ? 'bg-green-500' : 'bg-white border-2 border-gray-300'}">
+                  ${obtained ? '<i class="fas fa-check text-white" style="font-size:9px"></i>' : ''}
+                </div>
+                <span class="text-xs ${obtained ? 'text-gray-800 font-medium' : 'text-gray-500'}">
+                  ${badge.isOptional ? (obtainedName || badge.choices.join('/')) : badge.name}
+                  ${badge.isOptional ? '<span class="text-gray-400">（擇一）</span>' : ''}
+                </span>
+              </div>`
+            }).join('')}
+          </div>
+
+          <!-- 總枚數進度條 -->
+          <div class="border-t border-gray-100 pt-2">
+            <div class="flex items-center justify-between text-xs mb-1">
+              <span class="text-gray-400">自選章進度</span>
+              <span class="${hasEnough ? 'text-green-700 font-bold' : 'text-gray-400'}">${myBadgeCountProgress}/${req.totalRequired}</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-1.5">
+              <div class="h-1.5 rounded-full transition-all ${hasEnough ? 'bg-green-500' : 'bg-' + req.color + '-400'}"
+                style="width:${pct}%"></div>
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 mt-2 leading-tight">${req.description}</p>
+        </div>`
+      }).join('')}
+    </div>
+
+    <div class="mt-3 text-xs text-gray-400 flex items-center gap-1.5 bg-gray-50 rounded-lg px-3 py-2">
+      <i class="fas fa-info-circle text-blue-400"></i>
+      專科章由服務員在後台記錄，如數量有誤請聯繫服務員。
+      <a href="/member/advancement" class="text-green-600 underline ml-auto flex-shrink-0">申請晉升 →</a>
+    </div>
+  </div>` : ''
 
   const reqTypeIcon: Record<string, string> = {
     attendance: 'fas fa-calendar-check',
@@ -693,6 +847,9 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
         <span class="text-blue-700">晉升申請進行中：<strong>${activeApp.rank_from} → ${activeApp.rank_to}</strong>（${activeApp.status === 'pending' ? '待審核' : '審核中'}）</span>
       </div>` : ''}
     </div>
+
+    <!-- 專科章與晉級檢核儀表板 -->
+    ${badgeDashboardHtml}
 
     <!-- 各階段晉升標準 -->
     ${stageSections || `
@@ -1350,26 +1507,58 @@ memberRoutes.get('/advancement', memberAuthMiddleware, async (c) => {
   const myBadgeSet = new Set(myBadges.results.map((b:any) => b.name)) // 用名稱比對比較直觀
   const myBadgeCount = myBadges.results.length
 
-  // 定義重要階段的必備專科章 (Hardcoded for display)
-  const rankRequirements = [
-    { 
-      rank: '獅級必備', color: 'yellow',
-      badges: ['露營', '旅行', '社區公民'],
-      note: '總數 5 枚'
+  // 定義重要階段的必備專科章（完整版，含枚數要求）
+  // 童軍體系：獅級(5枚)、長城(11枚)、國花(18枚)
+  const rankBadgeRequirements: Array<{
+    rank: string, totalRequired: number, color: string, bgColor: string, textColor: string, borderColor: string,
+    requiredBadges: Array<{ name: string, isOptional?: boolean, choices?: string[] }>,
+    electiveBadges?: number, // 選修章數量
+    description: string
+  }> = [
+    {
+      rank: '獅級童軍', totalRequired: 5, color: 'amber',
+      bgColor: 'bg-amber-50', textColor: 'text-amber-800', borderColor: 'border-amber-300',
+      requiredBadges: [
+        { name: '露營' },
+        { name: '旅行' },
+        { name: '社區公民' }
+      ],
+      electiveBadges: 2,
+      description: '含 3 枚必備章 + 自選 2 枚任意技能章'
     },
-    { 
-      rank: '長城必備', color: 'red',
-      badges: ['國家公民', '急救', '游泳', '自行車', '越野'], // 游泳/自行車/越野 擇一，這裡列出全部並標註
-      note: '總數 11 枚',
-      logic: (has: Set<string>) => has.has('國家公民') && has.has('急救') && (has.has('游泳') || has.has('自行車') || has.has('越野'))
+    {
+      rank: '長城童軍', totalRequired: 11, color: 'red',
+      bgColor: 'bg-red-50', textColor: 'text-red-800', borderColor: 'border-red-300',
+      requiredBadges: [
+        { name: '國家公民' },
+        { name: '急救' },
+        { name: '運動技能', isOptional: true, choices: ['游泳', '自行車', '越野'] }
+      ],
+      electiveBadges: 8,
+      description: '含 3 枚必備章（運動擇一）+ 自選 8 枚'
     },
-    { 
-      rank: '國花必備', color: 'purple',
-      badges: ['世界公民', '生態保育', '測量', '植物', '昆蟲', '賞鳥', '音樂', '舞蹈', '攝影'], 
-      note: '總數 18 枚',
-      logic: (has: Set<string>) => has.has('世界公民') && has.has('生態保育') && has.has('測量')
+    {
+      rank: '國花童軍', totalRequired: 18, color: 'purple',
+      bgColor: 'bg-purple-50', textColor: 'text-purple-800', borderColor: 'border-purple-300',
+      requiredBadges: [
+        { name: '世界公民' },
+        { name: '生態保育' },
+        { name: '測量' },
+        { name: '生物類', isOptional: true, choices: ['植物', '昆蟲', '賞鳥'] },
+        { name: '藝術類', isOptional: true, choices: ['音樂', '舞蹈', '攝影'] }
+      ],
+      electiveBadges: 13,
+      description: '含 5 枚必備章（生物、藝術各擇一）+ 自選 13 枚'
     }
   ]
+
+  // 計算每個階段的必備章達成情況
+  function checkBadgeReq(req: { name: string, isOptional?: boolean, choices?: string[] }, has: Set<string>): boolean {
+    if (req.isOptional && req.choices) {
+      return req.choices.some(c => has.has(c))
+    }
+    return has.has(req.name)
+  }
 
   const statusLabel: Record<string, string> = {
     pending: '⏳ 待審核', reviewing: '🔍 審核中', approved: '✅ 已通過', rejected: '❌ 未通過'
@@ -1386,48 +1575,107 @@ memberRoutes.get('/advancement', memberAuthMiddleware, async (c) => {
 
     <!-- 專科章與晉級檢核儀表板 -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-      <h2 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-        <i class="fas fa-medal text-amber-500"></i>專科章儀表板 (目前擁有: ${myBadgeCount} 枚)
-      </h2>
+      <div class="flex items-center justify-between mb-5">
+        <h2 class="font-semibold text-gray-800 flex items-center gap-2">
+          <i class="fas fa-medal text-amber-500"></i>
+          專科章晉級檢核
+        </h2>
+        <div class="text-right">
+          <div class="text-2xl font-bold text-amber-600">${myBadgeCount}</div>
+          <div class="text-xs text-gray-400">目前已取得章數</div>
+        </div>
+      </div>
+
+      <!-- 整體進度列 -->
+      <div class="mb-6 p-3 bg-gray-50 rounded-xl">
+        <div class="flex items-center gap-4">
+          ${rankBadgeRequirements.map(req => {
+            const allReqDone = req.requiredBadges.every(b => checkBadgeReq(b, myBadgeSet))
+            const hasEnough = myBadgeCount >= req.totalRequired
+            const isFullyDone = allReqDone && hasEnough
+            return `
+            <div class="flex-1 text-center">
+              <div class="w-10 h-10 rounded-full mx-auto mb-1 flex items-center justify-center text-sm font-bold ${isFullyDone ? 'bg-green-500 text-white' : allReqDone ? 'bg-' + req.color + '-100 text-' + req.color + '-700' : 'bg-gray-200 text-gray-400'}">
+                ${isFullyDone ? '✓' : myBadgeCount + '/' + req.totalRequired}
+              </div>
+              <div class="text-xs font-medium ${isFullyDone ? 'text-green-700' : 'text-gray-500'}">${req.rank.replace('童軍', '')}</div>
+            </div>`
+          }).join('<div class="text-gray-300 text-lg">→</div>')}
+        </div>
+      </div>
+
+      <!-- 三個階段的必備章清單 -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        ${rankRequirements.map(req => {
-          const isDone = req.logic ? req.logic(myBadgeSet) : req.badges.every(b => myBadgeSet.has(b))
-          // 特殊處理「擇一」的顯示邏輯 (僅顯示文字)
-          const displayBadges = req.rank === '長城必備' ? 
-            ['國家公民', '急救', '運動技能(游泳/自行車/越野 擇一)'] :
-            req.rank === '國花必備' ?
-            ['世界公民', '生態保育', '測量', '生物(植物/昆蟲/賞鳥 擇一)', '藝術(音樂/舞蹈/攝影 擇一)'] :
-            req.badges
+        ${rankBadgeRequirements.map(req => {
+          const allReqDone = req.requiredBadges.every(b => checkBadgeReq(b, myBadgeSet))
+          const hasEnough = myBadgeCount >= req.totalRequired
+          const isFullyDone = allReqDone && hasEnough
+          const doneReqCount = req.requiredBadges.filter(b => checkBadgeReq(b, myBadgeSet)).length
 
           return `
-          <div class="rounded-xl border-2 ${isDone ? 'border-' + req.color + '-400 bg-' + req.color + '-50' : 'border-gray-100 bg-gray-50'} p-4">
-            <div class="flex justify-between items-center mb-3">
-              <h3 class="font-bold text-gray-700">${req.rank}</h3>
-              ${isDone ? '<i class="fas fa-check-circle text-green-500"></i>' : ''}
+          <div class="rounded-xl border-2 ${isFullyDone ? 'border-green-400 bg-green-50' : allReqDone ? 'border-' + req.color + '-300 ' + req.bgColor : 'border-gray-200 bg-gray-50'} p-4">
+            <!-- 標題 -->
+            <div class="flex items-center justify-between mb-3">
+              <div>
+                <h3 class="font-bold ${isFullyDone ? 'text-green-800' : req.textColor} text-sm">${req.rank}</h3>
+                <div class="text-xs ${isFullyDone ? 'text-green-600' : 'text-gray-400'} mt-0.5">需 ${req.totalRequired} 枚（含必備）</div>
+              </div>
+              ${isFullyDone 
+                ? '<div class="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center"><i class="fas fa-check text-white text-xs"></i></div>'
+                : `<div class="text-right"><div class="text-lg font-bold ${req.textColor}">${doneReqCount}/${req.requiredBadges.length}</div><div class="text-xs text-gray-400">必備</div></div>`
+              }
             </div>
-            <ul class="space-y-2 text-sm">
-              ${displayBadges.map(bName => {
-                // 檢查是否擁有 (針對擇一的情況，只要有一項符合就打勾)
-                let checked = false
-                if (bName.includes('運動技能')) checked = myBadgeSet.has('游泳') || myBadgeSet.has('自行車') || myBadgeSet.has('越野')
-                else if (bName.includes('生物')) checked = myBadgeSet.has('植物') || myBadgeSet.has('昆蟲') || myBadgeSet.has('賞鳥')
-                else if (bName.includes('藝術')) checked = myBadgeSet.has('音樂') || myBadgeSet.has('舞蹈') || myBadgeSet.has('攝影')
-                else checked = myBadgeSet.has(bName)
-                
+
+            <!-- 必備章清單 -->
+            <div class="space-y-2 mb-3">
+              ${req.requiredBadges.map(badge => {
+                const obtained = checkBadgeReq(badge, myBadgeSet)
+                // 取得實際獲得的章名（擇一）
+                let obtainedName = ''
+                if (badge.isOptional && badge.choices) {
+                  obtainedName = badge.choices.find(c => myBadgeSet.has(c)) || ''
+                }
                 return `
-                <li class="flex items-center gap-2 ${checked ? 'text-gray-800 font-medium' : 'text-gray-400'}">
-                  <div class="w-4 h-4 rounded border flex items-center justify-center ${checked ? 'bg-' + req.color + '-500 border-' + req.color + '-500' : 'border-gray-300 bg-white'}">
-                    ${checked ? '<i class="fas fa-check text-white text-[10px]"></i>' : ''}
+                <div class="flex items-center gap-2.5 ${obtained ? '' : 'opacity-60'}">
+                  <div class="w-5 h-5 rounded flex items-center justify-center flex-shrink-0 ${obtained ? 'bg-green-500' : 'bg-white border-2 border-gray-300'}">
+                    ${obtained ? '<i class="fas fa-check text-white text-[9px]"></i>' : ''}
                   </div>
-                  ${bName}
-                </li>`
+                  <div class="flex-1 min-w-0">
+                    <span class="text-sm ${obtained ? 'text-gray-800 font-medium' : 'text-gray-500'}">
+                      ${badge.isOptional ? (obtainedName || badge.choices!.join('/')) : badge.name}
+                    </span>
+                    ${badge.isOptional ? '<span class="text-xs text-gray-400 ml-1">（擇一）</span>' : ''}
+                  </div>
+                </div>`
               }).join('')}
-              <li class="flex items-center gap-2 pt-2 mt-2 border-t border-gray-200 text-xs text-gray-500">
-                <i class="fas fa-info-circle"></i> ${req.note}
-              </li>
-            </ul>
+            </div>
+
+            <!-- 選修章進度 -->
+            ${req.electiveBadges ? `
+            <div class="pt-2 border-t border-gray-200">
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-gray-500">自選章 / 總枚數達標</span>
+                <span class="${hasEnough ? 'text-green-700 font-bold' : 'text-gray-400'}">${myBadgeCount}/${req.totalRequired} 枚</span>
+              </div>
+              <div class="w-full bg-gray-200 rounded-full h-1.5 mt-1.5">
+                <div class="h-1.5 rounded-full transition-all ${hasEnough ? 'bg-green-500' : 'bg-' + req.color + '-400'}" 
+                  style="width:${Math.min(100, Math.round(myBadgeCount / req.totalRequired * 100))}%"></div>
+              </div>
+            </div>` : ''}
+
+            <!-- 說明 -->
+            <p class="text-xs text-gray-400 mt-2">${req.description}</p>
           </div>`
         }).join('')}
+      </div>
+
+      <!-- 提示 -->
+      <div class="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100 text-xs text-blue-700 flex items-start gap-2">
+        <i class="fas fa-info-circle mt-0.5 flex-shrink-0"></i>
+        <div>
+          <strong>專科章取得</strong>：專科章由服務員/家長在後台為您記錄。如有疑問，請聯繫您的服務員。
+          數字會即時反映您目前已登錄的專科章數量。
+        </div>
       </div>
     </div>
 

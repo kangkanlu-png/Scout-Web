@@ -422,20 +422,14 @@ apiRoutes.put('/settings', async (c) => {
 async function syncRankRequirements(db: D1Database, memberId: string, section: string, rank: string) {
   if (!rank || !section) return
 
-  // 定義階級順序 (包含所有可能的前置階級)
+  // 行義童軍與童軍共用相同階級名稱
   const rankOrders: Record<string, string[]> = {
     '童軍': ['見習童軍', '初級童軍', '中級童軍', '高級童軍', '獅級童軍', '長城童軍', '國花童軍'],
-    '行義童軍': ['見習行義', '初級行義', '中級行義', '高級行義', '獅級行義', '長城行義', '國花行義'], // 配合您之前的要求，行義使用與童軍相同體系，但若資料庫存的是舊制，這裡需對應
+    '行義童軍': ['見習童軍', '初級童軍', '中級童軍', '高級童軍', '獅級童軍', '長城童軍', '國花童軍'],
     '羅浮童軍': ['見習羅浮', '授銜羅浮', '服務羅浮']
   }
 
-  // 處理行義童軍可能共用童軍階級名稱的情況
-  let targetOrder = rankOrders[section]
-  if (section === '行義童軍' && !targetOrder.includes(rank) && rankOrders['童軍'].includes(rank)) {
-     // 如果行義是用 "高級童軍" 這種名稱
-     targetOrder = rankOrders['童軍'] 
-  }
-
+  const targetOrder = rankOrders[section]
   if (!targetOrder) return
 
   const targetIndex = targetOrder.indexOf(rank)

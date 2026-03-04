@@ -1594,7 +1594,8 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
   ).join('')
 
   const sectionList = ['童軍','行義童軍','羅浮童軍','服務員']
-  const ranks = ['','見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習行義','初級行義','中級行義','高級行義','見習羅浮','授銜羅浮','服務羅浮']
+  // 行義童軍與童軍共用相同階級名稱（見習童軍、初級童軍...）
+  const ranks = ['','見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮']
 
   // 停團/未續成員（有歷史在籍記錄但本年度不在籍）
   const inactiveRes = await db.prepare(`
@@ -3641,7 +3642,7 @@ function memberFormFields(prefix: string) {
   const roles = ['隊員','小隊長','副小隊長','團長','副團長','群長','副群長','隊輔','服務員','群顧問','']
   const ranks = ['',
     '見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍',
-    '見習行義','初級行義','中級行義','高級行義','獅級行義','長城行義','國花行義',
+    // 行義童軍與童軍共用相同階級名稱，不再使用「初級行義、中級行義...」
     '見習羅浮','授銜羅浮','服務羅浮','未入團'
   ]
   return `
@@ -4567,11 +4568,16 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
   const rankRecordMap: Record<string, string> = {} // rankName -> date
   rankRecords.results.forEach((r:any) => rankRecordMap[r.award_name] = r.awarded_at)
 
-  // 4. 專科章紀錄
+  // 4. 專科章紀錄（含名稱）
   const myBadges = await db.prepare(`
-    SELECT badge_id FROM member_specialty_badges WHERE member_id=?
+    SELECT msb.badge_id, sb.name, sb.category, msb.obtained_date
+    FROM member_specialty_badges msb
+    JOIN specialty_badges sb ON sb.id = msb.badge_id
+    WHERE msb.member_id=?
   `).bind(id).all()
   const myBadgeSet = new Set(myBadges.results.map((b:any) => b.badge_id))
+  const myBadgeNameSet = new Set(myBadges.results.map((b:any) => b.name))
+  const myBadgeCount = myBadges.results.length
 
   // 5. 所有專科章
   const allBadges = await db.prepare(`SELECT * FROM specialty_badges WHERE is_active=1 ORDER BY category, display_order`).all()
@@ -4584,10 +4590,69 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
     badgesByCat[c].push(b)
   })
 
-  // 定義階級順序（與 api.tsx 的 syncRankRequirements 保持一致）
+  // 6. 定義晉級必備專科章（獅級/長城/國花）
+  const rankBadgeRequirements = (member.section !== '羅浮童軍') ? [
+    {
+      rank: '獅級童軍', totalRequired: 5, color: 'amber',
+      colorClass: 'amber', bgColor: 'bg-amber-50', textColor: 'text-amber-700', borderColor: 'border-amber-300',
+      requiredBadges: [
+        { name: '露營', isOptional: false, choices: [] as string[] },
+        { name: '旅行', isOptional: false, choices: [] as string[] },
+        { name: '社區公民', isOptional: false, choices: [] as string[] }
+      ],
+      electiveBadges: 2, description: '含 3 枚必備章 + 自選 2 枚任意技能章'
+    },
+    {
+      rank: '長城童軍', totalRequired: 11, color: 'red',
+      colorClass: 'red', bgColor: 'bg-red-50', textColor: 'text-red-700', borderColor: 'border-red-300',
+      requiredBadges: [
+        { name: '國家公民', isOptional: false, choices: [] as string[] },
+        { name: '急救', isOptional: false, choices: [] as string[] },
+        { name: '運動技能', isOptional: true, choices: ['游泳', '自行車', '越野'] }
+      ],
+      electiveBadges: 8, description: '含 3 枚必備章（運動擇一）+ 自選 8 枚'
+    },
+    {
+      rank: '國花童軍', totalRequired: 18, color: 'purple',
+      colorClass: 'purple', bgColor: 'bg-purple-50', textColor: 'text-purple-700', borderColor: 'border-purple-300',
+      requiredBadges: [
+        { name: '世界公民', isOptional: false, choices: [] as string[] },
+        { name: '生態保育', isOptional: false, choices: [] as string[] },
+        { name: '測量', isOptional: false, choices: [] as string[] },
+        { name: '生物類', isOptional: true, choices: ['植物', '昆蟲', '賞鳥'] },
+        { name: '藝術類', isOptional: true, choices: ['音樂', '舞蹈', '攝影'] }
+      ],
+      electiveBadges: 13, description: '含 5 枚必備章（生物、藝術各擇一）+ 自選 13 枚'
+    }
+  ] : [] as any[]
+
+  // 判斷必備章是否達成
+  function checkReqBadge(req: {name:string, isOptional:boolean, choices:string[]}, has: Set<string>): boolean {
+    if (req.isOptional && req.choices.length > 0) return req.choices.some(c => has.has(c))
+    return has.has(req.name)
+  }
+
+  // 取得所有必備章名稱集合（不含選項）
+  const allRequiredBadgeNames = new Set<string>()
+  rankBadgeRequirements.forEach((r:any) => {
+    r.requiredBadges.forEach((b:any) => {
+      if (!b.isOptional) allRequiredBadgeNames.add(b.name)
+      else b.choices.forEach((c:string) => allRequiredBadgeNames.add(c))
+    })
+  })
+
+  // 判斷某個晉級的專科章條件是否全部達成
+  const rankBadgeDone: Record<string, boolean> = {}
+  rankBadgeRequirements.forEach((r:any) => {
+    const allReqDone = r.requiredBadges.every((b:any) => checkReqBadge(b, myBadgeNameSet))
+    const hasEnough = myBadgeCount >= r.totalRequired
+    rankBadgeDone[r.rank] = allReqDone && hasEnough
+  })
+
+  // 定義階級順序（行義童軍與童軍共用相同階級名稱）
   const ranksMap: Record<string, string[]> = {
     '童軍': ['見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍'],
-    '行義童軍': ['見習行義','初級行義','中級行義','高級行義'],
+    '行義童軍': ['見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍'],
     '羅浮童軍': ['見習羅浮','授銜羅浮','服務羅浮']
   }
   const targetRanks = ranksMap[member.section] || []
@@ -4606,10 +4671,15 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
     const achieveDate = rankRecordMap[rank] || ''
     const reqs = reqsByTarget[rank] || []
     
-    // 計算完成度
+    // 計算完成度（進程條件）
     const totalReq = reqs.length
     const doneReq = reqs.filter(r => progressMap[r.id]).length
-    const isAllDone = totalReq > 0 && totalReq === doneReq
+    const isReqDone = totalReq > 0 && totalReq === doneReq
+
+    // 檢查專科章要求（獅級/長城/國花）
+    const badgeReq = rankBadgeRequirements.find((r:any) => r.rank === rank)
+    const isBadgeDone = badgeReq ? rankBadgeDone[rank] : true // 沒有專科章要求的階段視為通過
+    const isAllDone = isReqDone && isBadgeDone
 
     // 狀態顏色
     let headerClass = 'bg-gray-50 border-gray-200'
@@ -4617,27 +4687,45 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
     if (isRankAchieved) { headerClass = 'bg-green-50 border-green-200'; textClass = 'text-green-700' }
     else if (isAllDone) { headerClass = 'bg-blue-50 border-blue-200'; textClass = 'text-blue-700' }
 
+    // 建立晉升阻礙說明
+    const blockReasons: string[] = []
+    if (!isReqDone) blockReasons.push(`進程條件 ${doneReq}/${totalReq}`)
+    if (badgeReq && !isBadgeDone) {
+      const allReqDone = badgeReq.requiredBadges.every((b:any) => checkReqBadge(b, myBadgeNameSet))
+      const hasEnough = myBadgeCount >= badgeReq.totalRequired
+      if (!allReqDone) blockReasons.push('必備專科章未完成')
+      if (!hasEnough) blockReasons.push(`專科章數量 ${myBadgeCount}/${badgeReq.totalRequired}`)
+    }
+
     return `
-    <div class="mb-6 rounded-xl border-2 ${headerClass} overflow-hidden transition-all">
+    <div class="mb-4 rounded-xl border-2 ${headerClass} overflow-hidden transition-all">
       <div class="px-5 py-3 flex items-center justify-between bg-white/50">
         <div class="flex items-center gap-3">
           <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${isRankAchieved ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-500'}">
             ${isRankAchieved ? '✓' : targetRanks.indexOf(rank) + 1}
           </div>
           <div>
-            <h3 class="font-bold text-lg ${textClass}">${rank}</h3>
+            <h3 class="font-bold text-base ${textClass}">${rank}</h3>
             ${isRankAchieved 
-              ? `<p class="text-xs text-green-600">已於 ${achieveDate} 晉升</p>` 
-              : `<p class="text-xs text-gray-400">完成度：${doneReq}/${totalReq}</p>`
+              ? `<p class="text-xs text-green-600">已於 ${achieveDate?.substring(0,10) || achieveDate} 晉升</p>` 
+              : `<div class="flex flex-wrap items-center gap-1.5 mt-0.5">
+                  <span class="text-xs ${isReqDone ? 'text-green-600' : 'text-gray-400'}">
+                    ${isReqDone ? '✓' : '○'} 進程 ${doneReq}/${totalReq}
+                  </span>
+                  ${badgeReq ? `<span class="text-xs ${isBadgeDone ? 'text-green-600' : 'text-amber-500'}">
+                    ${isBadgeDone ? '✓' : '○'} 專科章 ${myBadgeCount}/${badgeReq.totalRequired}
+                  </span>` : ''}
+                </div>`
             }
           </div>
         </div>
-        <div>
+        <div class="flex flex-col items-end gap-1">
           ${!isRankAchieved ? `
             <button onclick="promote('${rank}', ${isAllDone})" 
               class="${isAllDone ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-md' : 'bg-gray-200 text-gray-400 cursor-not-allowed'} px-4 py-2 rounded-lg text-sm font-bold transition-colors">
               晉升
             </button>
+            ${blockReasons.length > 0 ? `<span class="text-[10px] text-amber-500">${blockReasons[0]}</span>` : ''}
           ` : `
             <button onclick="editRankDate('${rank}', '${achieveDate}')" class="text-xs text-gray-400 hover:text-blue-500 underline">修改日期</button>
           `}
@@ -4664,38 +4752,188 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
             }).join('')}
           </div>`
         }
+        ${badgeReq && !isRankAchieved ? `
+        <div class="mt-2 mx-2 mb-1 p-2 rounded-lg ${isBadgeDone ? 'bg-green-50 border border-green-100' : 'bg-amber-50 border border-amber-200'}">
+          <div class="flex items-center gap-2 text-xs ${isBadgeDone ? 'text-green-700' : 'text-amber-700'} font-medium">
+            <i class="fas fa-medal"></i>
+            <span>專科章要求：共需 ${badgeReq.totalRequired} 枚（含必備章）</span>
+            <span class="ml-auto">${myBadgeCount}/${badgeReq.totalRequired} ${isBadgeDone ? '✓' : ''}</span>
+          </div>
+          <div class="mt-1.5 flex flex-wrap gap-1.5">
+            ${badgeReq.requiredBadges.map((b:any) => {
+              const obtained = checkReqBadge(b, myBadgeNameSet)
+              const label = b.isOptional ? b.choices.join('/') : b.name
+              return `<span class="text-[10px] px-1.5 py-0.5 rounded ${obtained ? 'bg-green-200 text-green-800' : 'bg-gray-200 text-gray-500'}">
+                ${obtained ? '✓' : '○'} ${label}${b.isOptional ? '（擇一）' : ''}
+              </span>`
+            }).join('')}
+          </div>
+        </div>` : ''}
       </div>
     </div>`
   }
 
-  const renderBadgeWall = () => `
-    <div class="space-y-6">
-      ${categories.map(cat => {
+  // 生成視覺化專科章儀表板（同學員頁面樣式）
+  const renderBadgeDashboard = () => {
+    if (rankBadgeRequirements.length === 0) {
+      // 羅浮童軍：顯示原始專科章牆
+      return `<div class="space-y-4">${categories.map(cat => {
         const list = badgesByCat[cat] || []
         if (list.length === 0) return ''
-        return `
-        <div>
-          <h4 class="font-bold text-gray-500 text-sm mb-3 border-l-4 border-gray-300 pl-2">${cat}類專科章</h4>
-          <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+        return `<div>
+          <h4 class="font-bold text-gray-500 text-sm mb-2 border-l-4 border-gray-300 pl-2">${cat}類專科章</h4>
+          <div class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
             ${list.map(b => {
               const has = myBadgeSet.has(b.id)
-              return `
-              <div onclick="toggleBadge('${b.id}', ${!has})" 
-                class="cursor-pointer border-2 ${has ? 'border-amber-400 bg-amber-50' : 'border-gray-100 bg-gray-50 opacity-60 hover:opacity-100'} rounded-xl p-2 flex flex-col items-center gap-2 transition-all relative group">
-                
-                ${has ? '<div class="absolute top-1 right-1 w-2 h-2 bg-green-500 rounded-full"></div>' : ''}
-                
-                <div class="w-10 h-10 rounded-full bg-white border border-gray-200 flex items-center justify-center text-xs overflow-hidden shadow-sm">
-                  ${b.image_url ? `<img src="${b.image_url}" class="w-full h-full object-cover">` : '🏅'}
+              return `<div onclick="toggleBadge('${b.id}', ${!has})" class="cursor-pointer border-2 ${has ? 'border-amber-400 bg-amber-50' : 'border-gray-100 bg-gray-50 opacity-50 hover:opacity-90'} rounded-xl p-2 flex flex-col items-center gap-1 transition-all">
+                <div class="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center text-base">
+                  ${b.image_url ? `<img src="${b.image_url}" class="w-full h-full object-cover rounded-full">` : '🏅'}
                 </div>
-                <span class="text-xs font-bold text-gray-700 text-center leading-tight h-8 flex items-center justify-center">${b.name}</span>
+                <span class="text-[10px] font-medium text-gray-700 text-center leading-tight">${b.name}</span>
               </div>`
             }).join('')}
           </div>
         </div>`
+      }).join('')}</div>`
+    }
+
+    // 童軍/行義童軍：完整視覺化儀表板
+    return `
+    <!-- 整體概覽列 -->
+    <div class="flex items-center justify-around bg-gray-50 rounded-xl p-3 mb-5">
+      ${rankBadgeRequirements.map((req:any, idx:number) => {
+        const allReqDone = req.requiredBadges.every((b:any) => checkReqBadge(b, myBadgeNameSet))
+        const hasEnough = myBadgeCount >= req.totalRequired
+        const isFullyDone = allReqDone && hasEnough
+        return `
+        ${idx > 0 ? '<i class="fas fa-chevron-right text-gray-300 text-xs"></i>' : ''}
+        <div class="flex flex-col items-center gap-1">
+          <div class="w-14 h-14 rounded-full flex items-center justify-center text-sm font-bold shadow-sm
+            ${isFullyDone ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500'}">
+            ${isFullyDone ? '<i class="fas fa-check text-lg"></i>' : `<span>${myBadgeCount}/${req.totalRequired}</span>`}
+          </div>
+          <div class="text-xs font-medium ${isFullyDone ? 'text-green-700' : 'text-gray-500'} text-center">
+            ${req.rank.replace('童軍', '')}
+          </div>
+          <div class="text-[10px] text-gray-400">${req.totalRequired}枚</div>
+        </div>`
       }).join('')}
     </div>
-  `
+
+    <!-- 各階段必備章卡片 -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      ${rankBadgeRequirements.map((req:any) => {
+        const allReqDone = req.requiredBadges.every((b:any) => checkReqBadge(b, myBadgeNameSet))
+        const hasEnough = myBadgeCount >= req.totalRequired
+        const isFullyDone = allReqDone && hasEnough
+        const doneReqCount = req.requiredBadges.filter((b:any) => checkReqBadge(b, myBadgeNameSet)).length
+        const pct = Math.min(100, Math.round(myBadgeCount / req.totalRequired * 100))
+        return `
+        <div class="rounded-xl border-2 p-4 ${isFullyDone ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'}">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <div class="font-bold text-sm ${isFullyDone ? 'text-green-800' : req.textColor}">${req.rank}</div>
+              <div class="text-xs text-gray-400">共需 ${req.totalRequired} 枚</div>
+            </div>
+            ${isFullyDone
+              ? '<div class="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center"><i class="fas fa-check text-white text-xs"></i></div>'
+              : `<span class="text-sm font-bold ${req.textColor}">${doneReqCount}/${req.requiredBadges.length} 必備</span>`
+            }
+          </div>
+
+          <!-- 必備章清單 -->
+          <div class="space-y-1.5 mb-3">
+            ${req.requiredBadges.map((badge:any) => {
+              const obtained = checkReqBadge(badge, myBadgeNameSet)
+              const obtainedName = badge.isOptional ? (badge.choices.find((c:string) => myBadgeNameSet.has(c)) || '') : ''
+              // 找到對應的 badge id（如果有獲得）
+              const badgeObj = allBadges.results.find((b:any) => b.name === (obtainedName || badge.name)) as any
+              const badgeId = badgeObj?.id || ''
+              return `
+              <div class="flex items-center gap-2 ${obtained ? '' : 'opacity-60'}">
+                <div class="w-5 h-5 rounded flex-shrink-0 flex items-center justify-center ${obtained ? 'bg-green-500' : 'bg-white border-2 border-gray-300'}">
+                  ${obtained ? '<i class="fas fa-check text-white" style="font-size:9px"></i>' : ''}
+                </div>
+                <span class="text-xs ${obtained ? 'text-gray-800 font-medium' : 'text-gray-500'}">
+                  ${badge.isOptional ? (obtainedName || badge.choices.join('/')) : badge.name}
+                  ${badge.isOptional ? '<span class="text-gray-400">（擇一）</span>' : ''}
+                </span>
+              </div>`
+            }).join('')}
+          </div>
+
+          <!-- 總枚數進度條 -->
+          <div class="border-t border-gray-100 pt-2">
+            <div class="flex items-center justify-between text-xs mb-1">
+              <span class="text-gray-400">自選章進度</span>
+              <span class="${hasEnough ? 'text-green-700 font-bold' : 'text-gray-400'}">${myBadgeCount}/${req.totalRequired}</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-1.5">
+              <div class="h-1.5 rounded-full ${hasEnough ? 'bg-green-500' : 'bg-' + req.colorClass + '-400'}" style="width:${pct}%"></div>
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 mt-2 leading-tight">${req.description}</p>
+        </div>`
+      }).join('')}
+    </div>
+
+    <!-- 分隔線 -->
+    <div class="border-t border-gray-200 pt-5 mb-3">
+      <h3 class="font-bold text-gray-700 flex items-center gap-2 mb-1">
+        <i class="fas fa-th text-gray-400"></i>所有專科章管理
+        <span class="text-xs font-normal text-gray-400">(點擊可獲得/取消)</span>
+      </h3>
+      <p class="text-xs text-gray-400 mb-4">已取得 <strong class="text-amber-600">${myBadgeCount}</strong> 枚</p>
+    </div>
+
+    <!-- 依類別顯示所有專科章：必備章與自選章分開 -->
+    ${categories.map(cat => {
+      const list = badgesByCat[cat] || []
+      if (list.length === 0) return ''
+      const requiredInCat = list.filter((b:any) => allRequiredBadgeNames.has(b.name))
+      const electiveInCat = list.filter((b:any) => !allRequiredBadgeNames.has(b.name))
+      return `
+      <div class="mb-5">
+        <h4 class="font-semibold text-gray-600 text-sm mb-3 flex items-center gap-2">
+          <span class="w-1 h-4 bg-gray-400 rounded"></span>${cat}類專科章
+        </h4>
+        ${requiredInCat.length > 0 ? `
+        <p class="text-xs text-amber-600 font-medium mb-2">📌 必備章</p>
+        <div class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 mb-3">
+          ${requiredInCat.map(b => {
+            const has = myBadgeSet.has(b.id)
+            return `
+            <div onclick="toggleBadge('${b.id}', ${!has})"
+              class="cursor-pointer border-2 rounded-xl p-2 flex flex-col items-center gap-1 transition-all relative
+              ${has ? 'border-amber-400 bg-amber-50 shadow-sm' : 'border-amber-200 bg-amber-50/30 opacity-60 hover:opacity-100'}">
+              ${has ? '<div class="absolute top-1 right-1 w-2.5 h-2.5 bg-green-500 rounded-full"></div>' : ''}
+              <div class="w-10 h-10 rounded-full bg-white border border-gray-200 flex items-center justify-center">
+                ${b.image_url ? `<img src="${b.image_url}" class="w-full h-full object-cover rounded-full">` : '🏅'}
+              </div>
+              <span class="text-[10px] font-bold text-gray-700 text-center leading-tight">${b.name}</span>
+            </div>`
+          }).join('')}
+        </div>` : ''}
+        ${electiveInCat.length > 0 ? `
+        <p class="text-xs text-gray-400 font-medium mb-2">✨ 自選章</p>
+        <div class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+          ${electiveInCat.map(b => {
+            const has = myBadgeSet.has(b.id)
+            return `
+            <div onclick="toggleBadge('${b.id}', ${!has})"
+              class="cursor-pointer border-2 rounded-xl p-2 flex flex-col items-center gap-1 transition-all relative
+              ${has ? 'border-blue-300 bg-blue-50 shadow-sm' : 'border-gray-100 bg-gray-50 opacity-50 hover:opacity-100'}">
+              ${has ? '<div class="absolute top-1 right-1 w-2.5 h-2.5 bg-blue-500 rounded-full"></div>' : ''}
+              <div class="w-10 h-10 rounded-full bg-white border border-gray-200 flex items-center justify-center">
+                ${b.image_url ? `<img src="${b.image_url}" class="w-full h-full object-cover rounded-full">` : '🏅'}
+              </div>
+              <span class="text-[10px] font-medium text-gray-700 text-center leading-tight">${b.name}</span>
+            </div>`
+          }).join('')}
+        </div>` : ''}
+      </div>`
+    }).join('')}`
+  }
 
   const contentInfo = `
     <!-- 原本的「基本資料」部分保留 -->
@@ -4718,7 +4956,7 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
           <label class="block text-xs font-medium text-gray-600 mb-1">選擇新階級（儲存後將自動同步進程勾選）</label>
           <div class="flex gap-2">
             <select id="quick-rank-select" class="flex-1 border rounded-lg px-2 py-1.5 text-sm">
-              ${['','見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習行義','初級行義','中級行義','高級行義','見習羅浮','授銜羅浮','服務羅浮'].map(r => `<option value="${r}" ${r === (member.rank_level||'') ? 'selected' : ''}>${r || '未設定'}</option>`).join('')}
+              ${['','見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮'].map(r => `<option value="${r}" ${r === (member.rank_level||'') ? 'selected' : ''}>${r || '未設定'}</option>`).join('')}
             </select>
             <button onclick="quickUpdateRank()" class="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-700">更新</button>
           </div>
@@ -4777,13 +5015,18 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
         </div>
       </div>
 
-      <!-- 下半部：專科章牆 -->
+      <!-- 下半部：專科章儀表板 -->
       <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-        <h2 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-          <i class="fas fa-medal text-amber-500"></i> 專科章管理
-          <span class="text-sm font-normal text-gray-400 ml-2">(點擊圖示可直接獲得/取消)</span>
-        </h2>
-        ${renderBadgeWall()}
+        <div class="flex items-center justify-between mb-5">
+          <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+            <i class="fas fa-medal text-amber-500"></i> 專科章管理
+          </h2>
+          <div class="text-right">
+            <span class="text-2xl font-bold text-amber-600">${myBadgeCount}</span>
+            <span class="text-xs text-gray-400 ml-1">枚已取得</span>
+          </div>
+        </div>
+        ${renderBadgeDashboard()}
       </div>
     </div>
 
@@ -4954,7 +5197,7 @@ adminRoutes.get('/members-legacy/:id', authMiddleware, async (c) => {
   const sections = ['童軍','行義童軍','羅浮童軍','服務員','幼童軍','稚齡童軍']
   const ranks = ['',
     '見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍',
-    '見習行義','初級行義','中級行義','高級行義','獅級行義','長城行義','國花行義',
+    // 行義童軍與童軍共用相同階級名稱
     '見習羅浮','授銜羅浮','服務羅浮'
   ]
 
@@ -5590,13 +5833,26 @@ adminRoutes.get('/advancement', authMiddleware, async (c) => {
 adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
   const db = c.env.DB
   const sectionFilter = c.req.query('section') || '童軍'
+  const versionFilter = c.req.query('version') || ''
+
+  // 取得所有版本（distinct version_year）
+  const versionsRes = await db.prepare(`
+    SELECT DISTINCT version_year FROM advancement_requirements
+    WHERE version_year IS NOT NULL AND version_year != ''
+    ORDER BY version_year DESC
+  `).all()
+  const versions: string[] = versionsRes.results.map((v: any) => v.version_year)
+
+  // 如果沒指定版本，使用最新版本或全部
+  const currentVersion = versionFilter || (versions.length > 0 ? versions[0] : '')
 
   // 取得該組別所有啟用條件（按 rank_to 分組顯示，仿截圖設計）
   const requirements = await db.prepare(`
     SELECT * FROM advancement_requirements
     WHERE section = ? AND is_active = 1
+    ${currentVersion ? 'AND version_year = ?' : ''}
     ORDER BY rank_from, display_order, id
-  `).bind(sectionFilter).all()
+  `).bind(sectionFilter, ...(currentVersion ? [currentVersion] : [])).all()
 
   // 按 rank_to（目標階級）分組 — 顯示「要到達這個階段需要做什麼」
   const groupsByTarget: Record<string, any[]> = {}
@@ -5683,21 +5939,93 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
         </h1>
         <p class="text-gray-500 text-sm mt-0.5">設定各階段升級所需達成的標準項目，會員可在個人頁面查看升級進度</p>
       </div>
-      <button onclick="toggleNewStageForm()"
-        class="bg-green-600 hover:bg-green-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 shadow-sm">
-        <i class="fas fa-plus"></i>新增標準
-      </button>
+      <div class="flex gap-2 flex-wrap">
+        <button onclick="document.getElementById('copyVersionModal').classList.remove('hidden')"
+          class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 shadow-sm">
+          <i class="fas fa-copy"></i>複製版本
+        </button>
+        <button onclick="toggleNewStageForm()"
+          class="bg-green-600 hover:bg-green-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 shadow-sm">
+          <i class="fas fa-plus"></i>新增標準
+        </button>
+      </div>
     </div>
 
-    <!-- 組別切換 tabs -->
-    <div class="flex gap-1 mb-5 bg-gray-100 rounded-xl p-1 w-fit">
-      ${['童軍','行義童軍','羅浮童軍'].map(s => `
-      <a href="/admin/advancement/requirements?section=${encodeURIComponent(s)}"
-        class="px-5 py-2 rounded-lg text-sm font-medium transition-all ${sectionFilter === s
-          ? 'bg-white text-green-700 shadow-sm font-semibold'
-          : 'text-gray-500 hover:text-gray-700'}">
-        ${s === '童軍' ? '🏕️' : s === '行義童軍' ? '🔰' : '⚜️'} ${s}
-      </a>`).join('')}
+    <!-- 版本選擇器 + 組別切換 tabs -->
+    <div class="flex flex-col sm:flex-row gap-3 mb-5">
+      <!-- 版本選擇 -->
+      ${versions.length > 0 ? `
+      <div class="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 w-fit">
+        <i class="fas fa-layer-group text-gray-400 text-xs"></i>
+        <span class="text-xs text-gray-500 font-medium">版本：</span>
+        <select onchange="location.href='/admin/advancement/requirements?section=${encodeURIComponent(sectionFilter)}&version='+this.value"
+          class="text-sm font-semibold text-gray-700 bg-transparent focus:outline-none cursor-pointer">
+          ${versions.map(v => `<option value="${v}" ${v === currentVersion ? 'selected' : ''}>${v} 學年版</option>`).join('')}
+        </select>
+        ${currentVersion ? `<span class="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full">${requirements.results.length} 條</span>` : ''}
+      </div>` : ''}
+
+      <!-- 組別切換 tabs -->
+      <div class="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+        ${['童軍','行義童軍','羅浮童軍'].map(s => `
+        <a href="/admin/advancement/requirements?section=${encodeURIComponent(s)}${currentVersion ? '&version=' + currentVersion : ''}"
+          class="px-5 py-2 rounded-lg text-sm font-medium transition-all ${sectionFilter === s
+            ? 'bg-white text-green-700 shadow-sm font-semibold'
+            : 'text-gray-500 hover:text-gray-700'}">
+          ${s === '童軍' ? '🏕️' : s === '行義童軍' ? '🔰' : '⚜️'} ${s}
+        </a>`).join('')}
+      </div>
+    </div>
+
+    <!-- 複製版本 Modal -->
+    <div id="copyVersionModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div class="bg-gradient-to-r from-blue-600 to-blue-500 px-6 py-4 text-white">
+          <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-copy"></i>複製進程標準版本</h3>
+          <p class="text-blue-100 text-sm mt-0.5">將某個學年版本的標準複製到另一個學年</p>
+        </div>
+        <div class="p-6 space-y-4">
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">來源版本（從哪個學年複製）</label>
+            <select id="copy_from_version"
+              class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none">
+              ${versions.length > 0 ? versions.map(v => `<option value="${v}" ${v === currentVersion ? 'selected' : ''}>${v} 學年版（${v}）</option>`).join('') : '<option value="">尚無版本</option>'}
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">目標版本（複製到哪個學年）</label>
+            <input id="copy_to_version" type="text"
+              placeholder="例如：115 或 116（4位數字）"
+              class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+              value="${(() => { const latest = versions[0] ? String(parseInt(versions[0])+1) : ''; return latest })()} ">
+            <p class="text-xs text-gray-400 mt-1">輸入目標學年度數字（如 116），若該版本已存在會跳過重複項目</p>
+          </div>
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">複製範圍</label>
+            <div class="flex gap-3">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="copy_scope" value="all" checked class="accent-blue-600">
+                <span class="text-sm text-gray-700">所有組別</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="copy_scope" value="section" class="accent-blue-600">
+                <span class="text-sm text-gray-700">僅目前組別（${sectionFilter}）</span>
+              </label>
+            </div>
+          </div>
+          <div id="copyVersionMsg"></div>
+          <div class="flex gap-3 pt-2">
+            <button onclick="executeCopyVersion()"
+              class="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2">
+              <i class="fas fa-copy"></i>確認複製
+            </button>
+            <button onclick="document.getElementById('copyVersionModal').classList.add('hidden')"
+              class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl text-sm transition-colors">
+              取消
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 新增標準表單 (頂部大表單) -->
@@ -5910,9 +6238,52 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
     <script>
     // ===== 資料（Server-rendered）=====
     const SECTION = '${sectionFilter}';
+    const CURRENT_VERSION = '${currentVersion}';
     const RANK_PAIRS = ${JSON.stringify(rankPairs.results)};
     // 階段 → 前置階段 的對應表
     const RANK_FROM_MAP = ${JSON.stringify(rankFromMap)};
+
+    // ===== 複製版本 =====
+    async function executeCopyVersion() {
+      const msgEl = document.getElementById('copyVersionMsg');
+      const fromVersion = document.getElementById('copy_from_version').value.trim();
+      const toVersion = document.getElementById('copy_to_version').value.trim();
+      const scope = document.querySelector('input[name="copy_scope"]:checked').value;
+
+      if (!fromVersion) { msgEl.innerHTML = '<p class="text-sm text-red-500">請選擇來源版本</p>'; return; }
+      if (!toVersion) { msgEl.innerHTML = '<p class="text-sm text-red-500">請輸入目標版本（例如：116）</p>'; return; }
+      if (fromVersion === toVersion) { msgEl.innerHTML = '<p class="text-sm text-red-500">來源與目標版本不能相同</p>'; return; }
+      if (!/^[0-9]{2,4}$/.test(toVersion)) { msgEl.innerHTML = '<p class="text-sm text-red-500">版本格式不正確，請輸入2~4位數字</p>'; return; }
+
+      msgEl.innerHTML = '<p class="text-sm text-gray-400"><i class="fas fa-spinner fa-spin mr-1"></i>複製中...</p>';
+      try {
+        const body = { from_version: fromVersion, to_version: toVersion };
+        if (scope === 'section') body.section = SECTION;
+
+        const res = await fetch('/api/admin/advancement-requirements/clone', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const r = await res.json();
+        if (r.success) {
+          msgEl.innerHTML = '<p class="text-sm text-green-600">✅ 成功複製 ' + r.copied_count + ' 條標準到 ' + toVersion + ' 學年版！</p>';
+          setTimeout(() => {
+            document.getElementById('copyVersionModal').classList.add('hidden');
+            location.href = '/admin/advancement/requirements?section=' + encodeURIComponent(SECTION) + '&version=' + toVersion;
+          }, 1500);
+        } else {
+          msgEl.innerHTML = '<p class="text-sm text-red-500">複製失敗：' + (r.error || '未知錯誤') + '</p>';
+        }
+      } catch(e) {
+        msgEl.innerHTML = '<p class="text-sm text-red-500">網路錯誤，請稍後再試</p>';
+      }
+    }
+
+    // 點擊 Modal 外部關閉
+    document.getElementById('copyVersionModal').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.add('hidden');
+    });
 
     // ===== 目標階段選擇自動帶入前置階段 =====
     function onRankToChange(val) {
