@@ -72,11 +72,17 @@ function memberHead(title: string) {
 </head>`
 }
 
-function memberNav(memberName: string, section: string) {
-  const sectionIcon = section.includes('羅浮') ? '⚜️' : section.includes('行義') ? '🔰' : '⚜️'
+function memberNav(memberName: string, section: string, activePage?: string) {
+  const sectionIcon = section.includes('羅浮') ? '⚜️' : section.includes('行義') ? '🔰' : '🏕️'
+  const navItems = [
+    { href: '/member',            icon: 'fas fa-th-large',      label: '總覽',   key: 'home' },
+    { href: '/member/attendance', icon: 'fas fa-calendar-check', label: '出席',   key: 'attendance' },
+    { href: '/member/progress',   icon: 'fas fa-chart-line',    label: '晉升',   key: 'progress' },
+    { href: '/member/activities', icon: 'fas fa-campground',    label: '活動',   key: 'activities' },
+  ]
   return `
 <nav class="bg-[#1a472a] text-white shadow-lg sticky top-0 z-50">
-  <div class="max-w-6xl mx-auto px-4">
+  <div class="max-w-5xl mx-auto px-4">
     <div class="flex items-center justify-between h-14">
       <div class="flex items-center gap-3">
         <a href="/" class="text-lg font-bold text-yellow-400 hover:text-yellow-300 flex items-center gap-2">
@@ -90,37 +96,26 @@ function memberNav(memberName: string, section: string) {
         </a>
       </div>
       <div class="flex items-center gap-2">
-        <span class="text-yellow-400 text-sm">${sectionIcon} ${memberName}</span>
+        <span class="text-yellow-400 text-sm hidden sm:inline">${sectionIcon} ${memberName}</span>
         <a href="/member/logout" class="bg-red-700 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-full transition-colors">
           <i class="fas fa-sign-out-alt mr-1"></i>登出
         </a>
       </div>
     </div>
     <div class="flex gap-1 pb-2 overflow-x-auto">
-      <a href="/member" class="text-xs whitespace-nowrap px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
-        <i class="fas fa-th-large mr-1"></i>總覽
-      </a>
-      <a href="/member/progress" class="text-xs whitespace-nowrap px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
-        <i class="fas fa-chart-line mr-1"></i>晉升進度
-      </a>
-      <a href="/member/attendance" class="text-xs whitespace-nowrap px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
-        <i class="fas fa-calendar-check mr-1"></i>出席記錄
-      </a>
-      <a href="/member/leave" class="text-xs whitespace-nowrap px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
-        <i class="fas fa-calendar-times mr-1"></i>請假申請
-      </a>
-      <a href="/member/advancement" class="text-xs whitespace-nowrap px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
-        <i class="fas fa-arrow-up mr-1"></i>晉升申請
-      </a>
-      <a href="/member/official-leave" class="text-xs whitespace-nowrap px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
-        <i class="fas fa-calendar-alt mr-1"></i>公假行事曆
-      </a>
-      <a href="/member/activities" class="text-xs whitespace-nowrap px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
-        <i class="fas fa-campground mr-1"></i>活動報名
-      </a>
+      ${navItems.map(item => {
+        const isActive = activePage === item.key || (!activePage && item.key === 'home')
+        return `<a href="${item.href}" class="text-xs whitespace-nowrap px-3 py-1 rounded-full transition-colors flex items-center gap-1 ${isActive ? 'bg-white text-[#1a472a] font-semibold' : 'bg-white/10 hover:bg-white/20'}">
+          <i class="${item.icon}"></i>${item.label}
+        </a>`
+      }).join('')}
     </div>
   </div>
 </nav>`
+}
+
+function weekdayLabel(dow: number): string {
+  return ['日','一','二','三','四','五','六'][dow] || ''
 }
 
 // ===================== 登入頁面 =====================
@@ -282,7 +277,7 @@ memberRoutes.get('/', memberAuthMiddleware, async (c) => {
 
   return c.html(`${memberHead('個人總覽')}
 <body class="bg-gray-50 min-h-screen">
-  ${memberNav(member.chinese_name, displaySection)}
+  ${memberNav(member.chinese_name, displaySection, 'home')}
   <div class="max-w-5xl mx-auto px-4 py-6 fade-in">
 
     <!-- 個人資訊卡 -->
@@ -309,7 +304,7 @@ memberRoutes.get('/', memberAuthMiddleware, async (c) => {
           <a href="/member/progress" class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-1">
             <i class="fas fa-chart-line"></i>查看進度
           </a>
-          <a href="/member/leave/new" class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-1">
+          <a href="/member/attendance?tab=leave" class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-1">
             <i class="fas fa-calendar-plus"></i>申請請假
           </a>
         </div>
@@ -347,7 +342,7 @@ memberRoutes.get('/', memberAuthMiddleware, async (c) => {
           <h2 class="font-semibold text-gray-800 flex items-center gap-2">
             <i class="fas fa-calendar-times text-blue-500"></i>最近請假
           </h2>
-          <a href="/member/leave" class="text-xs text-green-600 hover:underline">全部查看</a>
+          <a href="/member/attendance?tab=leave" class="text-xs text-green-600 hover:underline">全部查看</a>
         </div>
         <div class="p-4 space-y-2">
           ${recentLeaves.results.length === 0 ? `<p class="text-gray-400 text-sm text-center py-4">尚無請假記錄</p>` :
@@ -362,7 +357,7 @@ memberRoutes.get('/', memberAuthMiddleware, async (c) => {
               </span>
             </div>`).join('')
           }
-          <a href="/member/leave/new" class="block w-full text-center py-2 mt-2 bg-blue-50 hover:bg-blue-100 text-blue-600 text-sm rounded-lg transition-colors">
+          <a href="/member/attendance?tab=leave" class="block w-full text-center py-2 mt-2 bg-blue-50 hover:bg-blue-100 text-blue-600 text-sm rounded-lg transition-colors">
             <i class="fas fa-plus mr-1"></i>新增請假申請
           </a>
         </div>
@@ -400,7 +395,7 @@ memberRoutes.get('/', memberAuthMiddleware, async (c) => {
         <h2 class="font-semibold text-gray-800 flex items-center gap-2">
           <i class="fas fa-arrow-circle-up text-green-500"></i>晉升申請狀態
         </h2>
-        <a href="/member/advancement" class="text-xs text-green-600 hover:underline">查看詳情</a>
+        <a href="/member/progress?tab=advancement" class="text-xs text-green-600 hover:underline">查看詳情</a>
       </div>
       <div class="p-4 space-y-2">
         ${advApplications.results.map((a: any) => `
@@ -425,6 +420,7 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
   const db = c.env.DB
   const sess = c.get('memberSession') as any
   const memberId = sess.memberId
+  const activeTab = c.req.query('tab') || 'progress'
 
   const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(memberId).first() as any
   if (!member) return c.redirect('/member/login')
@@ -710,7 +706,7 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
     <div class="mt-3 text-xs text-gray-400 flex items-center gap-1.5 bg-gray-50 rounded-lg px-3 py-2">
       <i class="fas fa-info-circle text-blue-400"></i>
       自選章不包含任何必備章（露營、急救、游泳等），如有疑問請聯繫服務員。
-      <a href="/member/advancement" class="text-green-600 underline ml-auto flex-shrink-0">申請晉升 →</a>
+      <a href="/member/progress?tab=advancement" class="text-green-600 underline ml-auto flex-shrink-0">申請晉升 →</a>
     </div>
   </div>` : ''
 
@@ -781,7 +777,7 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
           </div>
           <div class="flex items-center gap-2">
             ${pct >= 100 && !activeApp && isCurrentTarget ? `
-            <a href="/member/advancement" class="bg-white text-green-700 text-xs font-medium px-3 py-1.5 rounded-full hover:opacity-90 transition-opacity shadow-sm">
+            <a href="/member/progress?tab=advancement" class="bg-white text-green-700 text-xs font-medium px-3 py-1.5 rounded-full hover:opacity-90 transition-opacity shadow-sm">
               🚀 申請晉升
             </a>` : ''}
             ${pct < 100 && isCurrentTarget ? `
@@ -854,19 +850,94 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
     </div>`
   }).join('')
 
-  return c.html(`${memberHead('晉升進度')}
-<body class="bg-gray-50 min-h-screen">
-  ${memberNav(member.chinese_name, member.section)}
-  <div class="max-w-3xl mx-auto px-4 py-6 fade-in">
+  // ── 晉升申請 Tab 所需資料 ──
+  const applications = await db.prepare(`
+    SELECT * FROM advancement_applications WHERE member_id = ? ORDER BY created_at DESC
+  `).bind(memberId).all()
 
-    <!-- 頁面標題 + 整體進度 -->
-    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-6">
+  // rank paths (可申請哪些晉升)
+  const rankPathsAdv: { from: string, to: string }[] = []
+  const seenAdv = new Set<string>()
+  requirements.results.forEach((r: any) => {
+    const k = `${r.rank_from}→${r.rank_to}`
+    if (!seenAdv.has(k)) { seenAdv.add(k); rankPathsAdv.push({ from: r.rank_from, to: r.rank_to }) }
+  })
+
+  const statusLabelAdv: Record<string, string> = {
+    pending: '⏳ 待審核', reviewing: '🔍 審核中', approved: '✅ 已通過', rejected: '❌ 未通過'
+  }
+
+  // 晉升申請 tab HTML
+  const tabAdvancementHtml = `
+    ${badgeDashboardHtml}
+
+    <!-- 申請新晉升 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+      <h2 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <i class="fas fa-paper-plane text-green-600"></i>提交晉升申請
+      </h2>
+      <form id="advForm" class="space-y-4">
+        <div class="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">目前階級</label>
+            <input type="text" value="${member.rank_level || ''}" readonly
+              class="w-full border border-gray-200 rounded-lg px-4 py-2.5 bg-gray-50 text-sm text-gray-600">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">申請晉升至</label>
+            <select name="rank_to" required
+              class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500 text-sm">
+              <option value="">-- 選擇目標階級 --</option>
+              ${rankPathsAdv.map(r => `<option value="${r.to}" data-from="${r.from}">${r.from} → ${r.to}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">申請日期</label>
+          <input type="date" name="apply_date" value="${new Date().toISOString().slice(0,10)}" required
+            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500 text-sm">
+        </div>
+        <div id="advFormMsg"></div>
+        <button type="submit"
+          class="w-full bg-green-700 hover:bg-green-600 text-white font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
+          <i class="fas fa-arrow-up"></i>提交晉升申請
+        </button>
+      </form>
+    </div>
+
+    <!-- 申請記錄 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+      <div class="p-4 border-b border-gray-100">
+        <h2 class="font-semibold text-gray-800 flex items-center gap-2"><i class="fas fa-history text-gray-400"></i>申請記錄</h2>
+      </div>
+      ${applications.results.length === 0 ? `<div class="p-8 text-center text-gray-400">
+        <i class="fas fa-clipboard-list text-4xl mb-3 block"></i>
+        <p>尚無晉升申請記錄</p>
+      </div>` : `<div class="divide-y divide-gray-50">
+        ${applications.results.map((a: any) => `
+        <div class="p-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="font-medium text-gray-800">${a.rank_from} → ${a.rank_to}</div>
+              <div class="text-xs text-gray-400 mt-0.5">${a.section} · 申請日期：${a.apply_date}</div>
+              ${a.admin_notes ? `<div class="text-xs text-blue-600 mt-1 bg-blue-50 px-2 py-1 rounded"><i class="fas fa-comment mr-1"></i>${a.admin_notes}</div>` : ''}
+              ${a.reviewed_at ? `<div class="text-xs text-gray-400 mt-0.5">審核時間：${a.reviewed_at?.substring(0,10)}</div>` : ''}
+            </div>
+            <span class="px-3 py-1 rounded-full text-xs font-medium status-${a.status} flex-shrink-0">
+              ${statusLabelAdv[a.status] || a.status}
+            </span>
+          </div>
+        </div>`).join('')}
+      </div>`}
+    </div>`
+
+  // 晉升進度 tab HTML（原有內容）
+  const tabProgressHtml = `
+    <!-- 整體進度卡 -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-5">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <i class="fas fa-chart-line text-green-600"></i>晉升進度
-          </h1>
-          <div class="flex flex-wrap items-center gap-3 mt-1">
+          <div class="flex flex-wrap items-center gap-3">
             <span class="text-gray-500 text-sm">目前階級：<strong class="text-green-700 text-base">${member.rank_level || '見習'}</strong></span>
             <span class="text-gray-300">·</span>
             <span class="text-gray-500 text-sm">${member.section}</span>
@@ -883,7 +954,7 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
             <div class="text-3xl font-bold ${overallPct >= 100 ? 'text-green-600' : 'text-blue-500'}">${overallPct}%</div>
             <div class="text-xs text-gray-400">整體完成</div>
           </div>
-          <a href="/member/advancement"
+          <a href="/member/progress?tab=advancement"
             class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-xl transition-colors flex items-center gap-2 shadow-sm">
             <i class="fas fa-arrow-up"></i>申請晉升
           </a>
@@ -909,7 +980,7 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
       </div>` : ''}
     </div>
 
-    <!-- 專科章與晉級檢核儀表板 -->
+    <!-- 專科章儀表板 -->
     ${badgeDashboardHtml}
 
     <!-- 各階段晉升標準 -->
@@ -954,7 +1025,39 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
             </div>
           </div>`).join('')}
         </div>`}
+    </div>`
+
+  const progressTabs = [
+    { key: 'progress',    label: '晉升進度', icon: 'fas fa-chart-line' },
+    { key: 'advancement', label: '晉升申請', icon: 'fas fa-arrow-up' },
+  ]
+
+  return c.html(`${memberHead('晉升')}
+<body class="bg-gray-50 min-h-screen">
+  ${memberNav(member.chinese_name, member.section, 'progress')}
+  <div class="max-w-3xl mx-auto px-4 py-6 fade-in">
+
+    <!-- 頁面標題 -->
+    <div class="mb-5">
+      <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+        <i class="fas fa-chart-line text-green-600"></i>晉升管理
+      </h1>
+      <p class="text-sm text-gray-400 mt-0.5">${member.chinese_name} · ${member.section}</p>
     </div>
+
+    <!-- Tab 列 -->
+    <div class="flex gap-2 mb-5 border-b border-gray-200">
+      ${progressTabs.map(t => `
+      <a href="/member/progress?tab=${t.key}" class="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px
+        ${activeTab === t.key
+          ? 'border-green-600 text-green-700 bg-white'
+          : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}">
+        <i class="${t.icon}"></i>${t.label}
+      </a>`).join('')}
+    </div>
+
+    <!-- Tab 內容 -->
+    ${activeTab === 'advancement' ? tabAdvancementHtml : tabProgressHtml}
   </div>
 
   <!-- 回報進度 Modal -->
@@ -1127,7 +1230,7 @@ memberRoutes.get('/activities', memberAuthMiddleware, async (c) => {
 
   return c.html(`${memberHead('活動報名')}
   <body class="bg-gray-50 min-h-screen">
-    ${memberNav(member.chinese_name, member.section)}
+    ${memberNav(member.chinese_name, member.section, 'activities')}
     <div class="max-w-4xl mx-auto px-4 py-8 fade-in">
       <h1 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
         <i class="fas fa-campground text-green-600"></i> 活動報名
@@ -1210,19 +1313,21 @@ memberRoutes.get('/activities', memberAuthMiddleware, async (c) => {
   </body></html>`)
 })
 
-// ===================== 出席記錄頁面 =====================
+// ===================== 出席 / 請假 / 公假 整合頁面 =====================
 memberRoutes.get('/attendance', memberAuthMiddleware, async (c) => {
   const db = c.env.DB
   const sess = c.get('memberSession') as any
   const memberId = sess.memberId
+  const activeTab = c.req.query('tab') || 'attendance'
   const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(memberId).first() as any
 
-  // 年度在籍資料優先
+  // ── 年度在籍 ──
   const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
   const currentYear = yearSetting?.value || '114'
   const enrollment = await db.prepare(`SELECT section FROM member_enrollments WHERE member_id=? AND year_label=? AND is_active=1`).bind(memberId, currentYear).first() as any
   const displaySection = enrollment?.section || member.section
 
+  // ── Tab 1：出席記錄資料 ──
   const sessions = await db.prepare(`
     SELECT as2.*, ar.status as my_status, ar.note as my_note,
       lr.id as leave_id, lr.status as leave_status, lr.leave_type
@@ -1249,88 +1354,7 @@ memberRoutes.get('/attendance', memberAuthMiddleware, async (c) => {
   const present = stats?.present || 0
   const rate = total > 0 ? Math.round((present / total) * 100) : 0
 
-  return c.html(`${memberHead('出席記錄')}
-<body class="bg-gray-50 min-h-screen">
-  ${memberNav(member.chinese_name, member.section)}
-  <div class="max-w-4xl mx-auto px-4 py-6 fade-in">
-    <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold text-gray-800">出席記錄</h1>
-      <a href="/member/leave/new" class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
-        <i class="fas fa-calendar-plus"></i>申請請假
-      </a>
-    </div>
-
-    <!-- 統計 -->
-    <div class="grid grid-cols-4 gap-3 mb-6">
-      <div class="bg-white rounded-xl p-4 text-center shadow-sm border border-gray-100">
-        <div class="text-2xl font-bold text-gray-700">${total}</div>
-        <div class="text-xs text-gray-400">總場次</div>
-      </div>
-      <div class="bg-white rounded-xl p-4 text-center shadow-sm border border-gray-100">
-        <div class="text-2xl font-bold text-green-600">${present}</div>
-        <div class="text-xs text-gray-400">出席</div>
-      </div>
-      <div class="bg-white rounded-xl p-4 text-center shadow-sm border border-gray-100">
-        <div class="text-2xl font-bold text-red-500">${stats?.absent || 0}</div>
-        <div class="text-xs text-gray-400">缺席</div>
-      </div>
-      <div class="bg-white rounded-xl p-4 text-center shadow-sm border border-gray-100">
-        <div class="text-2xl font-bold ${rate >= 80 ? 'text-green-600' : rate >= 60 ? 'text-yellow-500' : 'text-red-500'}">${rate}%</div>
-        <div class="text-xs text-gray-400">出席率</div>
-      </div>
-    </div>
-
-    <!-- 記錄列表 -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100">
-      <div class="p-4 border-b border-gray-100">
-        <h2 class="font-semibold text-gray-800">近期出席狀況</h2>
-      </div>
-      ${sessions.results.length === 0 ? `<div class="p-8 text-center text-gray-400">尚無出席記錄</div>` :
-        `<div class="divide-y divide-gray-50">
-          ${sessions.results.map((s: any) => {
-            let statusHtml = ''
-            if (s.leave_id) {
-              const ls = s.leave_status
-              const lt = s.leave_type === 'official' ? '公假' : s.leave_type === 'sick' ? '病假' : '事假'
-              statusHtml = `<span class="px-2 py-0.5 rounded-full text-xs status-${ls}">${lt} (${ls === 'approved' ? '已核准' : ls === 'pending' ? '待審' : '未核准'})</span>`
-            } else if (s.my_status === 'present') {
-              statusHtml = `<span class="px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700">✓ 出席</span>`
-            } else if (s.my_status === 'absent') {
-              statusHtml = `<span class="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700">✗ 缺席</span>`
-            } else {
-              statusHtml = `<span class="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">未記錄</span>`
-            }
-            return `
-            <div class="flex items-center justify-between p-4 hover:bg-gray-50 transition-colors">
-              <div>
-                <div class="font-medium text-gray-800 text-sm">${s.title}</div>
-                <div class="text-xs text-gray-400 mt-0.5">
-                  ${s.date} · ${s.section}
-                  ${s.topic ? ` · ${s.topic}` : ''}
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                ${statusHtml}
-                ${!s.leave_id && s.my_status !== 'present' ? `
-                <a href="/member/leave/new?session_id=${s.id}" class="text-xs text-blue-500 hover:underline">
-                  <i class="fas fa-calendar-plus mr-1"></i>請假
-                </a>` : ''}
-              </div>
-            </div>`
-          }).join('')}
-        </div>`}
-    </div>
-  </div>
-</body></html>`)
-})
-
-// ===================== 請假申請 =====================
-memberRoutes.get('/leave', memberAuthMiddleware, async (c) => {
-  const db = c.env.DB
-  const sess = c.get('memberSession') as any
-  const memberId = sess.memberId
-  const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(memberId).first() as any
-
+  // ── Tab 2：請假申請資料 ──
   const leaves = await db.prepare(`
     SELECT lr.*, COALESCE(as2.title, '自訂日期') as session_title, as2.date as session_date_actual
     FROM leave_requests lr
@@ -1339,61 +1363,6 @@ memberRoutes.get('/leave', memberAuthMiddleware, async (c) => {
     ORDER BY lr.created_at DESC
   `).bind(memberId).all()
 
-  const statusLabel: Record<string, string> = { pending: '⏳ 待審核', approved: '✅ 已核准', rejected: '❌ 未核准' }
-  const leaveTypeLabel: Record<string, string> = { official: '⚡ 公假', sick: '🏥 病假', personal: '📝 事假', other: '📌 其他' }
-
-  return c.html(`${memberHead('請假記錄')}
-<body class="bg-gray-50 min-h-screen">
-  ${memberNav(member.chinese_name, member.section)}
-  <div class="max-w-3xl mx-auto px-4 py-6 fade-in">
-    <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold text-gray-800">請假申請記錄</h1>
-      <a href="/member/leave/new" class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
-        <i class="fas fa-plus"></i>新增申請
-      </a>
-    </div>
-
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100">
-      ${leaves.results.length === 0 ? `<div class="p-8 text-center text-gray-400">
-        <i class="fas fa-calendar-times text-4xl mb-3"></i>
-        <p>尚無請假記錄</p>
-        <a href="/member/leave/new" class="mt-3 inline-block bg-blue-50 text-blue-600 px-4 py-2 rounded-lg text-sm hover:bg-blue-100 transition-colors">
-          <i class="fas fa-plus mr-1"></i>新增第一筆請假申請
-        </a>
-      </div>` : `
-      <div class="divide-y divide-gray-50">
-        ${leaves.results.map((l: any) => `
-        <div class="p-4 hover:bg-gray-50 transition-colors">
-          <div class="flex items-start justify-between gap-3">
-            <div class="flex-1">
-              <div class="font-medium text-gray-800">${l.session_title}</div>
-              <div class="text-xs text-gray-400 mt-0.5">${leaveTypeLabel[l.leave_type] || l.leave_type} · 日期：${l.date}</div>
-              ${l.reason ? `<div class="text-sm text-gray-600 mt-1">${l.reason}</div>` : ''}
-              ${l.admin_note ? `<div class="text-xs text-blue-600 mt-1 bg-blue-50 px-2 py-1 rounded"><i class="fas fa-comment mr-1"></i>管理員：${l.admin_note}</div>` : ''}
-            </div>
-            <div class="flex flex-col items-end gap-1">
-              <span class="px-3 py-1 rounded-full text-xs font-medium status-${l.status}">
-                ${statusLabel[l.status] || l.status}
-              </span>
-              <span class="text-xs text-gray-400">${l.created_at?.substring(0,10) || ''}</span>
-            </div>
-          </div>
-        </div>`).join('')}
-      </div>`}
-    </div>
-  </div>
-</body></html>`)
-})
-
-// 新增請假申請表單
-memberRoutes.get('/leave/new', memberAuthMiddleware, async (c) => {
-  const db = c.env.DB
-  const sess = c.get('memberSession') as any
-  const memberId = sess.memberId
-  const preSessionId = c.req.query('session_id') || ''
-  const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(memberId).first() as any
-
-  // 取得近期未請假的例會（供選擇）
   const upcomingSessions = await db.prepare(`
     SELECT as2.id, as2.title, as2.date, as2.section
     FROM attendance_sessions as2
@@ -1402,499 +1371,15 @@ memberRoutes.get('/leave/new', memberAuthMiddleware, async (c) => {
         SELECT 1 FROM leave_requests lr WHERE lr.session_id = as2.id AND lr.member_id = ?
       )
     ORDER BY as2.date DESC LIMIT 20
-  `).bind(member.section, memberId).all()
+  `).bind(displaySection, memberId).all()
 
-  const success = c.req.query('success')
+  const statusLabel: Record<string, string> = { pending: '⏳ 待審核', approved: '✅ 已核准', rejected: '❌ 未核准' }
+  const leaveTypeLabel: Record<string, string> = { official: '⚡ 公假', sick: '🏥 病假', personal: '📝 事假', other: '📌 其他' }
 
-  return c.html(`${memberHead('申請請假')}
-<body class="bg-gray-50 min-h-screen">
-  ${memberNav(member.chinese_name, member.section)}
-  <div class="max-w-2xl mx-auto px-4 py-6 fade-in">
-    <div class="mb-6">
-      <a href="/member/leave" class="text-green-600 hover:underline text-sm flex items-center gap-1">
-        <i class="fas fa-arrow-left"></i>返回請假記錄
-      </a>
-      <h1 class="text-2xl font-bold text-gray-800 mt-2">新增請假申請</h1>
-    </div>
-
-    ${success ? `<div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl mb-4 flex items-center gap-2">
-      <i class="fas fa-check-circle"></i>請假申請已送出，等待管理員審核。
-    </div>` : ''}
-
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-      <form id="leaveForm" class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">請假類型</label>
-          <select name="leave_type" required
-            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-            <option value="personal">📝 事假</option>
-            <option value="sick">🏥 病假</option>
-            <option value="official">⚡ 公假</option>
-            <option value="other">📌 其他</option>
-          </select>
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">關聯例會（選填）</label>
-          <select name="session_id"
-            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-            <option value="">-- 自訂日期（不選擇例會）--</option>
-            ${upcomingSessions.results.map((s: any) => `
-            <option value="${s.id}" ${s.id === preSessionId ? 'selected' : ''}>${s.date} - ${s.title}</option>`).join('')}
-          </select>
-        </div>
-
-        <div id="dateField">
-          <label class="block text-sm font-medium text-gray-700 mb-1">請假日期 <span class="text-red-500">*</span></label>
-          <input type="date" name="date" required
-            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">請假原因</label>
-          <textarea name="reason" rows="3"
-            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm resize-none"
-            placeholder="請說明請假原因（可填寫詳細說明讓管理員審核）"></textarea>
-        </div>
-
-        <div id="formMsg"></div>
-        <button type="submit"
-          class="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
-          <i class="fas fa-paper-plane"></i>送出請假申請
-        </button>
-      </form>
-    </div>
-  </div>
-
-  <script>
-    const form = document.getElementById('leaveForm')
-    const sessionSelect = form.session_id
-    const dateField = document.getElementById('dateField')
-    const dateInput = form.date
-
-    // 當選擇例會時自動填入日期
-    sessionSelect.addEventListener('change', () => {
-      const opt = sessionSelect.selectedOptions[0]
-      if (opt.value) {
-        const dateText = opt.text.split(' - ')[0]
-        dateInput.value = dateText
-      }
-    })
-
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault()
-      const msg = document.getElementById('formMsg')
-      const fd = new FormData(form)
-      const data = {
-        leave_type: fd.get('leave_type'),
-        session_id: fd.get('session_id') || null,
-        date: fd.get('date'),
-        reason: fd.get('reason')
-      }
-      if (!data.date) { msg.innerHTML = '<p class="text-red-500 text-sm">請填寫請假日期</p>'; return }
-      msg.innerHTML = '<p class="text-gray-400 text-sm">送出中...</p>'
-      try {
-        const res = await fetch('/api/member/leave', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        })
-        const r = await res.json()
-        if (r.success) {
-          msg.innerHTML = '<p class="text-green-600 text-sm flex items-center gap-1"><i class="fas fa-check-circle"></i>申請已送出！正在跳轉...</p>'
-          setTimeout(() => window.location.href = '/member/leave', 1500)
-        } else {
-          msg.innerHTML = '<p class="text-red-500 text-sm">送出失敗：' + (r.error || '未知錯誤') + '</p>'
-        }
-      } catch(e) {
-        msg.innerHTML = '<p class="text-red-500 text-sm">網路錯誤，請稍後再試</p>'
-      }
-    })
-  </script>
-</body></html>`)
-})
-
-// ===================== 晉升申請頁面 =====================
-memberRoutes.get('/advancement', memberAuthMiddleware, async (c) => {
-  const db = c.env.DB
-  const sess = c.get('memberSession') as any
-  const memberId = sess.memberId
-  const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(memberId).first() as any
-
-  const applications = await db.prepare(`
-    SELECT * FROM advancement_applications WHERE member_id = ? ORDER BY created_at DESC
-  `).bind(memberId).all()
-
-  const requirements = await db.prepare(`
-    SELECT * FROM advancement_requirements
-    WHERE section = ? AND is_active = 1
-    ORDER BY rank_from, display_order
-  `).bind(member.section).all()
-
-  const myProgress = await db.prepare(`
-    SELECT ap.*, ar.title as req_title, ar.required_count, ar.unit
-    FROM advancement_progress ap
-    JOIN advancement_requirements ar ON ar.id = ap.requirement_id
-    WHERE ap.member_id = ?
-  `).bind(memberId).all()
-
-  const progressMap: Record<string, any> = {}
-  myProgress.results.forEach((p: any) => { progressMap[p.requirement_id] = p })
-
-  const attendCount = await db.prepare(`
-    SELECT COUNT(*) as cnt FROM attendance_records WHERE member_id = ? AND status = 'present'
-  `).bind(memberId).first() as any
-
-  // 取得不重複的 rank 組合
-  const rankPaths: { from: string, to: string }[] = []
-  const seen = new Set<string>()
-  requirements.results.forEach((r: any) => {
-    const k = `${r.rank_from}→${r.rank_to}`
-    if (!seen.has(k)) { seen.add(k); rankPaths.push({ from: r.rank_from, to: r.rank_to }) }
-  })
-
-  // 取得所有專科章 (用於儀表板)
-  const allBadges = await db.prepare(`SELECT * FROM specialty_badges WHERE is_active=1`).all()
-  const badgeMap: Record<string, number> = {} // name -> id
-  allBadges.results.forEach((b:any) => badgeMap[b.name] = b.id)
-
-  // 取得我擁有的專科章
-  const myBadges = await db.prepare(`
-    SELECT msb.badge_id, sb.name, msb.obtained_date 
-    FROM member_specialty_badges msb
-    JOIN specialty_badges sb ON sb.id = msb.badge_id
-    WHERE msb.member_id = ?
-  `).bind(memberId).all()
-  const myBadgeSet = new Set(myBadges.results.map((b:any) => b.name)) // 用名稱比對比較直觀
-  const myBadgeCount = myBadges.results.length
-
-  // 定義重要階段的必備專科章（完整版，含枚數要求）
-  // 童軍體系：獅級(5枚)、長城(11枚)、國花(18枚)
-  const rankBadgeRequirements: Array<{
-    rank: string, totalRequired: number, color: string, bgColor: string, textColor: string, borderColor: string,
-    requiredBadges: Array<{ name: string, isOptional?: boolean, choices?: string[] }>,
-    electiveBadges?: number, // 選修章數量
-    description: string
-  }> = [
-    {
-      rank: '獅級童軍', totalRequired: 5, color: 'amber',
-      bgColor: 'bg-amber-50', textColor: 'text-amber-800', borderColor: 'border-amber-300',
-      requiredBadges: [
-        { name: '露營' },
-        { name: '旅行' },
-        { name: '社區公民' }
-      ],
-      electiveBadges: 2,
-      description: '含 3 枚必備章 + 自選 2 枚任意技能章'
-    },
-    {
-      rank: '長城童軍', totalRequired: 11, color: 'red',
-      bgColor: 'bg-red-50', textColor: 'text-red-800', borderColor: 'border-red-300',
-      requiredBadges: [
-        { name: '國家公民' },
-        { name: '急救' },
-        { name: '運動技能', isOptional: true, choices: ['游泳', '自行車', '越野'] }
-      ],
-      electiveBadges: 8,
-      description: '含 3 枚必備章（運動擇一）+ 自選 8 枚'
-    },
-    {
-      rank: '國花童軍', totalRequired: 18, color: 'purple',
-      bgColor: 'bg-purple-50', textColor: 'text-purple-800', borderColor: 'border-purple-300',
-      requiredBadges: [
-        { name: '世界公民' },
-        { name: '生態保育' },
-        { name: '測量' },
-        { name: '生物類', isOptional: true, choices: ['植物', '昆蟲', '賞鳥'] },
-        { name: '藝術類', isOptional: true, choices: ['音樂', '舞蹈', '攝影'] }
-      ],
-      electiveBadges: 13,
-      description: '含 5 枚必備章（生物、藝術各擇一）+ 自選 13 枚'
-    }
-  ]
-
-  // ===== 全域必備章清單（不論哪個階段，這些章都是「保留給必備用途」的）=====
-  const ADV_ALL_REQUIRED_BADGE_NAMES = new Set([
-    '露營', '旅行', '社區公民',
-    '國家公民', '急救',
-    '游泳', '自行車', '越野',
-    '世界公民', '生態保育', '測量',
-    '植物', '昆蟲', '賞鳥',
-    '音樂', '舞蹈', '攝影'
-  ])
-
-  // 純自選章：排除所有必備章名稱
-  const advPureElectiveBadges = myBadges.results.filter((b:any) => !ADV_ALL_REQUIRED_BADGE_NAMES.has(b.name))
-  const advPureElectiveCount = advPureElectiveBadges.length
-
-  // 判斷某必備章項目是否達成（擇一組：只要有任一個即達成，但只算1枚）
-  function checkBadgeReq(req: { name: string, isOptional?: boolean, choices?: string[] }, has: Set<string>): boolean {
-    if (req.isOptional && req.choices) {
-      return req.choices.some(c => has.has(c))
-    }
-    return has.has(req.name)
-  }
-
-  // 計算某階段的正確「有效枚數」
-  function calcAdvRankBadgeStatus(req: typeof rankBadgeRequirements[0]) {
-    const reqDoneCount = req.requiredBadges.filter(b => checkBadgeReq(b, myBadgeSet)).length
-    const allReqDone = reqDoneCount === req.requiredBadges.length
-    const electiveUsed = Math.min(advPureElectiveCount, req.electiveBadges ?? 0)
-    const effectiveTotal = reqDoneCount + electiveUsed
-    const isFullyDone = allReqDone && effectiveTotal >= req.totalRequired
-    return { reqDoneCount, allReqDone, electiveUsed, effectiveTotal, isFullyDone }
-  }
-
-  const statusLabel: Record<string, string> = {
-    pending: '⏳ 待審核', reviewing: '🔍 審核中', approved: '✅ 已通過', rejected: '❌ 未通過'
-  }
-
-  // 生成晉升申請頁的儀表板 HTML（與 /progress 頁共用相同邏輯）
-  const advBadgeDashboardHtml = member.section !== '羅浮童軍' ? `
-    <!-- 專科章與晉級檢核儀表板 -->
-    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-6">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="font-bold text-gray-800 flex items-center gap-2 text-lg">
-          <i class="fas fa-medal text-amber-500"></i>專科章與晉級檢核
-        </h2>
-        <div class="text-right">
-          <span class="text-2xl font-bold text-amber-600">${myBadgeCount}</span>
-          <span class="text-xs text-gray-400 ml-1">枚已取得</span>
-        </div>
-      </div>
-
-      <!-- 整體進度概覽列 -->
-      <div class="flex items-center justify-around bg-gray-50 rounded-xl p-3 mb-4">
-        ${rankBadgeRequirements.map((req, idx) => {
-          const { effectiveTotal, isFullyDone } = calcAdvRankBadgeStatus(req)
-          return `
-          ${idx > 0 ? '<i class="fas fa-chevron-right text-gray-300 text-xs"></i>' : ''}
-          <div class="flex flex-col items-center gap-1">
-            <div class="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold shadow-sm
-              ${isFullyDone ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500'}">
-              ${isFullyDone ? '<i class="fas fa-check"></i>' : `${effectiveTotal}/${req.totalRequired}`}
-            </div>
-            <div class="text-xs font-medium ${isFullyDone ? 'text-green-700' : 'text-gray-500'} text-center leading-tight">
-              ${req.rank.replace('童軍', '')}<br>
-              <span class="text-gray-400 font-normal">${req.totalRequired}枚</span>
-            </div>
-          </div>`
-        }).join('')}
-      </div>
-
-      <!-- 三個階段的必備章詳情卡 -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        ${rankBadgeRequirements.map((req) => {
-          const { reqDoneCount, allReqDone, electiveUsed, effectiveTotal, isFullyDone } = calcAdvRankBadgeStatus(req)
-          const pct = Math.min(100, Math.round(effectiveTotal / req.totalRequired * 100))
-          const electiveCap = req.electiveBadges ?? 0
-
-          return `
-          <div class="rounded-xl border-2 p-3.5 ${isFullyDone ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'}">
-            <!-- 標題列 -->
-            <div class="flex items-center justify-between mb-2.5">
-              <div>
-                <div class="font-bold text-sm ${isFullyDone ? 'text-green-800' : req.textColor}">${req.rank}</div>
-                <div class="text-xs text-gray-400">共需 ${req.totalRequired} 枚</div>
-              </div>
-              ${isFullyDone
-                ? '<div class="w-7 h-7 bg-green-500 rounded-full flex items-center justify-center"><i class="fas fa-check text-white text-xs"></i></div>'
-                : `<div class="text-sm font-bold ${req.textColor}">${reqDoneCount}/${req.requiredBadges.length} 必備</div>`
-              }
-            </div>
-
-            <!-- 必備章列表 -->
-            <div class="space-y-1.5 mb-2.5">
-              ${req.requiredBadges.map((badge) => {
-                const obtained = checkBadgeReq(badge, myBadgeSet)
-                const obtainedName = badge.isOptional ? (badge.choices?.find(c => myBadgeSet.has(c)) || '') : ''
-                return `
-                <div class="flex items-center gap-2 ${obtained ? '' : 'opacity-60'}">
-                  <div class="w-5 h-5 rounded flex-shrink-0 flex items-center justify-center
-                    ${obtained ? 'bg-green-500' : 'bg-white border-2 border-gray-300'}">
-                    ${obtained ? '<i class="fas fa-check text-white" style="font-size:9px"></i>' : ''}
-                  </div>
-                  <span class="text-xs ${obtained ? 'text-gray-800 font-medium' : 'text-gray-500'}">
-                    ${badge.isOptional ? (obtainedName || badge.choices!.join('/')) : badge.name}
-                    ${badge.isOptional ? '<span class="text-gray-400 ml-0.5">（擇一）</span>' : ''}
-                  </span>
-                </div>`
-              }).join('')}
-            </div>
-
-            <!-- 自選章進度條 + 列表 -->
-            <div class="border-t border-gray-100 pt-2">
-              <div class="flex items-center justify-between text-xs mb-1">
-                <span class="text-gray-500">自選章（${electiveUsed}/${electiveCap}）</span>
-                <span class="${effectiveTotal >= req.totalRequired ? 'text-green-700 font-bold' : 'text-gray-400'}">${effectiveTotal}/${req.totalRequired} 枚</span>
-              </div>
-              <div class="w-full bg-gray-200 rounded-full h-1.5 mb-2">
-                <div class="h-1.5 rounded-full transition-all ${isFullyDone ? 'bg-green-500' : 'bg-' + req.color + '-400'}"
-                  style="width:${pct}%"></div>
-              </div>
-              ${advPureElectiveCount > 0 ? `
-              <div class="flex flex-wrap gap-1">
-                ${advPureElectiveBadges.map((b:any) => `
-                  <span class="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-full">${b.name}</span>
-                `).join('')}
-                ${advPureElectiveCount > electiveCap ? `<span class="text-[10px] text-gray-400 self-center">（已足夠）</span>` : ''}
-              </div>` : `<p class="text-[10px] text-gray-400">尚無自選章（需非必備章）</p>`}
-            </div>
-            <p class="text-xs text-gray-400 mt-2 leading-tight">${req.description}</p>
-          </div>`
-        }).join('')}
-      </div>
-
-      <!-- 純自選章總覽 -->
-      <div class="mt-4 p-3 bg-blue-50 rounded-xl border border-blue-100">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-semibold text-blue-800 flex items-center gap-1.5">
-            <i class="fas fa-star text-blue-500"></i>已取得自選章（${advPureElectiveCount} 枚）
-          </span>
-          <span class="text-[10px] text-blue-600 bg-white border border-blue-200 px-2 py-0.5 rounded-full">非必備章</span>
-        </div>
-        ${advPureElectiveCount > 0 ? `
-        <div class="flex flex-wrap gap-1.5">
-          ${advPureElectiveBadges.map((b:any) => `
-            <span class="text-xs bg-white text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full shadow-sm">${b.name}</span>
-          `).join('')}
-        </div>` : `<p class="text-xs text-blue-500 opacity-70">尚無自選章。自選章指非必備章類別的章（例如：電工、體勢能等）</p>`}
-      </div>
-
-      <div class="mt-3 text-xs text-gray-400 flex items-center gap-1.5 bg-gray-50 rounded-lg px-3 py-2">
-        <i class="fas fa-info-circle text-blue-400"></i>
-        自選章不包含任何必備章（露營、急救、游泳等），如有疑問請聯繫服務員。
-      </div>
-    </div>` : ''
-
-  return c.html(`${memberHead('晉升申請')}
-<body class="bg-gray-50 min-h-screen">
-  ${memberNav(member.chinese_name, member.section)}
-  <div class="max-w-3xl mx-auto px-4 py-6 fade-in">
-    <div class="mb-6">
-      <h1 class="text-2xl font-bold text-gray-800">晉升申請</h1>
-      <p class="text-gray-500 text-sm">目前階級：<strong class="text-green-700">${member.rank_level || '未設定'}</strong></p>
-    </div>
-
-    ${advBadgeDashboardHtml}
-
-    <!-- 申請新晉升 -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-      <h2 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-        <i class="fas fa-paper-plane text-green-600"></i>提交晉升申請
-      </h2>
-      <form id="advForm" class="space-y-4">
-        <div class="grid sm:grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">目前階級</label>
-            <input type="text" value="${member.rank_level || ''}" readonly
-              class="w-full border border-gray-200 rounded-lg px-4 py-2.5 bg-gray-50 text-sm text-gray-600">
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">申請晉升至</label>
-            <select name="rank_to" required
-              class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500 text-sm">
-              <option value="">-- 選擇目標階級 --</option>
-              ${rankPaths.map(r => `<option value="${r.to}" data-from="${r.from}">${r.from} → ${r.to}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">申請日期</label>
-          <input type="date" name="apply_date" value="${new Date().toISOString().slice(0,10)}" required
-            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500 text-sm">
-        </div>
-        <div id="advFormMsg"></div>
-        <button type="submit"
-          class="w-full bg-green-700 hover:bg-green-600 text-white font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
-          <i class="fas fa-arrow-up"></i>提交晉升申請
-        </button>
-      </form>
-    </div>
-
-    <!-- 申請記錄 -->
-    <h2 class="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
-      <i class="fas fa-history text-gray-500"></i>申請記錄
-    </h2>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100">
-      ${applications.results.length === 0 ? `<div class="p-8 text-center text-gray-400">
-        <i class="fas fa-clipboard-list text-4xl mb-3"></i>
-        <p>尚無晉升申請記錄</p>
-      </div>` : `<div class="divide-y divide-gray-50">
-        ${applications.results.map((a: any) => `
-        <div class="p-4">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="font-medium text-gray-800">${a.rank_from} → ${a.rank_to}</div>
-              <div class="text-xs text-gray-400 mt-0.5">${a.section} · 申請日期：${a.apply_date}</div>
-              ${a.admin_notes ? `<div class="text-xs text-blue-600 mt-1 bg-blue-50 px-2 py-1 rounded"><i class="fas fa-comment mr-1"></i>${a.admin_notes}</div>` : ''}
-              ${a.reviewed_at ? `<div class="text-xs text-gray-400 mt-0.5">審核時間：${a.reviewed_at?.substring(0,10)}</div>` : ''}
-            </div>
-            <span class="px-3 py-1 rounded-full text-xs font-medium status-${a.status} flex-shrink-0">
-              ${statusLabel[a.status] || a.status}
-            </span>
-          </div>
-        </div>`).join('')}
-      </div>`}
-    </div>
-  </div>
-
-  <script>
-    document.getElementById('advForm').addEventListener('submit', async (e) => {
-      e.preventDefault()
-      const msg = document.getElementById('advFormMsg')
-      const form = e.target
-      const fd = new FormData(form)
-      const selectedOpt = form.rank_to.selectedOptions[0]
-      const data = {
-        rank_to: fd.get('rank_to'),
-        rank_from: selectedOpt?.dataset?.from || '',
-        apply_date: fd.get('apply_date')
-      }
-      if (!data.rank_to || !data.rank_from) {
-        msg.innerHTML = '<p class="text-red-500 text-sm">請選擇目標階級</p>'; return
-      }
-      msg.innerHTML = '<p class="text-gray-400 text-sm">送出中...</p>'
-      try {
-        const res = await fetch('/api/member/advancement', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        })
-        const r = await res.json()
-        if (r.success) {
-          msg.innerHTML = '<p class="text-green-600 text-sm">✅ 晉升申請已送出！</p>'
-          setTimeout(() => location.reload(), 1500)
-        } else {
-          msg.innerHTML = '<p class="text-red-500 text-sm">送出失敗：' + (r.error || '未知錯誤') + '</p>'
-        }
-      } catch(e) {
-        msg.innerHTML = '<p class="text-red-500 text-sm">網路錯誤，請稍後再試</p>'
-      }
-    })
-  </script>
-</body></html>`)
-})
-
-// =====================================================================
-// 公假行事曆系統
-// =====================================================================
-
-function weekdayLabel(dow: number): string {
-  return ['日','一','二','三','四','五','六'][dow] || ''
-}
-
-// ===== 公假行事曆首頁 =====
-memberRoutes.get('/official-leave', memberAuthMiddleware, async (c) => {
-  const db = c.env.DB
-  const sess = c.get('memberSession') as any
-
-  const settingRows = await db.prepare(
-    `SELECT key, value FROM site_settings WHERE key LIKE 'official_leave%'`
-  ).all()
+  // ── Tab 3：公假行事曆資料 ──
+  const settingRows = await db.prepare(`SELECT key, value FROM site_settings WHERE key LIKE 'official_leave%'`).all()
   const sMap: Record<string,string> = {}
   settingRows.results.forEach((r: any) => { sMap[r.key] = r.value })
-
   const semStart = sMap['official_leave_semester_start'] || ''
   const semEnd   = sMap['official_leave_semester_end'] || ''
   let recurringRules: any[] = []
@@ -1920,7 +1405,6 @@ memberRoutes.get('/official-leave', memberAuthMiddleware, async (c) => {
   }
   const weekEnd = weekDays[6]
   const wStart = fmtDate(weekStart), wEnd = fmtDate(weekEnd)
-
   const prevWeek = new Date(weekStart); prevWeek.setDate(weekStart.getDate()-7)
   const nextWeek = new Date(weekStart); nextWeek.setDate(weekStart.getDate()+7)
   const today2 = new Date(); today2.setHours(12,0,0,0)
@@ -1929,10 +1413,7 @@ memberRoutes.get('/official-leave', memberAuthMiddleware, async (c) => {
   const curMon = new Date(today2); curMon.setDate(today2.getDate()+cmDiff)
   const curMonStr = fmtDate(curMon)
 
-  const weekEvents = await db.prepare(
-    `SELECT * FROM leave_calendar_events WHERE date >= ? AND date <= ? ORDER BY date`
-  ).bind(wStart, wEnd).all()
-
+  const weekEvents = await db.prepare(`SELECT * FROM leave_calendar_events WHERE date >= ? AND date <= ? ORDER BY date`).bind(wStart, wEnd).all()
   const approvedLeaves = await db.prepare(`
     SELECT ola.leave_date, ola.timeslots, m.chinese_name, m.section
     FROM official_leave_applications ola
@@ -1940,13 +1421,9 @@ memberRoutes.get('/official-leave', memberAuthMiddleware, async (c) => {
     WHERE ola.status='approved' AND ola.leave_date>=? AND ola.leave_date<=?
     ORDER BY ola.leave_date
   `).bind(wStart, wEnd).all()
-
-  const semEvents = semStart ? await db.prepare(
-    `SELECT * FROM leave_calendar_events WHERE date>=? AND date<=? ORDER BY date`
-  ).bind(semStart, semEnd).all() : { results: [] }
+  const semEvents = semStart ? await db.prepare(`SELECT * FROM leave_calendar_events WHERE date>=? AND date<=? ORDER BY date`).bind(semStart, semEnd).all() : { results: [] }
 
   const blockedDates = new Set(weekEvents.results.filter((e:any)=>e.type==='blocked').map((e:any)=>e.date))
-
   const evTypeStyle: Record<string,string> = {
     blocked: 'bg-gray-100 border-l-4 border-gray-500 text-gray-700',
     holiday: 'bg-red-50 border-l-4 border-red-400 text-red-800',
@@ -1962,22 +1439,15 @@ memberRoutes.get('/official-leave', memberAuthMiddleware, async (c) => {
     const dayRules = recurringRules.filter((r:any)=>r.dayOfWeek===d.getDay())
     const dayLeaves = approvedLeaves.results.filter((l:any)=>l.leave_date===dStr)
     const isBlocked = blockedDates.has(dStr)
-
     const evHtml = dayEv.map((e:any)=>{
       const s = evTypeStyle[e.type]||evTypeStyle.event
       const icon = evTypeIcon[e.type]||'📌'
       return `<div class="p-1.5 rounded text-xs font-medium ${s}">${icon} ${e.title}${e.description?`<div class="text-xs opacity-70 font-normal">${e.description}</div>`:''}</div>`
     }).join('')
-
-    const ruleHtml = dayRules.map((r:any)=>
-      `<div class="p-1.5 rounded text-xs font-medium bg-indigo-50 border-l-4 border-indigo-400 text-indigo-800">🔄 ${r.title}${r.description?`<div class="text-xs opacity-70 font-normal">${r.description}</div>`:''}</div>`
-    ).join('')
-
-    const leaveHtml = dayLeaves.length>0 ? `<div class="mt-1"><div class="text-xs font-bold text-gray-500 border-b pb-0.5 mb-1">公假名單 (${dayLeaves.length})</div>${dayLeaves.map((l:any)=>{const ts=(() => { try{return JSON.parse(l.timeslots)}catch{return[]} })();return `<div class="bg-green-50 text-green-800 text-xs p-1 rounded border border-green-100"><span class="font-bold">${l.chinese_name}</span><div class="text-gray-400 text-[10px]">${ts.join(', ')}</div></div>`}).join('')}</div>` : ''
-
+    const ruleHtml = dayRules.map((r:any)=>`<div class="p-1.5 rounded text-xs font-medium bg-indigo-50 border-l-4 border-indigo-400 text-indigo-800">🔄 ${r.title}${r.description?`<div class="text-xs opacity-70 font-normal">${r.description}</div>`:''}</div>`).join('')
+    const leaveHtml = dayLeaves.length>0 ? `<div class="mt-1"><div class="text-xs font-bold text-gray-500 border-b pb-0.5 mb-1">公假名單 (${dayLeaves.length})</div>${dayLeaves.map((l:any)=>{const ts=(()=>{try{return JSON.parse(l.timeslots)}catch{return[]}})();return `<div class="bg-green-50 text-green-800 text-xs p-1 rounded border border-green-100"><span class="font-bold">${l.chinese_name}</span><div class="text-gray-400 text-[10px]">${ts.join(', ')}</div></div>`}).join('')}</div>` : ''
     const isEmpty = dayEv.length===0&&dayRules.length===0&&dayLeaves.length===0
-
-    return `<div class="${isToday?'ring-2 ring-blue-500':''} ${isWeekend?'bg-gray-50':'bg-white'} rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-[200px]">
+    return `<div class="${isToday?'ring-2 ring-blue-500':''} ${isWeekend?'bg-gray-50':'bg-white'} rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-[180px]">
       <div class="${isToday?'bg-blue-500 text-white':'bg-gray-100 text-gray-700'} px-3 py-2 rounded-t-xl text-center border-b">
         <div class="font-bold text-sm">星期${weekdayLabel(d.getDay())}</div>
         <div class="text-xs">${dStr.substring(5).replace('-','/')}</div>
@@ -1985,12 +1455,11 @@ memberRoutes.get('/official-leave', memberAuthMiddleware, async (c) => {
       </div>
       <div class="p-2 flex-1 space-y-1 text-sm">
         ${evHtml}${ruleHtml}${leaveHtml}
-        ${isEmpty?'<p class="text-gray-300 text-xs text-center mt-6">無事項</p>':''}
+        ${isEmpty?'<p class="text-gray-300 text-xs text-center mt-4">無事項</p>':''}
       </div>
     </div>`
   }).join('')
 
-  // 學期視圖
   let semMonthsHtml = ''
   if (semStart && semEnd) {
     const s2 = new Date(semStart+'T12:00:00'), e2 = new Date(semEnd+'T12:00:00')
@@ -2017,36 +1486,294 @@ memberRoutes.get('/official-leave', memberAuthMiddleware, async (c) => {
     }).join('')
   }
 
-  return c.html(`${memberHead('公假行事曆')}
-<body class="bg-gray-50 min-h-screen">
-  ${memberNav(sess.memberName, sess.section)}
-  <div class="max-w-7xl mx-auto px-4 py-6 fade-in">
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-calendar-alt text-blue-600"></i>單週公假行事曆</h1>
-        <p class="text-gray-500 text-sm mt-0.5">顯示本週已核准之公假與當週活動</p>
+  // ── 各 Tab 的 HTML 內容 ──
+  const tabAttendanceHtml = `
+    <!-- 統計卡 -->
+    <div class="grid grid-cols-4 gap-3 mb-5">
+      <div class="bg-white rounded-xl p-4 text-center shadow-sm border border-gray-100">
+        <div class="text-2xl font-bold text-gray-700">${total}</div>
+        <div class="text-xs text-gray-400 mt-1">總場次</div>
       </div>
-      <div class="flex gap-2 flex-wrap">
-        <a href="/member/official-leave/apply" class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2 shadow-sm"><i class="fas fa-edit"></i>申請公假</a>
-        <a href="/member/official-leave/my" class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2"><i class="fas fa-list"></i>我的申請</a>
+      <div class="bg-white rounded-xl p-4 text-center shadow-sm border border-gray-100">
+        <div class="text-2xl font-bold text-green-600">${present}</div>
+        <div class="text-xs text-gray-400 mt-1">出席</div>
+      </div>
+      <div class="bg-white rounded-xl p-4 text-center shadow-sm border border-gray-100">
+        <div class="text-2xl font-bold text-red-500">${stats?.absent || 0}</div>
+        <div class="text-xs text-gray-400 mt-1">缺席</div>
+      </div>
+      <div class="bg-white rounded-xl p-4 text-center shadow-sm border border-gray-100">
+        <div class="text-2xl font-bold ${rate >= 80 ? 'text-green-600' : rate >= 60 ? 'text-yellow-500' : 'text-red-500'}">${rate}%</div>
+        <div class="text-xs text-gray-400 mt-1">出席率</div>
       </div>
     </div>
+
+    <!-- 記錄列表 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+      <div class="p-4 border-b border-gray-100 flex items-center justify-between">
+        <h2 class="font-semibold text-gray-800">近期出席狀況</h2>
+        <button onclick="showLeaveForm()" class="bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
+          <i class="fas fa-calendar-plus"></i>申請請假
+        </button>
+      </div>
+      ${sessions.results.length === 0 ? `<div class="p-8 text-center text-gray-400">尚無出席記錄</div>` :
+        `<div class="divide-y divide-gray-50">
+          ${sessions.results.map((s: any) => {
+            let statusHtml = ''
+            if (s.leave_id) {
+              const ls = s.leave_status
+              const lt = s.leave_type === 'official' ? '公假' : s.leave_type === 'sick' ? '病假' : '事假'
+              statusHtml = `<span class="px-2 py-0.5 rounded-full text-xs status-${ls}">${lt} (${ls === 'approved' ? '已核准' : ls === 'pending' ? '待審' : '未核准'})</span>`
+            } else if (s.my_status === 'present') {
+              statusHtml = `<span class="px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700">✓ 出席</span>`
+            } else if (s.my_status === 'absent') {
+              statusHtml = `<span class="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700">✗ 缺席</span>`
+            } else {
+              statusHtml = `<span class="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">未記錄</span>`
+            }
+            return `
+            <div class="flex items-center justify-between p-4 hover:bg-gray-50 transition-colors">
+              <div>
+                <div class="font-medium text-gray-800 text-sm">${s.title}</div>
+                <div class="text-xs text-gray-400 mt-0.5">${s.date} · ${s.section}${s.topic ? ` · ${s.topic}` : ''}</div>
+              </div>
+              <div class="flex items-center gap-2">
+                ${statusHtml}
+                ${!s.leave_id && s.my_status !== 'present' ? `
+                <button onclick="showLeaveForm('${s.id}', '${s.title.replace(/'/g,"\\'")}', '${s.date}')" class="text-xs text-blue-500 hover:text-blue-700">
+                  <i class="fas fa-calendar-plus"></i>
+                </button>` : ''}
+              </div>
+            </div>`
+          }).join('')}
+        </div>`}
+    </div>`
+
+  const tabLeaveHtml = `
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+      <div class="p-4 border-b border-gray-100 flex items-center justify-between">
+        <h2 class="font-semibold text-gray-800">請假申請記錄</h2>
+        <button onclick="showLeaveForm()" class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+          <i class="fas fa-plus"></i>新增申請
+        </button>
+      </div>
+      ${leaves.results.length === 0 ? `<div class="p-8 text-center text-gray-400">
+        <i class="fas fa-calendar-times text-4xl mb-3 block"></i>
+        <p>尚無請假記錄</p>
+        <button onclick="showLeaveForm()" class="mt-3 bg-blue-50 text-blue-600 px-4 py-2 rounded-lg text-sm hover:bg-blue-100 transition-colors">
+          <i class="fas fa-plus mr-1"></i>新增第一筆請假申請
+        </button>
+      </div>` : `
+      <div class="divide-y divide-gray-50">
+        ${leaves.results.map((l: any) => `
+        <div class="p-4 hover:bg-gray-50 transition-colors">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex-1">
+              <div class="font-medium text-gray-800">${l.session_title}</div>
+              <div class="text-xs text-gray-400 mt-0.5">${leaveTypeLabel[l.leave_type] || l.leave_type} · 日期：${l.date}</div>
+              ${l.reason ? `<div class="text-sm text-gray-600 mt-1">${l.reason}</div>` : ''}
+              ${l.admin_note ? `<div class="text-xs text-blue-600 mt-1 bg-blue-50 px-2 py-1 rounded"><i class="fas fa-comment mr-1"></i>管理員：${l.admin_note}</div>` : ''}
+            </div>
+            <div class="flex flex-col items-end gap-1">
+              <span class="px-3 py-1 rounded-full text-xs font-medium status-${l.status}">
+                ${statusLabel[l.status] || l.status}
+              </span>
+              <span class="text-xs text-gray-400">${l.created_at?.substring(0,10) || ''}</span>
+            </div>
+          </div>
+        </div>`).join('')}
+      </div>`}
+    </div>`
+
+  const tabOfficialHtml = `
+    <!-- 公假操作列 -->
+    <div class="flex gap-2 flex-wrap mb-4">
+      <a href="/member/official-leave/apply" class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2 shadow-sm">
+        <i class="fas fa-edit"></i>申請公假
+      </a>
+      <a href="/member/official-leave/my" class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2">
+        <i class="fas fa-list"></i>我的公假申請
+      </a>
+    </div>
+    <!-- 週視圖導航 -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 px-5 py-3 mb-4 flex items-center gap-4 flex-wrap">
-      <a href="/member/official-leave?week=${fmtDate(prevWeek)}" class="flex items-center gap-1 text-gray-600 hover:text-blue-600 font-medium text-sm"><i class="fas fa-chevron-left"></i>上一週</a>
+      <a href="/member/attendance?tab=official-leave&week=${fmtDate(prevWeek)}" class="flex items-center gap-1 text-gray-600 hover:text-blue-600 font-medium text-sm"><i class="fas fa-chevron-left"></i>上一週</a>
       <h2 class="text-base font-bold text-gray-800 flex-1 text-center">${wStart.substring(0,4)}/${wStart.substring(5,7)}/${wStart.substring(8,10)} - ${wEnd.substring(5,7)}/${wEnd.substring(8,10)}</h2>
-      <a href="/member/official-leave?week=${fmtDate(nextWeek)}" class="flex items-center gap-1 text-gray-600 hover:text-blue-600 font-medium text-sm">下一週<i class="fas fa-chevron-right"></i></a>
-      ${wStart!==curMonStr?`<a href="/member/official-leave?week=${curMonStr}" class="text-blue-600 hover:underline text-sm">回到今天</a>`:''}
+      <a href="/member/attendance?tab=official-leave&week=${fmtDate(nextWeek)}" class="flex items-center gap-1 text-gray-600 hover:text-blue-600 font-medium text-sm">下一週<i class="fas fa-chevron-right"></i></a>
+      ${wStart!==curMonStr?`<a href="/member/attendance?tab=official-leave&week=${curMonStr}" class="text-blue-600 hover:underline text-sm">回到今天</a>`:''}
     </div>
-    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-8">${dayColumns}</div>
+    <!-- 週曆格 -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-6">${dayColumns}</div>
     ${semStart?`
-    <div class="bg-white rounded-2xl shadow-sm border-t-4 border-indigo-600 p-5 mb-6">
-      <h2 class="text-xl font-bold text-indigo-900 flex items-center gap-2 mb-4"><i class="fas fa-school text-indigo-600"></i>童軍團學期行事曆 <span class="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">${semStart} ～ ${semEnd}</span></h2>
-      ${recurringRules.length>0?`<div class="mb-4 bg-indigo-50 p-3 rounded-lg border border-indigo-100"><h3 class="font-bold text-indigo-800 text-xs uppercase tracking-wide mb-2">每週例行活動</h3><div class="flex flex-wrap gap-3">${recurringRules.map((r:any)=>`<div class="flex items-center gap-1.5 text-sm"><span class="bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-bold text-xs">週${weekdayLabel(r.dayOfWeek)}</span><span class="font-medium text-gray-800">${r.title}</span>${r.description?`<span class="text-gray-500 text-xs">(${r.description})</span>`:''}</div>`).join('')}</div></div>`:''}
+    <div class="bg-white rounded-2xl shadow-sm border-t-4 border-indigo-600 p-5 mb-4">
+      <h2 class="text-lg font-bold text-indigo-900 flex items-center gap-2 mb-4"><i class="fas fa-school text-indigo-600"></i>學期行事曆 <span class="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">${semStart} ～ ${semEnd}</span></h2>
+      ${recurringRules.length>0?`<div class="mb-4 bg-indigo-50 p-3 rounded-lg border border-indigo-100"><div class="flex flex-wrap gap-3">${recurringRules.map((r:any)=>`<div class="flex items-center gap-1.5 text-sm"><span class="bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-bold text-xs">週${weekdayLabel(r.dayOfWeek)}</span><span class="font-medium text-gray-800">${r.title}</span>${r.description?`<span class="text-gray-500 text-xs">(${r.description})</span>`:''}</div>`).join('')}</div></div>`:''}
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${semMonthsHtml}</div>
     </div>`:''}
+  `
+
+  // Tab 定義
+  const tabs = [
+    { key: 'attendance',    label: '出席記錄', icon: 'fas fa-calendar-check' },
+    { key: 'leave',         label: '請假申請', icon: 'fas fa-calendar-times' },
+    { key: 'official-leave', label: '公假行事曆', icon: 'fas fa-calendar-alt' },
+  ]
+
+  const tabContent = activeTab === 'leave' ? tabLeaveHtml : activeTab === 'official-leave' ? tabOfficialHtml : tabAttendanceHtml
+
+  return c.html(`${memberHead('出席與請假')}
+<body class="bg-gray-50 min-h-screen">
+  ${memberNav(member.chinese_name, member.section, 'attendance')}
+  <div class="max-w-5xl mx-auto px-4 py-6 fade-in">
+
+    <!-- 頁面標題 -->
+    <div class="mb-5">
+      <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+        <i class="fas fa-calendar-check text-blue-600"></i>出席管理
+      </h1>
+      <p class="text-sm text-gray-400 mt-0.5">${member.chinese_name} · ${displaySection}</p>
+    </div>
+
+    <!-- Tab 列 -->
+    <div class="flex gap-2 mb-5 border-b border-gray-200 pb-0">
+      ${tabs.map(t => `
+      <a href="/member/attendance?tab=${t.key}" class="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px
+        ${activeTab === t.key
+          ? 'border-blue-600 text-blue-700 bg-white'
+          : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}">
+        <i class="${t.icon}"></i>${t.label}
+      </a>`).join('')}
+    </div>
+
+    <!-- Tab 內容 -->
+    <div id="tabContent">
+      ${tabContent}
+    </div>
   </div>
+
+  <!-- 請假申請 Modal -->
+  <div id="leaveModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+      <div class="bg-gradient-to-r from-blue-600 to-blue-500 px-5 py-4 text-white flex items-center justify-between">
+        <h3 class="font-bold flex items-center gap-2"><i class="fas fa-calendar-plus"></i>申請請假</h3>
+        <button onclick="document.getElementById('leaveModal').classList.add('hidden')" class="text-white/70 hover:text-white text-xl leading-none">&times;</button>
+      </div>
+      <div class="p-5">
+        <form id="leaveModalForm" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">請假類型</label>
+            <select name="leave_type" required
+              class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+              <option value="personal">📝 事假</option>
+              <option value="sick">🏥 病假</option>
+              <option value="official">⚡ 公假</option>
+              <option value="other">📌 其他</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">關聯例會（選填）</label>
+            <select name="session_id" id="leaveSessionSelect"
+              class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+              <option value="">-- 自訂日期 --</option>
+              ${upcomingSessions.results.map((s: any) => `
+              <option value="${s.id}" data-date="${s.date}">${s.date} - ${s.title}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">請假日期 <span class="text-red-500">*</span></label>
+            <input type="date" name="date" id="leaveDateInput" required
+              class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">請假原因</label>
+            <textarea name="reason" rows="2"
+              class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm resize-none"
+              placeholder="請說明請假原因"></textarea>
+          </div>
+          <div id="leaveModalMsg"></div>
+          <button type="submit"
+            class="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
+            <i class="fas fa-paper-plane"></i>送出請假申請
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function showLeaveForm(sessionId, sessionTitle, sessionDate) {
+      const modal = document.getElementById('leaveModal')
+      const sel = document.getElementById('leaveSessionSelect')
+      const dateInput = document.getElementById('leaveDateInput')
+      if (sessionId) {
+        sel.value = sessionId
+        dateInput.value = sessionDate || ''
+      } else {
+        sel.value = ''
+        dateInput.value = ''
+      }
+      modal.classList.remove('hidden')
+    }
+    document.getElementById('leaveSessionSelect').addEventListener('change', function() {
+      const opt = this.selectedOptions[0]
+      if (opt.value && opt.dataset.date) {
+        document.getElementById('leaveDateInput').value = opt.dataset.date
+      }
+    })
+    document.getElementById('leaveModalForm').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const msg = document.getElementById('leaveModalMsg')
+      const form = e.target
+      const fd = new FormData(form)
+      const data = {
+        leave_type: fd.get('leave_type'),
+        session_id: fd.get('session_id') || null,
+        date: fd.get('date'),
+        reason: fd.get('reason')
+      }
+      if (!data.date) { msg.innerHTML = '<p class="text-red-500 text-sm">請填寫請假日期</p>'; return }
+      msg.innerHTML = '<p class="text-gray-400 text-sm">送出中...</p>'
+      try {
+        const res = await fetch('/api/member/leave', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        })
+        const r = await res.json()
+        if (r.success) {
+          msg.innerHTML = '<p class="text-green-600 text-sm"><i class="fas fa-check-circle mr-1"></i>申請已送出！</p>'
+          setTimeout(() => location.href = '/member/attendance?tab=leave', 1500)
+        } else {
+          msg.innerHTML = '<p class="text-red-500 text-sm">送出失敗：' + (r.error || '未知錯誤') + '</p>'
+        }
+      } catch(err) {
+        msg.innerHTML = '<p class="text-red-500 text-sm">網路錯誤，請稍後再試</p>'
+      }
+    })
+    // 點擊背景關閉
+    document.getElementById('leaveModal').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.add('hidden')
+    })
+  </script>
 </body></html>`)
 })
+
+// ===================== 晉升申請 → redirect 到 progress?tab=advancement =====================
+memberRoutes.get('/advancement', memberAuthMiddleware, (c) => {
+  return c.redirect('/member/progress?tab=advancement')
+})
+
+
+// =====================================================================
+// 公假行事曆系統
+// =====================================================================
+
+// ===== 公假行事曆首頁 → redirect 到 attendance?tab=official-leave =====
+memberRoutes.get('/official-leave', memberAuthMiddleware, (c) => {
+  const week = c.req.query('week')
+  return c.redirect(week ? `/member/attendance?tab=official-leave&week=${week}` : '/member/attendance?tab=official-leave')
+})
+
 
 // ===== 公假申請表單 =====
 memberRoutes.get('/official-leave/apply', memberAuthMiddleware, async (c) => {
@@ -2076,7 +1803,7 @@ memberRoutes.get('/official-leave/apply', memberAuthMiddleware, async (c) => {
 
   return c.html(`${memberHead('午間公假申請')}
 <body class="bg-gray-50 min-h-screen">
-  ${memberNav(sess.memberName, sess.section)}
+  ${memberNav(sess.memberName, sess.section, 'attendance')}
   <div class="max-w-2xl mx-auto px-4 py-8 fade-in">
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
       <div class="bg-gradient-to-r from-blue-600 to-blue-500 text-white px-6 py-5">
@@ -2216,7 +1943,7 @@ memberRoutes.get('/official-leave/my', memberAuthMiddleware, async (c) => {
 
   return c.html(`${memberHead('我的公假申請')}
 <body class="bg-gray-50 min-h-screen">
-  ${memberNav(sess.memberName, sess.section)}
+  ${memberNav(sess.memberName, sess.section, 'attendance')}
   <div class="max-w-2xl mx-auto px-4 py-6 fade-in">
     <div class="flex items-center justify-between mb-5">
       <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-list text-blue-600"></i>我的公假申請</h1>
