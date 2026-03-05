@@ -4692,6 +4692,20 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
   const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
   const currentYear = yearSetting?.value || ''
 
+  // 取得組織架構
+  const orgChart = await db.prepare(`SELECT * FROM group_org_chart WHERE group_id=?`).bind(id).first() as any
+  let orgLeaders: any[] = []
+  let orgPatrols: any[] = []
+  let orgCommittees: any[] = []
+  if (orgChart?.content) {
+    try {
+      const parsed = JSON.parse(orgChart.content)
+      orgLeaders = parsed.leaders || []
+      orgPatrols = parsed.patrols || []
+      orgCommittees = parsed.committees || []
+    } catch {}
+  }
+
   // 依 group_id 決定對應的 section，取得所有在籍成員（含所有職位）
   const sectionMap: Record<string, string[]> = {
     '1': ['童軍', '服務員'],
@@ -4733,33 +4747,223 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
   })
   const histYears = Object.keys(histByYear).sort((a, b) => b.localeCompare(a))
 
-  const currentCards = currentCadres.length > 0
-    ? currentCadres.map((c: any) => `
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col items-center text-center relative group hover:shadow-md transition-shadow">
-      <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-        <button onclick='editCadre(${JSON.stringify(c).replace(/'/g, "&#39;")})' class="bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg p-1.5 text-xs" title="編輯">✏️</button>
-        <button onclick="deleteCadre(${c.id})" class="bg-red-100 hover:bg-red-200 text-red-700 rounded-lg p-1.5 text-xs" title="刪除">🗑️</button>
+  // ── 輔助函式：幹部人物卡片（後台版，含編輯/刪除按鈕）──
+  const adminPersonCard = (c: any) => {
+    const safeData = JSON.stringify(c).replace(/'/g, "&#39;").replace(/</g, '\\u003c')
+    return `
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 flex flex-col items-center text-center relative group hover:shadow-md transition-all duration-200 cursor-default">
+      <!-- hover 操作按鈕 -->
+      <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 z-10">
+        <button onclick='editCadre(${safeData})' class="bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg p-1.5 text-xs shadow-sm" title="編輯">✏️</button>
+        <button onclick="deleteCadre(${c.id})" class="bg-red-100 hover:bg-red-200 text-red-700 rounded-lg p-1.5 text-xs shadow-sm" title="刪除">🗑️</button>
       </div>
-      <div class="w-20 h-20 rounded-full overflow-hidden bg-gradient-to-br from-green-100 to-teal-100 mb-3 flex items-center justify-center border-2 border-green-200 shadow-sm">
+      <div class="w-20 h-20 rounded-full overflow-hidden bg-gradient-to-br from-green-100 to-teal-100 mb-3 flex items-center justify-center border-2 border-green-200 shadow-sm flex-shrink-0">
         ${c.photo_url
           ? `<img src="${c.photo_url}" alt="${c.chinese_name}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<span class=\\'text-2xl\\'>👤</span>'">`
           : `<span class="text-2xl">👤</span>`}
       </div>
-      <p class="font-bold text-gray-800 text-base">${c.chinese_name}</p>
-      ${c.english_name ? `<p class="text-xs text-gray-400 mt-0.5">${c.english_name}</p>` : ''}
-      <span class="mt-2 inline-block bg-green-100 text-green-800 text-xs font-semibold px-3 py-1 rounded-full">${c.role}</span>
-      ${c.notes ? `<p class="text-xs text-gray-400 mt-1.5">${c.notes}</p>` : ''}
-    </div>
-  `).join('')
-    : '<p class="text-gray-400 text-sm col-span-full text-center py-8">尚無現任幹部資料，請點擊「新增幹部」或「從成員名冊選取」加入。</p>'
+      <div class="text-xs font-semibold text-green-800 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full mb-1">${c.role}</div>
+      <p class="font-bold text-gray-800 text-sm">${c.chinese_name}</p>
+      ${c.english_name && c.english_name !== 'null' ? `<p class="text-xs text-gray-400 mt-0.5">${c.english_name}</p>` : ''}
+      ${c.notes ? `<p class="text-xs text-gray-400 mt-1">${c.notes}</p>` : ''}
+    </div>`
+  }
 
+  // ── 依職位分組現任幹部 ──
+  const plcHeadRoles = ['聯隊長','副聯隊長','隊長','副隊長','群長','副群長','童軍團長','副團長','團長']
+  const patrolRoles = ['小隊長','副小隊長','副隊長']
+  const ecRoleMap: Record<string, string> = {
+    '展演組長': '展演組', '副展演長': '展演組',
+    '活動組長': '活動組', '副活動長': '活動組',
+    '行政組長': '行政組', '副行政長': '行政組', '行政長': '行政組',
+    '器材組長': '器材組', '副器材長': '器材組', '器材長': '器材組',
+    '公關組長': '公關組', '副公關長': '公關組',
+  }
+
+  // PLC 主席（聯隊長/副聯隊長等）
+  const plcHeads = currentCadres.filter((c: any) => plcHeadRoles.includes(c.role))
+  // 小隊（含小隊長/副小隊長）
+  const patrolMembers = currentCadres.filter((c: any) => patrolRoles.includes(c.role))
+  // EC
+  const ecCadres = currentCadres.filter((c: any) => ecRoleMap[c.role])
+  const ecGroups: Record<string, any[]> = {}
+  ecCadres.forEach((c: any) => {
+    const k = ecRoleMap[c.role]
+    if (!ecGroups[k]) ecGroups[k] = []
+    ecGroups[k].push(c)
+  })
+  // 剩餘
+  const usedInPLCEC = new Set([...plcHeadRoles, ...patrolRoles, ...Object.keys(ecRoleMap)])
+  const remainingCadres = currentCadres.filter((c: any) => !usedInPLCEC.has(c.role))
+
+  // PLC 主席卡片
+  const plcHeadHtml = plcHeads.length > 0
+    ? `<div class="flex flex-wrap justify-center gap-6 mb-6">${plcHeads.map((c: any) => adminPersonCard(c)).join('')}</div>`
+    : ''
+
+  // 小隊卡片（以 notes 或 unit_name 分組）
+  const patrolsByUnit: Record<string, any[]> = {}
+  patrolMembers.forEach((c: any) => {
+    const k = c.notes || '未分配小隊'
+    if (!patrolsByUnit[k]) patrolsByUnit[k] = []
+    patrolsByUnit[k].push(c)
+  })
+  // 如果有 org patrols，用 org 資料顯示
+  const patrolGridHtml = (() => {
+    if (orgPatrols.length > 0) {
+      // 顯示 org chart 中的小隊，搭配現任幹部資料
+      return `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+        ${orgPatrols.map((patrol: any) => {
+          const photo = patrol.photo_url || patrol.image_url || ''
+          // 從現任幹部找這個小隊的人員
+          const cadresInPatrol = currentCadres.filter((c: any) => c.notes === patrol.name || c.unit_name === patrol.name)
+          const safePatrol = JSON.stringify(patrol).replace(/'/g, "&#39;")
+          return `
+          <div class="bg-white rounded-2xl border-2 border-dashed border-green-200 shadow-sm overflow-hidden hover:shadow-md hover:border-green-400 transition-all group">
+            <div class="h-28 overflow-hidden bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center relative">
+              ${photo
+                ? `<img src="${photo}" alt="${patrol.name}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<span class=\\'text-5xl\\'>🏕️</span>'">`
+                : `<span class="text-5xl">🏕️</span>`}
+            </div>
+            <div class="p-3 text-center">
+              <h4 class="font-bold text-gray-800 text-sm mb-2">${patrol.name || ''}</h4>
+              ${cadresInPatrol.length > 0
+                ? cadresInPatrol.map((c: any) => {
+                    const sd = JSON.stringify(c).replace(/'/g, "&#39;").replace(/</g, '\\u003c')
+                    return `<div class="flex items-center justify-between text-xs mb-1 px-1">
+                      <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">${c.role}</span>
+                      <div class="flex items-center gap-1">
+                        <span class="text-gray-700 font-medium">${c.chinese_name}</span>
+                        <button onclick='editCadre(${sd})' class="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 transition-opacity">✏️</button>
+                      </div>
+                    </div>`
+                  }).join('')
+                : `<p class="text-xs text-gray-300 py-1">尚未指派成員</p>`}
+            </div>
+          </div>`
+        }).join('')}
+        <!-- 新增小隊按鈕 -->
+        <button onclick="openAddCadre('小隊長')" class="bg-gray-50 border-2 border-dashed border-gray-300 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 hover:border-green-400 hover:bg-green-50 transition-colors h-full min-h-[8rem]">
+          <span class="text-3xl">➕</span>
+          <span class="text-xs text-gray-400">新增小隊長</span>
+        </button>
+      </div>`
+    }
+    // 否則用幹部資料分組
+    if (patrolMembers.length === 0) return ''
+    return `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+      ${Object.entries(patrolsByUnit).map(([unitName, members]) => `
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all group">
+          <div class="h-28 bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
+            <span class="text-5xl">🏕️</span>
+          </div>
+          <div class="p-3 text-center">
+            <h4 class="font-bold text-gray-800 text-sm mb-2">${unitName}</h4>
+            ${members.map((c: any) => {
+              const sd = JSON.stringify(c).replace(/'/g, "&#39;").replace(/</g, '\\u003c')
+              return `<div class="flex items-center justify-between text-xs mb-1 px-1">
+                <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">${c.role}</span>
+                <div class="flex items-center gap-1">
+                  <span class="text-gray-700 font-medium">${c.chinese_name}</span>
+                  <button onclick='editCadre(${sd})' class="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 transition-opacity">✏️</button>
+                </div>
+              </div>`
+            }).join('')}
+          </div>
+        </div>`).join('')}
+      <button onclick="openAddCadre('小隊長')" class="bg-gray-50 border-2 border-dashed border-gray-300 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 hover:border-green-400 hover:bg-green-50 transition-colors min-h-[8rem]">
+        <span class="text-3xl">➕</span>
+        <span class="text-xs text-gray-400">新增小隊長</span>
+      </button>
+    </div>`
+  })()
+
+  // EC 組別卡片
+  const ecGridHtml = (() => {
+    if (orgCommittees.length > 0) {
+      return `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+        ${orgCommittees.map((comm: any) => {
+          const photo = comm.photo_url || comm.image_url || ''
+          const cadresInComm = currentCadres.filter((c: any) => ecRoleMap[c.role] === comm.name || c.notes === comm.name)
+          return `
+          <div class="bg-white rounded-2xl border-2 border-dashed border-blue-200 shadow-sm overflow-hidden hover:shadow-md hover:border-blue-400 transition-all group">
+            <div class="h-24 overflow-hidden bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+              ${photo
+                ? `<img src="${photo}" alt="${comm.name}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<span class=\\'text-4xl\\'>⚙️</span>'">`
+                : `<span class="text-4xl">⚙️</span>`}
+            </div>
+            <div class="p-3 text-center">
+              <h4 class="font-bold text-gray-800 text-sm mb-2">${comm.name || ''}</h4>
+              ${cadresInComm.length > 0
+                ? cadresInComm.map((c: any) => {
+                    const sd = JSON.stringify(c).replace(/'/g, "&#39;").replace(/</g, '\\u003c')
+                    return `<div class="flex items-center justify-between text-xs mb-1 px-1">
+                      <span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">${c.role}</span>
+                      <div class="flex items-center gap-1">
+                        <span class="text-gray-700 font-medium">${c.chinese_name}</span>
+                        <button onclick='editCadre(${sd})' class="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 transition-opacity">✏️</button>
+                      </div>
+                    </div>`
+                  }).join('')
+                : `<p class="text-xs text-gray-300 py-1">尚未指派成員</p>`}
+            </div>
+          </div>`
+        }).join('')}
+        <button onclick="openAddCadre('組長')" class="bg-gray-50 border-2 border-dashed border-gray-300 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 hover:border-blue-400 hover:bg-blue-50 transition-colors min-h-[8rem]">
+          <span class="text-3xl">➕</span>
+          <span class="text-xs text-gray-400">新增組員</span>
+        </button>
+      </div>`
+    }
+    // 否則用 ecGroups
+    if (Object.keys(ecGroups).length === 0) return ''
+    return `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+      ${Object.entries(ecGroups).map(([groupName, members]) => `
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all group">
+          <div class="h-24 bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+            <span class="text-4xl">⚙️</span>
+          </div>
+          <div class="p-3 text-center">
+            <h4 class="font-bold text-gray-800 text-sm mb-2">${groupName}</h4>
+            ${members.map((c: any) => {
+              const sd = JSON.stringify(c).replace(/'/g, "&#39;").replace(/</g, '\\u003c')
+              return `<div class="flex items-center justify-between text-xs mb-1 px-1">
+                <span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">${c.role}</span>
+                <div class="flex items-center gap-1">
+                  <span class="text-gray-700 font-medium">${c.chinese_name}</span>
+                  <button onclick='editCadre(${sd})' class="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 transition-opacity">✏️</button>
+                </div>
+              </div>`
+            }).join('')}
+          </div>
+        </div>`).join('')}
+      <button onclick="openAddCadre('組長')" class="bg-gray-50 border-2 border-dashed border-gray-300 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 hover:border-blue-400 hover:bg-blue-50 transition-colors min-h-[8rem]">
+        <span class="text-3xl">➕</span>
+        <span class="text-xs text-gray-400">新增組員</span>
+      </button>
+    </div>`
+  })()
+
+  // 剩餘幹部
+  const remainingHtml = remainingCadres.length > 0 ? `
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+      ${remainingCadres.map((c: any) => adminPersonCard(c)).join('')}
+      <button onclick="openAddCadre()" class="bg-gray-50 border-2 border-dashed border-gray-300 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 hover:border-green-400 hover:bg-green-50 transition-colors min-h-[8rem]">
+        <span class="text-3xl">➕</span>
+        <span class="text-xs text-gray-400">新增幹部</span>
+      </button>
+    </div>` : ''
+
+  // 歷屆幹部列表
   const histRows = histYears.map(yr => `
     <div class="mb-4">
       <h4 class="text-sm font-semibold text-gray-500 mb-2 flex items-center gap-2">
         <span class="bg-gray-100 px-2 py-0.5 rounded text-xs">${yr} 學年度</span>
       </h4>
       <div class="bg-white rounded-lg border divide-y text-sm">
-        ${histByYear[yr].map((c: any) => `
+        ${histByYear[yr].map((c: any) => {
+          const sd = JSON.stringify(c).replace(/'/g, "&#39;").replace(/</g, '\\u003c')
+          return `
         <div class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50">
           <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-base flex-shrink-0 overflow-hidden">
             ${c.photo_url ? `<img src="${c.photo_url}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='👤'">` : '👤'}
@@ -4771,23 +4975,28 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
             ${c.notes ? `<span class="text-xs text-gray-400 ml-1">${c.notes}</span>` : ''}
           </div>
           <div class="flex gap-1 flex-shrink-0">
-            <button onclick='editCadre(${JSON.stringify(c).replace(/'/g, "&#39;")})' class="text-blue-500 hover:text-blue-700 text-xs px-2 py-1 rounded hover:bg-blue-50">編輯</button>
+            <button onclick='editCadre(${sd})' class="text-blue-500 hover:text-blue-700 text-xs px-2 py-1 rounded hover:bg-blue-50">編輯</button>
             <button onclick="deleteCadre(${c.id})" class="text-red-400 hover:text-red-600 text-xs px-2 py-1 rounded hover:bg-red-50">刪除</button>
           </div>
-        </div>`).join('')}
+        </div>`}).join('')}
       </div>
     </div>
   `).join('')
 
   return c.html(adminLayout(`幹部管理 - ${group.name}`, `
+    <!-- ===== 頁首操作列 ===== -->
     <div class="mb-6">
       <a href="/admin/groups/${id}/subpages" class="text-gray-500 hover:text-gray-700 text-sm">← 返回子頁面管理</a>
-      <div class="flex items-start justify-between mt-2">
+      <div class="flex items-start justify-between mt-2 flex-wrap gap-3">
         <div>
           <h2 class="text-xl font-bold text-gray-800">${group.name} · 幹部名單管理</h2>
           <p class="text-sm text-gray-400 mt-1">目前學年度：<strong class="text-gray-600">${currentYear}</strong>　現任幹部：<strong class="text-green-600">${currentCadres.length}</strong> 位</p>
         </div>
-        <div class="flex gap-2 flex-wrap justify-end">
+        <div class="flex gap-2 flex-wrap">
+          <a href="/group/${group.slug}/cadres" target="_blank"
+            class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5">
+            👁 前台預覽
+          </a>
           <button onclick="openPickFromRoster()"
             class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5">
             👤 從成員名冊選取
@@ -4804,18 +5013,128 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       </div>
     </div>
 
+    <!-- ===== 提示訊息 ===== -->
+    <div id="page-msg" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+
+    <!-- ===== 現任幹部 - 與前台相同排版 ===== -->
+
+    ${currentCadres.length === 0 ? `
+    <div class="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center mb-8">
+      <div class="text-4xl mb-3">⭐</div>
+      <p class="text-amber-800 font-medium">尚無現任幹部資料</p>
+      <p class="text-amber-600 text-sm mt-1">請點擊「從成員名冊選取」或「手動新增」加入幹部</p>
+    </div>
+    ` : ''}
+
+    ${plcHeads.length > 0 || patrolMembers.length > 0 || orgPatrols.length > 0 ? `
+    <!-- PLC 區塊 -->
+    <div class="mb-10">
+      <div class="flex items-center mb-6">
+        <div class="flex-1 h-px bg-green-200"></div>
+        <div class="text-center px-6">
+          <h3 class="text-lg font-bold text-green-800">PLC 小隊長議會</h3>
+          <p class="text-xs text-green-500 mt-0.5">Patrol Leaders Council</p>
+        </div>
+        <div class="flex-1 h-px bg-green-200"></div>
+      </div>
+
+      ${plcHeadHtml}
+      ${plcHeads.length === 0 ? `
+        <div class="flex justify-center mb-6">
+          <button onclick="openAddCadre('聯隊長')"
+            class="bg-gray-50 border-2 border-dashed border-green-300 rounded-2xl px-8 py-4 flex items-center gap-3 hover:border-green-500 hover:bg-green-50 transition-colors text-green-700">
+            <span class="text-2xl">➕</span>
+            <span class="text-sm font-medium">新增聯隊長 / 副聯隊長</span>
+          </button>
+        </div>
+      ` : ''}
+
+      ${patrolGridHtml || `
+        <div class="text-center py-4 text-gray-400 text-sm">
+          尚無小隊資料，請先至
+          <a href="/admin/groups/${id}/org" class="text-blue-500 hover:underline">組織架構</a>
+          設定小隊，或直接
+          <button onclick="openAddCadre('小隊長')" class="text-blue-500 hover:underline">新增小隊長</button>
+        </div>
+      `}
+    </div>
+    ` : `
+    <!-- 沒有 PLC 資料時顯示新增引導 -->
+    ${currentCadres.length > 0 ? '' : `
+    <div class="mb-10 bg-green-50 border border-green-200 rounded-xl p-5">
+      <div class="flex items-center mb-3">
+        <div class="flex-1 h-px bg-green-200"></div>
+        <div class="text-center px-6">
+          <h3 class="text-base font-bold text-green-700">PLC 小隊長議會</h3>
+        </div>
+        <div class="flex-1 h-px bg-green-200"></div>
+      </div>
+      <div class="flex flex-wrap justify-center gap-3">
+        <button onclick="openAddCadre('聯隊長')" class="bg-white border border-green-300 rounded-xl px-4 py-2.5 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">
+          ➕ 新增聯隊長
+        </button>
+        <button onclick="openAddCadre('副聯隊長')" class="bg-white border border-green-300 rounded-xl px-4 py-2.5 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">
+          ➕ 新增副聯隊長
+        </button>
+        <button onclick="openAddCadre('小隊長')" class="bg-white border border-green-300 rounded-xl px-4 py-2.5 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">
+          ➕ 新增小隊長
+        </button>
+      </div>
+    </div>
+    `}
+    `}
+
+    ${Object.keys(ecGroups).length > 0 || orgCommittees.length > 0 ? `
+    <!-- EC 區塊 -->
+    <div class="mb-10">
+      <div class="flex items-center mb-6">
+        <div class="flex-1 h-px bg-blue-200"></div>
+        <div class="text-center px-6">
+          <h3 class="text-lg font-bold text-blue-800">執行委員會 EC</h3>
+          <p class="text-xs text-blue-400 mt-0.5">Executive Committee</p>
+        </div>
+        <div class="flex-1 h-px bg-blue-200"></div>
+      </div>
+      ${ecGridHtml}
+    </div>
+    ` : ''}
+
+    ${remainingCadres.length > 0 ? `
+    <!-- 服務員 / 其他幹部 -->
+    <div class="mb-10">
+      <div class="flex items-center mb-6">
+        <div class="flex-1 h-px bg-green-200"></div>
+        <h3 class="text-base font-bold text-green-800 px-5 flex items-center gap-2">
+          <span>🎖️</span> 服務員 / 其他幹部
+        </h3>
+        <div class="flex-1 h-px bg-green-200"></div>
+      </div>
+      ${remainingHtml}
+    </div>
+    ` : ''}
+
+    <!-- ===== 歷屆幹部列表 ===== -->
+    ${histYears.length > 0 ? `
+    <div class="mt-8 pt-8 border-t border-gray-200">
+      <div class="flex items-center gap-3 mb-4">
+        <h3 class="text-base font-bold text-gray-600 flex items-center gap-2">
+          <span class="w-2 h-2 bg-gray-400 rounded-full"></span> 歷屆幹部
+        </h3>
+        <span class="text-xs text-gray-400">${histCadres.length} 筆紀錄</span>
+      </div>
+      ${histRows}
+    </div>` : ''}
+
     <!-- ===== 從成員名冊選取 Modal ===== -->
     <div id="pick-roster-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col">
-        <!-- Header -->
         <div class="flex items-center justify-between p-5 border-b flex-shrink-0">
           <div>
             <h3 class="text-lg font-bold text-gray-800">👤 從成員名冊選取幹部</h3>
-            <p class="text-xs text-gray-400 mt-0.5">選取成員後可在右側調整幹部職位，確認後加入名單</p>
+            <p class="text-xs text-gray-400 mt-0.5">點選成員加入右側，可調整幹部職位後統一新增</p>
           </div>
           <button onclick="closePickModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">✕</button>
         </div>
-
         <div class="flex flex-1 min-h-0">
           <!-- 左側：成員搜尋列表 -->
           <div class="w-1/2 border-r flex flex-col">
@@ -4824,7 +5143,7 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
                 oninput="filterMembers(this.value)"
                 class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
               <div class="flex gap-2 mt-2 flex-wrap">
-                <button onclick="filterByRole('all')" id="filter-all" class="filter-btn active text-xs px-2 py-1 rounded-full border bg-blue-600 text-white border-blue-600">全部</button>
+                <button onclick="filterByRole('all')" id="filter-all" class="filter-btn text-xs px-2 py-1 rounded-full border bg-blue-600 text-white border-blue-600">全部</button>
                 <button onclick="filterByRole('leader')" id="filter-leader" class="filter-btn text-xs px-2 py-1 rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50">幹部職位</button>
                 <button onclick="filterByRole('member')" id="filter-member" class="filter-btn text-xs px-2 py-1 rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50">一般成員</button>
               </div>
@@ -4836,9 +5155,7 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
                 return `<div class="member-item flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-blue-50 transition-colors ${isDup ? 'opacity-40' : ''}"
                   data-name="${m.chinese_name}" data-eng="${m.english_name||''}" data-role="${m.role_name||''}" data-unit="${m.unit_name||''}" data-section="${m.section||''}" data-photo="" data-idx="${i}" data-isleader="${isLeader ? '1' : '0'}" data-isdup="${isDup ? '1' : '0'}"
                   onclick="selectMember(this)">
-                  <div class="w-9 h-9 rounded-full bg-gradient-to-br ${isLeader ? 'from-green-100 to-teal-100 border border-green-200' : 'from-gray-100 to-slate-100'} flex items-center justify-center text-sm flex-shrink-0 overflow-hidden">
-                    ${m.photo_url ? `<img src="${m.photo_url}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='👤'">` : '👤'}
-                  </div>
+                  <div class="w-9 h-9 rounded-full bg-gradient-to-br ${isLeader ? 'from-green-100 to-teal-100 border border-green-200' : 'from-gray-100 to-slate-100'} flex items-center justify-center text-sm flex-shrink-0">👤</div>
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 flex-wrap">
                       <span class="font-medium text-gray-800 text-sm">${m.chinese_name}</span>
@@ -4857,25 +5174,20 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
               共 <span id="member-count">${allMembers.length}</span> 位成員
             </div>
           </div>
-
           <!-- 右側：已選取 & 職位調整 -->
           <div class="w-1/2 flex flex-col">
             <div class="p-4 border-b flex-shrink-0">
               <h4 class="font-semibold text-gray-700 text-sm mb-1">✅ 已選取成員</h4>
-              <p class="text-xs text-gray-400">點選左側成員加入；可在下方調整職位</p>
+              <p class="text-xs text-gray-400">點選左側成員加入；可在下方調整幹部職位</p>
             </div>
             <div id="selected-members" class="flex-1 overflow-y-auto p-3 space-y-2">
-              <div id="no-selected-hint" class="text-center text-gray-300 text-sm py-8">
-                ← 從左側選取成員
-              </div>
+              <div id="no-selected-hint" class="text-center text-gray-300 text-sm py-8">← 從左側選取成員</div>
             </div>
-            <!-- 批次操作區 -->
             <div class="p-3 border-t flex-shrink-0 space-y-2">
               <div id="pick-msg" class="hidden p-2 rounded-lg text-xs"></div>
               <div class="flex gap-2">
                 <button onclick="confirmAddSelected(${id}, '${currentYear}')" id="confirm-add-btn"
-                  class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-                  disabled>
+                  class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50" disabled>
                   ✅ 加入幹部名單
                 </button>
                 <button onclick="clearSelected()" class="px-3 border rounded-lg text-sm text-gray-500 hover:bg-gray-50">清空</button>
@@ -4887,40 +5199,28 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       </div>
     </div>
 
-    <!-- ===== 現任幹部卡片區 ===== -->
-    <div class="mb-8">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-base font-bold text-gray-700 flex items-center gap-2">
-          <span class="w-2 h-2 bg-green-500 rounded-full"></span> 現任幹部
-          <span class="text-xs font-normal text-gray-400">${currentYear} 學年度</span>
-        </h3>
-      </div>
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-        ${currentCards}
-      </div>
-    </div>
-
-    <!-- ===== 歷屆幹部列表 ===== -->
-    ${histYears.length > 0 ? `
-    <div>
-      <div class="flex items-center gap-3 mb-4">
-        <h3 class="text-base font-bold text-gray-700 flex items-center gap-2">
-          <span class="w-2 h-2 bg-gray-400 rounded-full"></span> 歷屆幹部
-        </h3>
-        <span class="text-xs text-gray-400">${histCadres.length} 筆紀錄</span>
-      </div>
-      ${histRows}
-    </div>` : ''}
-
-    <!-- ===== 新增/編輯 Modal ===== -->
+    <!-- ===== 新增/編輯幹部 Modal ===== -->
     <div id="cadre-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
         <div class="p-6">
-          <h3 id="cadre-modal-title" class="text-lg font-bold text-gray-800 mb-4">新增幹部</h3>
+          <div class="flex items-center justify-between mb-4">
+            <h3 id="cadre-modal-title" class="text-lg font-bold text-gray-800">新增幹部</h3>
+            <button onclick="document.getElementById('cadre-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">✕</button>
+          </div>
           <input type="hidden" id="cadre-id">
+
+          <!-- 成員名冊搜尋（快速填入） -->
+          <div class="mb-4 p-3 bg-blue-50 rounded-xl border border-blue-200">
+            <label class="block text-xs font-medium text-blue-700 mb-1.5">🔍 從成員名冊快速填入</label>
+            <input type="text" id="quick-search" placeholder="輸入姓名搜尋..."
+              oninput="searchForQuickFill(this.value)"
+              class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white">
+            <div id="quick-search-results" class="mt-2 max-h-32 overflow-y-auto hidden divide-y rounded-lg border bg-white shadow-sm"></div>
+          </div>
+
           <div class="grid grid-cols-2 gap-3 mb-3">
             <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">中文姓名 *</label>
+              <label class="block text-xs font-medium text-gray-700 mb-1">中文姓名 <span class="text-red-500">*</span></label>
               <input type="text" id="cadre-chinese_name" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" placeholder="王小明">
             </div>
             <div>
@@ -4929,24 +5229,44 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
             </div>
           </div>
           <div class="mb-3">
-            <label class="block text-xs font-medium text-gray-700 mb-1">幹部職位 *</label>
-            <div class="flex gap-2">
-              <input type="text" id="cadre-role" class="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" placeholder="如：團長、副團長、行政長…" list="role-suggestions">
-              <datalist id="role-suggestions">
-                <option value="團長"></option>
-                <option value="副團長"></option>
-                <option value="行政長"></option>
-                <option value="器材長"></option>
-                <option value="活動長"></option>
-                <option value="聯隊長"></option>
-                <option value="副聯隊長"></option>
-                <option value="群長"></option>
-                <option value="副群長"></option>
-                <option value="群顧問"></option>
-                <option value="小隊長"></option>
-                <option value="副小隊長"></option>
-              </datalist>
+            <label class="block text-xs font-medium text-gray-700 mb-1">幹部職位 <span class="text-red-500">*</span></label>
+            <input type="text" id="cadre-role" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" placeholder="如：聯隊長、小隊長、組長…" list="role-suggestions">
+            <datalist id="role-suggestions">
+              <option value="童軍團長"></option>
+              <option value="聯隊長"></option>
+              <option value="副聯隊長"></option>
+              <option value="小隊長"></option>
+              <option value="副小隊長"></option>
+              <option value="副隊長"></option>
+              <option value="展演組長"></option>
+              <option value="副展演長"></option>
+              <option value="活動組長"></option>
+              <option value="副活動長"></option>
+              <option value="行政組長"></option>
+              <option value="副行政長"></option>
+              <option value="器材組長"></option>
+              <option value="副器材長"></option>
+              <option value="公關組長"></option>
+              <option value="副公關長"></option>
+              <option value="群長"></option>
+              <option value="副群長"></option>
+              <option value="群顧問"></option>
+              <option value="團長"></option>
+              <option value="副團長"></option>
+              <option value="行政長"></option>
+              <option value="器材長"></option>
+            </datalist>
+            <!-- 快速職位按鈕 -->
+            <div class="flex flex-wrap gap-1.5 mt-2" id="quick-role-btns">
+              <span class="text-xs text-gray-400 self-center">快速選：</span>
+              ${['聯隊長','副聯隊長','小隊長','副小隊長','展演組長','活動組長','行政組長','器材組長','公關組長','群長','副群長'].map(r =>
+                `<button type="button" onclick="document.getElementById('cadre-role').value='${r}'" class="text-xs px-2 py-0.5 bg-gray-100 hover:bg-green-100 hover:text-green-700 border rounded-full transition-colors">${r}</button>`
+              ).join('')}
             </div>
+          </div>
+          <div class="mb-3">
+            <label class="block text-xs font-medium text-gray-700 mb-1">備注（可填小隊名稱如：第1小隊 遊俠小隊）</label>
+            <input type="text" id="cadre-notes" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="如：第1小隊 遊俠小隊">
           </div>
           <div class="grid grid-cols-2 gap-3 mb-3">
             <div>
@@ -4962,17 +5282,13 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
             <label class="block text-xs font-medium text-gray-700 mb-1">照片網址</label>
             <input type="url" id="cadre-photo_url" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="https://...">
           </div>
-          <div class="mb-3">
-            <label class="block text-xs font-medium text-gray-700 mb-1">備注</label>
-            <input type="text" id="cadre-notes" class="w-full border rounded-lg px-3 py-2 text-sm">
-          </div>
           <div class="mb-4 flex items-center gap-2">
             <input type="checkbox" id="cadre-is_current" class="rounded">
-            <label for="cadre-is_current" class="text-sm text-gray-700">現任幹部</label>
+            <label for="cadre-is_current" class="text-sm text-gray-700">現任幹部（勾選代表本學年度現任）</label>
           </div>
           <div id="cadre-msg" class="hidden mb-3 p-3 rounded-lg text-sm"></div>
           <div class="flex gap-3">
-            <button type="button" onclick="saveCadre(${id})" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-medium">💾 儲存</button>
+            <button type="button" onclick="saveCadre(${id})" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg text-sm font-medium">💾 儲存</button>
             <button type="button" onclick="document.getElementById('cadre-modal').classList.add('hidden')" class="px-4 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
           </div>
         </div>
@@ -4982,7 +5298,7 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
     <script>
     // ===== 全部成員資料 =====
     const ALL_MEMBERS = ${JSON.stringify(allMembers).replace(/</g, '\\u003c')}
-    const EXISTING_NAMES = ${JSON.stringify([...existingCurrentNames])}
+    const EXISTING_NAMES = new Set(${JSON.stringify([...existingCurrentNames])})
     let selectedMembers = []
     let currentFilter = 'all'
     let searchKeyword = ''
@@ -5000,23 +5316,8 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       if (e.target === this) closePickModal()
     })
 
-    // 搜尋篩選
     function filterMembers(keyword) {
       searchKeyword = keyword.toLowerCase()
-      renderMemberList()
-    }
-    function filterByRole(type) {
-      currentFilter = type
-      document.querySelectorAll('.filter-btn').forEach(b => {
-        b.classList.remove('active', 'bg-blue-600', 'text-white', 'border-blue-600')
-        b.classList.add('border-gray-200', 'text-gray-600')
-      })
-      const activeBtn = document.getElementById('filter-' + type)
-      activeBtn.classList.add('active', 'bg-blue-600', 'text-white', 'border-blue-600')
-      activeBtn.classList.remove('border-gray-200', 'text-gray-600')
-      renderMemberList()
-    }
-    function renderMemberList() {
       const items = document.querySelectorAll('.member-item')
       let visible = 0
       items.forEach(item => {
@@ -5033,24 +5334,34 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       })
       document.getElementById('member-count').textContent = visible
     }
+    function filterByRole(type) {
+      currentFilter = type
+      document.querySelectorAll('.filter-btn').forEach(b => {
+        b.classList.remove('bg-blue-600', 'text-white', 'border-blue-600')
+        b.classList.add('border-gray-200', 'text-gray-600')
+      })
+      const activeBtn = document.getElementById('filter-' + type)
+      if (activeBtn) {
+        activeBtn.classList.add('bg-blue-600', 'text-white', 'border-blue-600')
+        activeBtn.classList.remove('border-gray-200', 'text-gray-600')
+      }
+      filterMembers(searchKeyword)
+    }
 
-    // 選取成員
     function selectMember(el) {
       if (el.dataset.isdup === '1') {
-        showPickMsg('⚠️ 「' + el.dataset.name + '」已在現任幹部名單中', 'warn')
-        return
+        showPickMsg('⚠️ 「' + el.dataset.name + '」已在現任幹部名單中', 'warn'); return
       }
       const idx = parseInt(el.dataset.idx)
       if (selectedMembers.find(m => m._idx === idx)) {
-        showPickMsg('已選取過「' + el.dataset.name + '」', 'info')
-        return
+        showPickMsg('已選取過「' + el.dataset.name + '」', 'info'); return
       }
       selectedMembers.push({
         _idx: idx,
         chinese_name: el.dataset.name,
         english_name: el.dataset.eng,
-        role: el.dataset.role || '',  // 預填成員名冊職位
-        photo_url: el.dataset.photo,
+        role: el.dataset.role || '',
+        photo_url: el.dataset.photo || '',
         unit_name: el.dataset.unit
       })
       renderSelectedList()
@@ -5061,23 +5372,17 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       const container = document.getElementById('selected-members')
       const hint = document.getElementById('no-selected-hint')
       const btn = document.getElementById('confirm-add-btn')
-      const countEl = document.getElementById('selected-count')
-      countEl.textContent = selectedMembers.length
+      document.getElementById('selected-count').textContent = selectedMembers.length
       btn.disabled = selectedMembers.length === 0
       if (selectedMembers.length === 0) {
-        hint.style.display = ''
-        container.innerHTML = ''
-        container.appendChild(hint)
+        container.innerHTML = '<div id="no-selected-hint" class="text-center text-gray-300 text-sm py-8">← 從左側選取成員</div>'
         return
       }
-      hint.style.display = 'none'
       container.innerHTML = selectedMembers.map((m, i) => \`
         <div class="bg-gray-50 rounded-lg p-3 border border-gray-200">
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-2">
-              <div class="w-8 h-8 rounded-full bg-white border flex items-center justify-center text-sm overflow-hidden flex-shrink-0">
-                \${m.photo_url ? \`<img src="\${m.photo_url}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='👤'">\` : '👤'}
-              </div>
+              <div class="w-8 h-8 rounded-full bg-white border flex items-center justify-center text-sm flex-shrink-0">👤</div>
               <div>
                 <p class="text-sm font-medium text-gray-800">\${m.chinese_name}</p>
                 \${m.english_name ? \`<p class="text-xs text-gray-400">\${m.english_name}</p>\` : ''}
@@ -5087,7 +5392,7 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
           </div>
           <div>
             <label class="block text-xs text-gray-500 mb-1">幹部職位 <span class="text-red-400">*</span></label>
-            <input type="text" value="\${m.role}" placeholder="請輸入職位" list="role-suggestions"
+            <input type="text" value="\${m.role}" placeholder="請輸入幹部職位" list="role-suggestions"
               oninput="updateSelectedRole(\${i}, this.value)"
               class="w-full border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
           </div>
@@ -5097,18 +5402,13 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
 
     function removeSelected(idx) {
       const m = selectedMembers[idx]
-      // 取消左側高亮
       document.querySelectorAll('.member-item').forEach(el => {
         if (el.dataset.name === m.chinese_name) el.classList.remove('bg-blue-50')
       })
       selectedMembers.splice(idx, 1)
       renderSelectedList()
     }
-
-    function updateSelectedRole(idx, val) {
-      selectedMembers[idx].role = val
-    }
-
+    function updateSelectedRole(idx, val) { selectedMembers[idx].role = val }
     function clearSelected() {
       selectedMembers = []
       document.querySelectorAll('.member-item').forEach(el => el.classList.remove('bg-blue-50'))
@@ -5117,26 +5417,22 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
 
     function showPickMsg(msg, type) {
       const el = document.getElementById('pick-msg')
-      el.className = 'p-2 rounded-lg text-xs ' + (type === 'warn' ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' : type === 'error' ? 'bg-red-50 text-red-700' : type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-blue-50 text-blue-600')
+      el.className = 'p-2 rounded-lg text-xs ' + (type==='warn' ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' : type==='error' ? 'bg-red-50 text-red-700 border border-red-200' : type==='success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-blue-50 text-blue-600 border border-blue-200')
       el.textContent = msg
       el.classList.remove('hidden')
-      setTimeout(() => el.classList.add('hidden'), 3000)
+      setTimeout(() => el.classList.add('hidden'), 3500)
     }
 
     async function confirmAddSelected(groupId, yearLabel) {
-      const toAdd = selectedMembers.filter(m => m.role.trim())
       const noRole = selectedMembers.filter(m => !m.role.trim())
-      if (noRole.length > 0) {
-        showPickMsg('❗ 請為所有成員填寫職位：' + noRole.map(m => m.chinese_name).join('、'), 'warn')
-        return
-      }
-      if (toAdd.length === 0) { showPickMsg('請先選取成員', 'warn'); return }
+      if (noRole.length > 0) { showPickMsg('❗ 請為所有成員填寫職位：' + noRole.map(m=>m.chinese_name).join('、'), 'warn'); return }
+      if (selectedMembers.length === 0) { showPickMsg('請先選取成員', 'warn'); return }
       const btn = document.getElementById('confirm-add-btn')
       btn.disabled = true; btn.textContent = '新增中...'
       try {
         const res = await fetch('/api/admin/group-cadres-from-roster', {
           method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ group_id: groupId, year_label: yearLabel, members: toAdd })
+          body: JSON.stringify({ group_id: groupId, year_label: yearLabel, members: selectedMembers })
         })
         const data = await res.json()
         if (data.success) {
@@ -5154,37 +5450,72 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
 
     // ===== 換年度 =====
     async function rolloverYear(currentYear) {
-      if (!confirm('換年度操作：\\n\\n① 現任幹部將複製到「歷屆名單」（學年度：' + currentYear + '）\\n② 現任幹部的「現任」標記將被清除\\n\\n確定繼續？')) return
+      if (!confirm('換年度操作：\\n\\n① 現任幹部將標記為歷屆（學年度：' + currentYear + '）\\n② 現任標記將被清除，開始新一年度\\n\\n確定繼續？')) return
       const res = await fetch('/api/admin/group-cadres-rollover/${id}', {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ year_label: currentYear })
       })
       const data = await res.json()
       if (data.success) {
-        alert('✅ 換年度完成！已匯入 ' + data.moved + ' 筆幹部到歷屆名單')
+        alert('✅ 換年度完成！已移動 ' + data.moved + ' 筆幹部到歷屆名單')
         location.reload()
       } else {
         alert('❌ 換年度失敗：' + (data.error || ''))
       }
     }
 
+    // ===== Modal 中快速搜尋成員 =====
+    function searchForQuickFill(keyword) {
+      const resultDiv = document.getElementById('quick-search-results')
+      if (!keyword.trim()) { resultDiv.classList.add('hidden'); return }
+      const kw = keyword.toLowerCase()
+      const matches = ALL_MEMBERS.filter(m =>
+        m.chinese_name.toLowerCase().includes(kw) ||
+        (m.english_name || '').toLowerCase().includes(kw)
+      ).slice(0, 8)
+      if (matches.length === 0) { resultDiv.classList.add('hidden'); return }
+      resultDiv.innerHTML = matches.map(m => \`
+        <div class="px-3 py-2 hover:bg-blue-50 cursor-pointer flex items-center justify-between text-sm"
+          onclick="quickFillFromMember('\${m.chinese_name.replace(/'/g,"\\\\'")}', '\${(m.english_name||'').replace(/'/g,"\\\\'")}', '\${(m.role_name||'').replace(/'/g,"\\\\'")}')">
+          <div>
+            <span class="font-medium text-gray-800">\${m.chinese_name}</span>
+            \${m.english_name ? \`<span class="text-xs text-gray-400 ml-1">\${m.english_name}</span>\` : ''}
+          </div>
+          <span class="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">\${m.role_name || '無職位'}</span>
+        </div>
+      \`).join('')
+      resultDiv.classList.remove('hidden')
+    }
+
+    function quickFillFromMember(chName, engName, roleName) {
+      document.getElementById('cadre-chinese_name').value = chName
+      document.getElementById('cadre-english_name').value = engName
+      if (!document.getElementById('cadre-role').value) {
+        document.getElementById('cadre-role').value = roleName
+      }
+      document.getElementById('quick-search').value = chName
+      document.getElementById('quick-search-results').classList.add('hidden')
+    }
+
     // ===== 新增/編輯幹部 Modal =====
-    function openAddCadre() {
+    function openAddCadre(defaultRole = '') {
       document.getElementById('cadre-modal-title').textContent = '新增幹部'
       document.getElementById('cadre-id').value = ''
       document.getElementById('cadre-chinese_name').value = ''
       document.getElementById('cadre-english_name').value = ''
-      document.getElementById('cadre-role').value = ''
+      document.getElementById('cadre-role').value = defaultRole
       document.getElementById('cadre-year_label').value = '${currentYear}'
       document.getElementById('cadre-photo_url').value = ''
       document.getElementById('cadre-notes').value = ''
       document.getElementById('cadre-display_order').value = '0'
       document.getElementById('cadre-is_current').checked = true
       document.getElementById('cadre-msg').classList.add('hidden')
+      document.getElementById('quick-search').value = ''
+      document.getElementById('quick-search-results').classList.add('hidden')
       document.getElementById('cadre-modal').classList.remove('hidden')
     }
     function editCadre(data) {
-      document.getElementById('cadre-modal-title').textContent = '編輯幹部'
+      document.getElementById('cadre-modal-title').textContent = '編輯幹部 — ' + data.chinese_name
       document.getElementById('cadre-id').value = data.id
       document.getElementById('cadre-chinese_name').value = data.chinese_name || ''
       document.getElementById('cadre-english_name').value = data.english_name || ''
@@ -5195,6 +5526,8 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       document.getElementById('cadre-display_order').value = data.display_order || 0
       document.getElementById('cadre-is_current').checked = !!data.is_current
       document.getElementById('cadre-msg').classList.add('hidden')
+      document.getElementById('quick-search').value = ''
+      document.getElementById('quick-search-results').classList.add('hidden')
       document.getElementById('cadre-modal').classList.remove('hidden')
     }
     async function saveCadre(groupId) {
@@ -5213,20 +5546,17 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       }
       if (!payload.chinese_name || !payload.role) {
         msg.className = 'mb-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
-        msg.textContent = '❌ 請填寫姓名和職位'
-        msg.classList.remove('hidden')
-        return
+        msg.textContent = '❌ 請填寫姓名和職位'; msg.classList.remove('hidden'); return
       }
       const url = cadreId ? '/api/admin/group-cadres/' + cadreId : '/api/admin/group-cadres'
       const method = cadreId ? 'PUT' : 'POST'
-      const res = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+      const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) })
       const data = await res.json()
       if (data.success) {
         location.reload()
       } else {
         msg.className = 'mb-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
-        msg.textContent = '❌ ' + (data.error || '儲存失敗')
-        msg.classList.remove('hidden')
+        msg.textContent = '❌ ' + (data.error || '儲存失敗'); msg.classList.remove('hidden')
       }
     }
     async function deleteCadre(id) {
@@ -5236,6 +5566,13 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
     }
     document.getElementById('cadre-modal').addEventListener('click', function(e) {
       if (e.target === this) this.classList.add('hidden')
+    })
+    // 點空白關閉快速搜尋
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('#quick-search') && !e.target.closest('#quick-search-results')) {
+        const r = document.getElementById('quick-search-results')
+        if (r) r.classList.add('hidden')
+      }
     })
     </script>
   `))
