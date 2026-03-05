@@ -4771,19 +4771,28 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
     </div>`
   }
 
-  // ── 依職位分組現任幹部 ──
-  const plcHeadRoles = ['聯隊長','副聯隊長','隊長','副隊長','群長','副群長','童軍團長','副團長','團長']
-  const patrolRoles = ['小隊長','副小隊長','副隊長']
+  // ── 依職位分組現任幹部（3層架構）──
+  // 第1層：團長 / 副團長（最高領導）
+  const groupLeaderRoles = ['童軍團長','團長','副團長','群長','副群長','隊長','副隊長']
+  // 第2層：聯隊長 / 副聯隊長
+  const unitLeaderRoles = ['聯隊長','副聯隊長']
+  // 第3層 PLC：小隊長等
+  const patrolRoles = ['小隊長','副小隊長']
   const ecRoleMap: Record<string, string> = {
-    '展演組長': '展演組', '副展演長': '展演組',
-    '活動組長': '活動組', '副活動長': '活動組',
+    '展演組長': '展演組', '副展演長': '展演組', '展演長': '展演組',
+    '活動組長': '活動組', '副活動長': '活動組', '活動長': '活動組',
     '行政組長': '行政組', '副行政長': '行政組', '行政長': '行政組',
     '器材組長': '器材組', '副器材長': '器材組', '器材長': '器材組',
-    '公關組長': '公關組', '副公關長': '公關組',
+    '公關組長': '公關組', '副公關長': '公關組', '公關長': '公關組',
+    '攝影組長': '攝影組', '副攝影長': '攝影組', '攝影長': '攝影組',
   }
 
-  // PLC 主席（聯隊長/副聯隊長等）
-  const plcHeads = currentCadres.filter((c: any) => plcHeadRoles.includes(c.role))
+  // 第1層：團長 / 副團長
+  const groupLeaders = currentCadres.filter((c: any) => groupLeaderRoles.includes(c.role))
+  // 第2層：聯隊長 / 副聯隊長
+  const unitLeaders = currentCadres.filter((c: any) => unitLeaderRoles.includes(c.role))
+  // 舊的 plcHeads 保持向下相容（PLC 上層標頭合併用）
+  const plcHeads = [...groupLeaders, ...unitLeaders]
   // 小隊（含小隊長/副小隊長）
   const patrolMembers = currentCadres.filter((c: any) => patrolRoles.includes(c.role))
   // EC
@@ -4795,13 +4804,19 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
     ecGroups[k].push(c)
   })
   // 剩餘
-  const usedInPLCEC = new Set([...plcHeadRoles, ...patrolRoles, ...Object.keys(ecRoleMap)])
+  const usedInPLCEC = new Set([...groupLeaderRoles, ...unitLeaderRoles, ...patrolRoles, ...Object.keys(ecRoleMap)])
   const remainingCadres = currentCadres.filter((c: any) => !usedInPLCEC.has(c.role))
 
-  // PLC 主席卡片
-  const plcHeadHtml = plcHeads.length > 0
-    ? `<div class="flex flex-wrap justify-center gap-6 mb-6">${plcHeads.map((c: any) => adminPersonCard(c)).join('')}</div>`
+  // 第1層卡片：團長 / 副團長
+  const groupLeaderHtml = groupLeaders.length > 0
+    ? `<div class="flex flex-wrap justify-center gap-6 mb-2">${groupLeaders.map((c: any) => adminPersonCard(c, 'border-purple-200 bg-purple-50')).join('')}</div>`
     : ''
+  // 第2層卡片：聯隊長 / 副聯隊長
+  const unitLeaderHtml = unitLeaders.length > 0
+    ? `<div class="flex flex-wrap justify-center gap-6 mb-6">${unitLeaders.map((c: any) => adminPersonCard(c, 'border-green-300 bg-green-50')).join('')}</div>`
+    : ''
+  // 舊 plcHeadHtml 僅供結構相容（已改用上面兩個）
+  const plcHeadHtml = (groupLeaderHtml || unitLeaderHtml) ? groupLeaderHtml + unitLeaderHtml : ''
 
   // 小隊卡片（以 notes 分組，也用 org patrols）
   const patrolsByUnit: Record<string, any[]> = {}
@@ -5022,6 +5037,67 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
     </div>
     ` : ''}
 
+    <!-- ===== 第1層：團長 / 副團長 ===== -->
+    <div class="mb-4">
+      <div class="flex items-center mb-4">
+        <div class="flex-1 h-px bg-purple-200"></div>
+        <div class="text-center px-4">
+          <h3 class="text-base font-bold text-purple-800">🏛️ 團長 / 副團長</h3>
+          <p class="text-xs text-purple-400 mt-0.5">Group Leaders</p>
+        </div>
+        <div class="flex-1 h-px bg-purple-200"></div>
+      </div>
+      ${groupLeaderHtml || `
+        <div class="flex flex-wrap justify-center gap-3 mb-2">
+          <button onclick="openAddCadre('團長')" class="bg-purple-50 border border-purple-300 rounded-xl px-4 py-2 text-sm text-purple-700 hover:bg-purple-100 flex items-center gap-2">
+            ➕ 新增團長
+          </button>
+          <button onclick="openAddCadre('副團長')" class="bg-purple-50 border border-purple-300 rounded-xl px-4 py-2 text-sm text-purple-700 hover:bg-purple-100 flex items-center gap-2">
+            ➕ 新增副團長
+          </button>
+        </div>
+      `}
+    </div>
+
+    <!-- 連接線 -->
+    <div class="flex justify-center mb-4">
+      <div class="w-px h-8 bg-gray-300"></div>
+    </div>
+
+    <!-- ===== 第2層：聯隊長 / 副聯隊長 ===== -->
+    <div class="mb-4">
+      <div class="flex items-center mb-4">
+        <div class="flex-1 h-px bg-green-300"></div>
+        <div class="text-center px-4">
+          <h3 class="text-base font-bold text-green-800">🌿 聯隊長 / 副聯隊長</h3>
+          <p class="text-xs text-green-400 mt-0.5">Unit Leaders</p>
+        </div>
+        <div class="flex-1 h-px bg-green-300"></div>
+      </div>
+      ${unitLeaderHtml || `
+        <div class="flex flex-wrap justify-center gap-3 mb-2">
+          <button onclick="openAddCadre('聯隊長')" class="bg-green-50 border border-green-300 rounded-xl px-4 py-2 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">
+            ➕ 新增聯隊長
+          </button>
+          <button onclick="openAddCadre('副聯隊長')" class="bg-green-50 border border-green-300 rounded-xl px-4 py-2 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">
+            ➕ 新增副聯隊長
+          </button>
+        </div>
+      `}
+    </div>
+
+    <!-- 連接線 -->
+    <div class="flex justify-center gap-20 mb-4">
+      <div class="w-px h-8 bg-gray-300"></div>
+      <div class="w-px h-8 bg-gray-300"></div>
+    </div>
+
+    <!-- ===== 第3層：PLC + EC 並排說明 ===== -->
+    <div class="flex justify-center gap-6 mb-6">
+      <div class="bg-green-100 border border-green-300 rounded-xl px-5 py-2 text-sm font-bold text-green-800">小隊長議會 PLC</div>
+      <div class="bg-blue-100 border border-blue-300 rounded-xl px-5 py-2 text-sm font-bold text-blue-800">執行委員會 EC</div>
+    </div>
+
     ${plcHeads.length > 0 || patrolMembers.length > 0 || orgPatrols.length > 0 ? `
     <!-- PLC 區塊 -->
     <div class="mb-10">
@@ -5037,17 +5113,6 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
         </button>
         <div class="flex-1 h-px bg-green-200"></div>
       </div>
-
-      ${plcHeadHtml}
-      ${plcHeads.length === 0 ? `
-        <div class="flex justify-center mb-6">
-          <button onclick="openAddCadre('聯隊長')"
-            class="bg-gray-50 border-2 border-dashed border-green-300 rounded-2xl px-8 py-4 flex items-center gap-3 hover:border-green-500 hover:bg-green-50 transition-colors text-green-700">
-            <span class="text-2xl">➕</span>
-            <span class="text-sm font-medium">新增聯隊長 / 副聯隊長</span>
-          </button>
-        </div>
-      ` : ''}
 
       ${patrolGridHtml || `
         <div class="text-center py-4 text-gray-400 text-sm">
@@ -5075,9 +5140,6 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       <div class="flex flex-wrap justify-center gap-3">
         <button onclick="openManagePatrols()" class="bg-white border border-green-300 rounded-xl px-4 py-2.5 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">
           ➕ 新增小隊
-        </button>
-        <button onclick="openAddCadre('聯隊長')" class="bg-white border border-green-300 rounded-xl px-4 py-2.5 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">
-          ➕ 新增聯隊長
         </button>
         <button onclick="openAddCadre('小隊長')" class="bg-white border border-green-300 rounded-xl px-4 py-2.5 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">
           ➕ 新增小隊長
@@ -5252,11 +5314,12 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
             <input type="text" id="cadre-role" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" placeholder="如：聯隊長、小隊長、組長…" list="role-suggestions">
             <datalist id="role-suggestions">
               <option value="童軍團長"></option>
+              <option value="團長"></option>
+              <option value="副團長"></option>
               <option value="聯隊長"></option>
               <option value="副聯隊長"></option>
               <option value="小隊長"></option>
               <option value="副小隊長"></option>
-              <option value="副隊長"></option>
               <option value="展演組長"></option>
               <option value="副展演長"></option>
               <option value="活動組長"></option>
@@ -5267,20 +5330,40 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
               <option value="副器材長"></option>
               <option value="公關組長"></option>
               <option value="副公關長"></option>
+              <option value="攝影組長"></option>
+              <option value="副攝影長"></option>
               <option value="群長"></option>
               <option value="副群長"></option>
               <option value="群顧問"></option>
-              <option value="團長"></option>
-              <option value="副團長"></option>
               <option value="行政長"></option>
               <option value="器材長"></option>
             </datalist>
-            <!-- 快速職位按鈕 -->
-            <div class="flex flex-wrap gap-1.5 mt-2" id="quick-role-btns">
-              <span class="text-xs text-gray-400 self-center">快速選：</span>
-              ${['聯隊長','副聯隊長','小隊長','副小隊長','展演組長','活動組長','行政組長','器材組長','公關組長','群長','副群長'].map(r =>
-                `<button type="button" onclick="document.getElementById('cadre-role').value='${r}'" class="text-xs px-2 py-0.5 bg-gray-100 hover:bg-green-100 hover:text-green-700 border rounded-full transition-colors">${r}</button>`
-              ).join('')}
+            <!-- 快速職位按鈕（分層顯示） -->
+            <div class="mt-2 space-y-1.5">
+              <div class="flex flex-wrap gap-1.5 items-center">
+                <span class="text-xs text-purple-400 font-medium w-12 shrink-0">第1層：</span>
+                ${['團長','副團長'].map(r =>
+                  `<button type="button" onclick="document.getElementById('cadre-role').value='${r}'" class="text-xs px-2 py-0.5 bg-purple-50 hover:bg-purple-100 hover:text-purple-700 text-purple-600 border border-purple-200 rounded-full transition-colors">${r}</button>`
+                ).join('')}
+              </div>
+              <div class="flex flex-wrap gap-1.5 items-center">
+                <span class="text-xs text-green-500 font-medium w-12 shrink-0">第2層：</span>
+                ${['聯隊長','副聯隊長'].map(r =>
+                  `<button type="button" onclick="document.getElementById('cadre-role').value='${r}'" class="text-xs px-2 py-0.5 bg-green-50 hover:bg-green-100 hover:text-green-700 text-green-600 border border-green-200 rounded-full transition-colors">${r}</button>`
+                ).join('')}
+              </div>
+              <div class="flex flex-wrap gap-1.5 items-center">
+                <span class="text-xs text-teal-500 font-medium w-12 shrink-0">PLC：</span>
+                ${['小隊長','副小隊長'].map(r =>
+                  `<button type="button" onclick="document.getElementById('cadre-role').value='${r}'" class="text-xs px-2 py-0.5 bg-teal-50 hover:bg-teal-100 hover:text-teal-700 text-teal-600 border border-teal-200 rounded-full transition-colors">${r}</button>`
+                ).join('')}
+              </div>
+              <div class="flex flex-wrap gap-1.5 items-center">
+                <span class="text-xs text-blue-400 font-medium w-12 shrink-0">EC：</span>
+                ${['展演組長','活動組長','行政組長','器材組長','公關組長','攝影組長'].map(r =>
+                  `<button type="button" onclick="document.getElementById('cadre-role').value='${r}'" class="text-xs px-2 py-0.5 bg-blue-50 hover:bg-blue-100 hover:text-blue-700 text-blue-600 border border-blue-200 rounded-full transition-colors">${r}</button>`
+                ).join('')}
+              </div>
             </div>
           </div>
           <div class="mb-3">
