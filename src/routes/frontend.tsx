@@ -1103,19 +1103,17 @@ frontendRoutes.get('/group/:slug', async (c) => {
 
 // ===================== 分組子頁面路由（必須在 :semester 路由之前）=====================
 
-// 組織架構頁
+// 組織架構頁（純職稱/說明，不含人名）
 frontendRoutes.get('/group/:slug/org', async (c) => {
   const db = c.env.DB
   const slug = c.req.param('slug')
   const group = await db.prepare(`SELECT * FROM scout_groups WHERE slug=? AND is_active=1`).bind(slug).first() as any
   if (!group) return c.notFound()
   const org = await db.prepare(`SELECT * FROM group_org_chart WHERE group_id=?`).bind(group.id).first() as any
-  // 同時載入現任幹部，讓前台組織架構能連動幹部管理資料
-  const cadres = await db.prepare(`SELECT * FROM group_cadres WHERE group_id=? AND is_current=1 ORDER BY display_order`).bind(group.id).all()
   const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
   const settings: Record<string, string> = {}
   settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
-  return c.html(renderSubPage(group, 'org', { org, cadres: cadres.results }, settings))
+  return c.html(renderSubPage(group, 'org', { org }, settings))
 })
 
 // 現任幹部頁
@@ -1728,158 +1726,75 @@ function renderSubPage(group: any, pageType: string, data: any, settings: Record
   let contentHtml = ''
 
   if (pageType === 'org') {
-    // data 現在是 { org, cadres } 的格式
+    // data 格式：{ org }（純職稱頁，不含人名）
     const orgPageData = data as any
-    const org = orgPageData?.org || orgPageData  // 相容舊格式
-    const allCadres: any[] = orgPageData?.cadres || []
+    const org = orgPageData?.org || orgPageData
 
-    // 解析 org JSON（職位說明、PLC/EC 設定）
+    // 解析 org JSON
     let orgData: any = {}
     if (org?.content) {
       try { orgData = JSON.parse(org.content) } catch {}
     }
-    const orgIntro: string   = orgData.intro || ''
-    const orgPatrols: any[]  = orgData.patrols || []
-    const orgComms: any[]    = orgData.committees || []
-    // 後台 org 頁設定的職位說明（用職稱作 key 查描述）
-    const orgGroupLeadersDesc: any[] = orgData.groupLeaders || []
-    const orgUnitLeadersDesc: any[]  = orgData.unitLeaders || orgData.leaders || []
+    const orgIntro: string         = orgData.intro || ''
+    const orgGroupLeaders: any[]   = orgData.groupLeaders || []
+    const orgUnitLeaders: any[]    = orgData.unitLeaders || orgData.leaders || []
+    const orgPatrols: any[]        = orgData.patrols || []
+    const orgComms: any[]          = orgData.committees || []
 
-    // ── 從幹部名冊建立層級（與後台幹部管理頁一致）──
-    const groupLeaderRoles = ['童軍團長','團長','副團長','群長','副群長','隊長','副隊長']
-    const unitLeaderRoles  = ['聯隊長','副聯隊長']
-    const patrolRoles      = ['小隊長','副小隊長']
-    const ecRoleMap: Record<string, string> = {
-      '展演組長':'展演組','副展演長':'展演組','展演長':'展演組',
-      '活動組長':'活動組','副活動長':'活動組','活動長':'活動組',
-      '行政組長':'行政組','副行政長':'行政組','行政長':'行政組',
-      '器材組長':'器材組','副器材長':'器材組','器材長':'器材組',
-      '公關組長':'公關組','副公關長':'公關組','公關長':'公關組',
-      '攝影組長':'攝影組','副攝影長':'攝影組','攝影長':'攝影組',
-    }
-
-    // 過濾各層幹部（從 group_cadres 資料）
-    const groupLeaderCadres = allCadres.filter((c: any) => groupLeaderRoles.includes(c.role))
-    const unitLeaderCadres  = allCadres.filter((c: any) => unitLeaderRoles.includes(c.role))
-    const patrolCadres      = allCadres.filter((c: any) => patrolRoles.includes(c.role))
-    const ecCadres          = allCadres.filter((c: any) => ecRoleMap[c.role])
-
-    // 建立職位說明對照表（从 org JSON）
-    const descByRole: Record<string, string> = {}
-    orgGroupLeadersDesc.forEach((l: any) => { if (l.role && l.desc) descByRole[l.role] = l.desc })
-    orgUnitLeadersDesc.forEach((l: any) => { if (l.role && l.desc) descByRole[l.role] = l.desc })
-
-    // ── 輔助：職位卡片（有姓名）──
-    const cadreRoleCard = (c: any, colorClass: string, bgClass: string) => {
-      const desc = descByRole[c.role] || ''
-      return `<div class="rounded-2xl border-2 ${colorClass} ${bgClass} shadow-sm p-4 text-center hover:shadow-md transition-shadow min-w-[130px] max-w-[180px]">
-        ${c.photo_url ? `<img src="${c.photo_url}" alt="${c.chinese_name}" class="w-14 h-14 rounded-full object-cover mx-auto mb-2 border-2 ${colorClass}" onerror="this.style.display='none'">` : `<div class="w-14 h-14 rounded-full mx-auto mb-2 flex items-center justify-center text-2xl ${bgClass} border-2 ${colorClass}">👤</div>`}
-        <div class="text-xs font-semibold opacity-70 mb-0.5">${c.role}</div>
-        <div class="font-bold text-gray-800 text-sm">${c.chinese_name}</div>
-        ${c.english_name && c.english_name !== 'null' ? `<div class="text-xs text-gray-400 mt-0.5">${c.english_name}</div>` : ''}
-        ${desc ? `<p class="text-xs text-gray-500 mt-1 leading-relaxed">${desc}</p>` : ''}
-      </div>`
-    }
-
-    // ── 輔助：純職稱卡片（無幹部時，從 org JSON 設定顯示）──
-    const roleDescCard = (role: string, desc: string, colorText: string, borderClass: string, bgClass: string) =>
-      `<div class="rounded-2xl border-2 ${borderClass} ${bgClass} shadow-sm p-4 text-center hover:shadow-md transition-shadow min-w-[130px] max-w-[200px]">
+    // ── 純職稱卡片（無人名）──
+    const roleTitleCard = (role: string, desc: string, icon: string, colorText: string, borderClass: string, bgClass: string) =>
+      `<div class="rounded-2xl border-2 ${borderClass} ${bgClass} shadow-sm p-5 text-center hover:shadow-md transition-shadow min-w-[140px] max-w-[220px]">
+        <div class="text-3xl mb-2">${icon}</div>
         <div class="font-bold ${colorText} text-base mb-1">${role}</div>
-        ${desc ? `<p class="text-xs text-gray-500 leading-relaxed">${desc}</p>` : ''}
+        ${desc ? `<p class="text-xs text-gray-500 leading-relaxed mt-1">${desc}</p>` : ''}
       </div>`
 
-    // ── 第1層：先看幹部，無幹部則看 org JSON 設定 ──
+    // 第1層卡片
     let layer1Html = ''
-    if (groupLeaderCadres.length > 0) {
-      layer1Html = `<div class="flex flex-wrap justify-center gap-4">${groupLeaderCadres.map(c => cadreRoleCard(c, 'border-purple-300', 'bg-purple-50')).join('')}</div>`
-    } else if (orgGroupLeadersDesc.length > 0) {
-      layer1Html = `<div class="flex flex-wrap justify-center gap-4">${orgGroupLeadersDesc.map((l: any) => roleDescCard(l.role, l.desc || '', 'text-purple-800', 'border-purple-200', 'bg-purple-50')).join('')}</div>`
+    if (orgGroupLeaders.length > 0) {
+      layer1Html = `<div class="flex flex-wrap justify-center gap-4">${orgGroupLeaders.map((l: any) => roleTitleCard(l.role || '', l.desc || '', '🏛️', 'text-purple-800', 'border-purple-300', 'bg-purple-50')).join('')}</div>`
     } else {
-      layer1Html = `<div class="flex justify-center"><div class="rounded-2xl border-2 border-purple-200 bg-purple-50 shadow-sm p-4 text-center">
-        <div class="font-bold text-purple-800">團長 / 副團長</div>
+      layer1Html = `<div class="flex justify-center"><div class="rounded-2xl border-2 border-purple-200 bg-purple-50 shadow-sm p-5 text-center">
+        <div class="text-3xl mb-2">🏛️</div>
+        <div class="font-bold text-purple-800 text-base">團長 / 副團長</div>
         <p class="text-xs text-gray-400 mt-1">全團最高領導</p>
       </div></div>`
     }
 
-    // ── 第2層：先看幹部，無幹部則看 org JSON 設定 ──
+    // 第2層卡片
     let layer2Html = ''
-    if (unitLeaderCadres.length > 0) {
-      layer2Html = `<div class="flex flex-wrap justify-center gap-4">${unitLeaderCadres.map(c => cadreRoleCard(c, 'border-green-300', 'bg-green-50')).join('')}</div>`
-    } else if (orgUnitLeadersDesc.length > 0) {
-      layer2Html = `<div class="flex flex-wrap justify-center gap-4">${orgUnitLeadersDesc.map((l: any) => roleDescCard(l.role, l.desc || '', 'text-green-800', 'border-green-300', 'bg-green-50')).join('')}</div>`
+    if (orgUnitLeaders.length > 0) {
+      layer2Html = `<div class="flex flex-wrap justify-center gap-4">${orgUnitLeaders.map((l: any) => roleTitleCard(l.role || '', l.desc || '', '🌿', 'text-green-800', 'border-green-300', 'bg-green-50')).join('')}</div>`
     }
 
-    // ── 小隊（PLC）卡片 ──
-    // 優先用 org JSON 的小隊設定（含說明/隊徽），然後疊加幹部姓名
-    const patrolsByUnit: Record<string, any[]> = {}
-    patrolCadres.forEach((c: any) => {
-      const k = c.notes || '未分配小隊'
-      if (!patrolsByUnit[k]) patrolsByUnit[k] = []
-      patrolsByUnit[k].push(c)
-    })
+    // 第3層 PLC 小隊卡片（純職稱/說明，不含人名）
+    const patrolCardsHtml = orgPatrols.length > 0
+      ? orgPatrols.map((p: any) => `
+        <div class="bg-white rounded-2xl border-2 border-teal-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+          <div class="h-20 overflow-hidden bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
+            ${(p.photo_url || p.image_url)
+              ? `<img src="${p.photo_url || p.image_url}" alt="${p.name}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<span class=\\'text-3xl\\'>🏕️</span>'">`
+              : `<span class="text-3xl">🏕️</span>`}
+          </div>
+          <div class="p-3 text-center">
+            <div class="font-bold text-gray-800 text-sm mb-1">${p.name || ''}</div>
+            ${p.desc ? `<p class="text-xs text-gray-500">${p.desc}</p>` : ''}
+          </div>
+        </div>`).join('')
+      : ''
 
-    const buildPatrolCards = () => {
-      if (orgPatrols.length > 0) {
-        // 使用 org JSON 的小隊設定
-        return orgPatrols.map((p: any) => {
-          const members = patrolsByUnit[p.name] || []
-          return `<div class="bg-white rounded-2xl border-2 border-teal-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-            <div class="h-20 overflow-hidden bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
-              ${(p.photo_url || p.image_url)
-                ? `<img src="${p.photo_url || p.image_url}" alt="${p.name}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<span class=\\'text-3xl\\'>🏕️</span>'">`
-                : `<span class="text-3xl">🏕️</span>`}
-            </div>
-            <div class="p-3 text-center">
-              <div class="font-bold text-gray-800 text-sm mb-1">${p.name || ''}</div>
-              ${p.desc ? `<p class="text-xs text-gray-500 mb-2">${p.desc}</p>` : ''}
-              ${members.length > 0 ? members.map((m: any) => `<div class="text-xs text-teal-700 font-medium">${m.role} ${m.chinese_name}</div>`).join('') : ''}
-            </div>
-          </div>`
-        }).join('')
-      } else if (Object.keys(patrolsByUnit).length > 0) {
-        // 無 org 設定但有幹部，按單位分組
-        return Object.entries(patrolsByUnit).map(([unit, members]) => {
-          return `<div class="bg-white rounded-2xl border-2 border-teal-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-            <div class="h-16 bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
-              <span class="text-2xl">🏕️</span>
-            </div>
-            <div class="p-3 text-center">
-              <div class="font-bold text-gray-800 text-sm mb-1">${unit}</div>
-              ${members.map((m: any) => `<div class="text-xs text-teal-700 font-medium">${m.role} ${m.chinese_name}</div>`).join('')}
-            </div>
-          </div>`
-        }).join('')
-      }
-      return ''
-    }
-    const patrolCardsHtml = buildPatrolCards()
-
-    // ── EC 委員會卡片 ──
-    const ecGroups: Record<string, any[]> = {}
-    ecCadres.forEach((c: any) => {
-      const k = ecRoleMap[c.role]
-      if (!ecGroups[k]) ecGroups[k] = []
-      ecGroups[k].push(c)
-    })
-
-    const buildCommitteeCards = () => {
-      // 合併 org JSON 的委員會設定與幹部
-      const allCommNames = new Set([...Object.keys(ecGroups), ...orgComms.map((c: any) => c.name)])
-      return Array.from(allCommNames).map(name => {
-        const orgComm = orgComms.find((c: any) => c.name === name)
-        const members = ecGroups[name] || []
-        return `<div class="bg-white rounded-2xl border-2 border-blue-200 shadow-sm p-4 text-center hover:shadow-md transition-shadow">
+    // 第4層 EC 委員會卡片（純職稱/說明，不含人名）
+    const committeeCardsHtml = orgComms.length > 0
+      ? orgComms.map((c: any) => `
+        <div class="bg-white rounded-2xl border-2 border-blue-200 shadow-sm p-4 text-center hover:shadow-md transition-shadow">
           <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-xl mx-auto mb-2">⚙️</div>
-          <div class="font-bold text-gray-800 text-sm mb-1">${name}</div>
-          ${orgComm?.desc ? `<p class="text-xs text-gray-500 leading-relaxed mb-2">${orgComm.desc}</p>` : ''}
-          ${members.length > 0 ? `<div class="space-y-0.5 mt-1">${members.map((m: any) => `<div class="text-xs text-blue-700 font-medium">${m.role} ${m.chinese_name}</div>`).join('')}</div>` : ''}
-          ${orgComm?.roles && orgComm.roles.length ? `<div class="flex flex-wrap justify-center gap-1 mt-2">${orgComm.roles.map((r: string) => `<span class="text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2 py-0.5">${r}</span>`).join('')}</div>` : ''}
-        </div>`
-      }).join('')
-    }
-    const committeeCardsHtml = buildCommitteeCards()
+          <div class="font-bold text-gray-800 text-sm mb-1">${c.name || ''}</div>
+          ${c.desc ? `<p class="text-xs text-gray-500 leading-relaxed mb-2">${c.desc}</p>` : ''}
+          ${c.roles && c.roles.length ? `<div class="flex flex-wrap justify-center gap-1 mt-2">${c.roles.map((r: string) => `<span class="text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2 py-0.5">${r}</span>`).join('')}</div>` : ''}
+        </div>`).join('')
+      : ''
 
-    const hasContent = groupLeaderCadres.length > 0 || unitLeaderCadres.length > 0 ||
+    const hasContent = orgGroupLeaders.length > 0 || orgUnitLeaders.length > 0 ||
       patrolCardsHtml || committeeCardsHtml || orgIntro || org?.image_url
 
     contentHtml = `
@@ -1893,42 +1808,41 @@ function renderSubPage(group: any, pageType: string, data: any, settings: Record
         <img src="${org.image_url}" alt="組織架構圖" class="max-w-full mx-auto rounded-xl shadow-md">
       </div>` : ''}
 
-      <!-- ── 三層架構圖 ── -->
+      <!-- ── 四層架構圖 ── -->
       <div class="bg-white rounded-2xl shadow-md p-6 sm:p-8 mb-8">
         <h2 class="text-xl font-bold text-gray-800 mb-8 text-center flex items-center justify-center gap-2">
           <span>🏛️</span> 組織架構
         </h2>
 
-        <!-- 第1層：團長/副團長 -->
-        <div class="mb-3">
-          <div class="text-center text-xs font-semibold text-purple-500 uppercase tracking-widest mb-3">全團領導 · Group Leaders</div>
+        <!-- 第1層：全團領導職位 -->
+        <div class="mb-4">
+          <div class="text-center text-xs font-semibold text-purple-500 uppercase tracking-widest mb-4">第1層 · 全團領導 · Group Leaders</div>
           ${layer1Html}
         </div>
 
         <!-- 連接線 -->
-        <div class="flex justify-center my-3"><div class="w-px h-8 bg-gray-300"></div></div>
+        <div class="flex justify-center my-4"><div class="w-px h-8 bg-gray-300"></div></div>
 
-        <!-- 第2層：聯隊長/副聯隊長 -->
+        <!-- 第2層：聯隊領導職位 -->
         ${layer2Html ? `
-        <div class="mb-3">
-          <div class="text-center text-xs font-semibold text-green-600 uppercase tracking-widest mb-3">聯隊領導 · Unit Leaders</div>
+        <div class="mb-4">
+          <div class="text-center text-xs font-semibold text-green-600 uppercase tracking-widest mb-4">第2層 · 聯隊領導 · Unit Leaders</div>
           ${layer2Html}
         </div>
-        <!-- 連接線到 PLC + EC -->
-        <div class="flex justify-center gap-24 sm:gap-40 my-3">
+        <div class="flex justify-center gap-24 sm:gap-40 my-4">
           <div class="w-px h-8 bg-gray-300"></div>
           <div class="w-px h-8 bg-gray-300"></div>
         </div>
-        ` : '<div class="flex justify-center gap-24 sm:gap-40 my-3"><div class="w-px h-8 bg-gray-300"></div><div class="w-px h-8 bg-gray-300"></div></div>'}
+        ` : '<div class="flex justify-center gap-24 sm:gap-40 my-4"><div class="w-px h-8 bg-gray-300"></div><div class="w-px h-8 bg-gray-300"></div></div>'}
 
-        <!-- 第3層標題：PLC + EC 並排 -->
+        <!-- 第3/4層標題：PLC + EC 並排 -->
         <div class="grid grid-cols-2 gap-4">
-          <div class="bg-green-50 border-2 border-green-200 rounded-xl p-3 text-center">
-            <div class="font-bold text-green-800 text-sm">小隊長議會 PLC</div>
-            <div class="text-xs text-green-500 mt-0.5">Patrol Leaders' Council</div>
+          <div class="bg-teal-50 border-2 border-teal-200 rounded-xl p-3 text-center">
+            <div class="font-bold text-teal-800 text-sm">第3層 · 小隊長議會 PLC</div>
+            <div class="text-xs text-teal-500 mt-0.5">Patrol Leaders' Council</div>
           </div>
           <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-3 text-center">
-            <div class="font-bold text-blue-800 text-sm">執行委員會 EC</div>
+            <div class="font-bold text-blue-800 text-sm">第4層 · 執行委員會 EC</div>
             <div class="text-xs text-blue-400 mt-0.5">Executive Committee</div>
           </div>
         </div>
@@ -1938,12 +1852,12 @@ function renderSubPage(group: any, pageType: string, data: any, settings: Record
       ${patrolCardsHtml ? `
       <div class="mb-8">
         <div class="flex items-center mb-5">
-          <div class="flex-1 h-px bg-green-200"></div>
+          <div class="flex-1 h-px bg-teal-200"></div>
           <div class="text-center px-4">
-            <h3 class="text-lg font-bold text-green-800">PLC 小隊長議會</h3>
-            <p class="text-xs text-green-500 mt-0.5">Patrol Leaders Council</p>
+            <h3 class="text-lg font-bold text-teal-800">⚔️ PLC 小隊長議會</h3>
+            <p class="text-xs text-teal-500 mt-0.5">Patrol Leaders Council</p>
           </div>
-          <div class="flex-1 h-px bg-green-200"></div>
+          <div class="flex-1 h-px bg-teal-200"></div>
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           ${patrolCardsHtml}
@@ -1956,7 +1870,7 @@ function renderSubPage(group: any, pageType: string, data: any, settings: Record
         <div class="flex items-center mb-5">
           <div class="flex-1 h-px bg-blue-200"></div>
           <div class="text-center px-4">
-            <h3 class="text-lg font-bold text-blue-800">執行委員會 EC</h3>
+            <h3 class="text-lg font-bold text-blue-800">⚙️ 執行委員會 EC</h3>
             <p class="text-xs text-blue-400 mt-0.5">Executive Committee</p>
           </div>
           <div class="flex-1 h-px bg-blue-200"></div>
@@ -1970,7 +1884,7 @@ function renderSubPage(group: any, pageType: string, data: any, settings: Record
       <div class="text-center py-20 text-gray-400">
         <div class="text-5xl mb-4">🏛️</div>
         <p class="text-lg">組織架構資料設定中</p>
-        <p class="text-sm mt-1 text-gray-300">請至後台管理介面新增幹部資料</p>
+        <p class="text-sm mt-1 text-gray-300">請至後台「組織架構設定」新增職稱</p>
       </div>` : ''}
     `
 
@@ -2114,18 +2028,45 @@ function renderSubPage(group: any, pageType: string, data: any, settings: Record
 
 // ===================== 現任幹部頁（PLC + EC 排版）=====================
 function renderCadresPage(group: any, cadres: any[], orgChart: any, settings: Record<string, string>) {
-  // 解析 org chart JSON
-  let leaders: any[] = []
-  let patrols: any[] = []
-  let committees: any[] = []
+  // 解析 org chart JSON（職稱架構定義）
+  let orgGroupLeaders: any[] = []  // 第1層定義
+  let orgUnitLeaders: any[]  = []  // 第2層定義
+  let patrols: any[]         = []  // 第3層小隊定義
+  let committees: any[]      = []  // 第4層委員會定義
   if (orgChart?.content) {
     try {
       const parsed = JSON.parse(orgChart.content)
-      leaders = parsed.leaders || []
-      patrols = parsed.patrols || []
-      committees = parsed.committees || []
+      orgGroupLeaders = parsed.groupLeaders || []
+      orgUnitLeaders  = parsed.unitLeaders || parsed.leaders || []
+      patrols         = parsed.patrols || []
+      committees      = parsed.committees || []
     } catch {}
   }
+
+  // 從 org JSON 建立職稱集合（與後台 cadres 頁同步邏輯）
+  const glRoles = orgGroupLeaders.map((l: any) => l.role).filter(Boolean) as string[]
+  const ulRoles = orgUnitLeaders.map((l: any) => l.role).filter(Boolean) as string[]
+  const fallbackGLRoles = ['童軍團長','團長','副團長','群長','副群長','隊長','副隊長']
+  const fallbackULRoles = ['聯隊長','副聯隊長']
+  const effectiveGLRoles = glRoles.length > 0 ? glRoles : fallbackGLRoles
+  const effectiveULRoles = ulRoles.length > 0 ? ulRoles : fallbackULRoles
+
+  // EC role map：從 org committees 的 roles 陣列建立，fallback 到預設
+  const effectiveEcRoleMap: Record<string, string> = {}
+  committees.forEach((comm: any) => {
+    if (comm.roles && comm.roles.length) {
+      comm.roles.forEach((r: string) => { if (r) effectiveEcRoleMap[r] = comm.name })
+    }
+  })
+  const fallbackEcRoleMap: Record<string, string> = {
+    '展演組長':'展演組','副展演長':'展演組','展演長':'展演組',
+    '活動組長':'活動組','副活動長':'活動組','活動長':'活動組',
+    '行政組長':'行政組','副行政長':'行政組','行政長':'行政組',
+    '器材組長':'器材組','副器材長':'器材組','器材長':'器材組',
+    '公關組長':'公關組','副公關長':'公關組','公關長':'公關組',
+    '攝影組長':'攝影組','副攝影長':'攝影組','攝影長':'攝影組',
+  }
+  const ecRoleMap = Object.keys(effectiveEcRoleMap).length > 0 ? effectiveEcRoleMap : fallbackEcRoleMap
 
   // 學年度
   const yearLabel = cadres.length > 0 ? (cadres[0].year_label || '') : ''
@@ -2149,6 +2090,7 @@ function renderCadresPage(group: any, cadres: any[], orgChart: any, settings: Re
       { label: '現任幹部', path: 'cadres' },
       { label: '歷屆幹部', path: 'past-cadres' },
       { label: '歷屆名單', path: 'alumni' },
+      { label: '組織架構', path: 'org' },
     ],
   } as Record<string, any[]>)[String(group.id)] || []
 
@@ -2163,145 +2105,164 @@ function renderCadresPage(group: any, cadres: any[], orgChart: any, settings: Re
     </div>
   </div>` : ''
 
-  // 輔助：從幹部名單找特定職位
-  const findCadre = (role: string) => cadres.find((c: any) => c.role === role)
-  const findCadresByRole = (roles: string[]) => cadres.filter((c: any) => roles.includes(c.role))
-
-  // 渲染一個人物卡片（photo圓形，姓名＋職銜）
-  const personCard = (name: string, role: string, engName: string, photo: string, size: 'lg'|'md'|'sm' = 'md') => {
-    const sizes = {
-      lg: { wrap: 'w-28 h-28', emoji: 'text-5xl', nameSize: 'text-base', roleSize: 'text-xs' },
-      md: { wrap: 'w-20 h-20', emoji: 'text-3xl', nameSize: 'text-sm', roleSize: 'text-xs' },
-      sm: { wrap: 'w-16 h-16', emoji: 'text-2xl', nameSize: 'text-xs', roleSize: 'text-xs' },
+  // 輔助：幹部人物卡片（圓形照片 + 姓名 + 職稱）
+  const personCard = (c: any, size: 'lg'|'md'|'sm' = 'md') => {
+    const sizeMap = {
+      lg: { wrap: 'w-28 h-28', emoji: 'text-5xl', nameSize: 'text-base' },
+      md: { wrap: 'w-20 h-20', emoji: 'text-3xl', nameSize: 'text-sm' },
+      sm: { wrap: 'w-16 h-16', emoji: 'text-2xl', nameSize: 'text-xs' },
     }[size]
-    const displayName = name || '（待填入）'
     return `
     <div class="flex flex-col items-center gap-1.5 text-center">
-      <div class="${sizes.wrap} rounded-full overflow-hidden bg-green-50 border-2 border-green-300 flex items-center justify-center shadow-md flex-shrink-0">
-        ${photo
-          ? `<img src="${photo}" alt="${displayName}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<span class=\\'${sizes.emoji}\\'>⭐</span>'">`
-          : `<span class="${sizes.emoji}">⭐</span>`}
+      <div class="${sizeMap.wrap} rounded-full overflow-hidden bg-green-50 border-2 border-green-300 flex items-center justify-center shadow-md flex-shrink-0">
+        ${c.photo_url
+          ? `<img src="${c.photo_url}" alt="${c.chinese_name}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<span class=\\'${sizeMap.emoji}\\'>⭐</span>'">`
+          : `<span class="${sizeMap.emoji}">⭐</span>`}
       </div>
       <div>
-        <div class="inline-block text-xs font-semibold text-green-800 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full mb-0.5">${role}</div>
-        <div class="font-bold text-gray-800 ${sizes.nameSize}">${displayName}</div>
-        ${engName ? `<div class="text-gray-400 text-xs">${engName}</div>` : ''}
+        <div class="inline-block text-xs font-semibold text-green-800 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full mb-0.5">${c.role}</div>
+        <div class="font-bold text-gray-800 ${sizeMap.nameSize}">${c.chinese_name}</div>
+        ${c.english_name && c.english_name !== 'null' ? `<div class="text-gray-400 text-xs">${c.english_name}</div>` : ''}
       </div>
     </div>`
   }
 
   // ─────────────────────────────────────────
-  // PLC 區塊
+  // 第1層：全團領導
   // ─────────────────────────────────────────
+  const groupLeaderCadres = cadres.filter((c: any) => effectiveGLRoles.includes(c.role))
+  const groupLeaderHtml = groupLeaderCadres.length > 0 ? `
+  <div class="mb-2">
+    <div class="text-center text-xs font-semibold text-purple-500 uppercase tracking-widest mb-4">全團領導 · Group Leaders</div>
+    <div class="flex flex-wrap justify-center gap-6 sm:gap-10 mb-4">
+      ${groupLeaderCadres.map((c: any) => personCard(c, 'lg')).join('')}
+    </div>
+  </div>` : (orgGroupLeaders.length > 0 ? `
+  <div class="mb-2">
+    <div class="text-center text-xs font-semibold text-purple-500 uppercase tracking-widest mb-4">全團領導 · Group Leaders</div>
+    <div class="flex flex-wrap justify-center gap-6 sm:gap-10 mb-4">
+      ${orgGroupLeaders.map((l: any) => `
+      <div class="flex flex-col items-center gap-1.5 text-center">
+        <div class="w-28 h-28 rounded-full overflow-hidden bg-purple-50 border-2 border-purple-200 flex items-center justify-center shadow-md">
+          <span class="text-5xl">⭐</span>
+        </div>
+        <div>
+          <div class="inline-block text-xs font-semibold text-purple-800 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full mb-0.5">${l.role}</div>
+          <div class="font-bold text-gray-400 text-base">（待填入）</div>
+        </div>
+      </div>`).join('')}
+    </div>
+  </div>` : '')
 
-  // PLC 主席（聯隊長 / 副聯隊長）
-  // 優先從 org chart leaders 取，其次從 cadres
-  const plcHeadItems: any[] = (() => {
-    if (leaders.length > 0) return leaders
-    return findCadresByRole(['聯隊長','副聯隊長','隊長','副隊長','群長','副群長'])
-      .map((c: any) => ({ role: c.role, name: c.chinese_name, english_name: c.english_name, photo_url: c.photo_url || '' }))
-  })()
+  // ─────────────────────────────────────────
+  // 第2層：聯隊領導
+  // ─────────────────────────────────────────
+  const unitLeaderCadres = cadres.filter((c: any) => effectiveULRoles.includes(c.role))
+  const unitLeaderHtml = unitLeaderCadres.length > 0 ? `
+  <div class="mb-2">
+    <div class="text-center text-xs font-semibold text-green-600 uppercase tracking-widest mb-4">聯隊領導 · Unit Leaders</div>
+    <div class="flex flex-wrap justify-center gap-6 sm:gap-10 mb-4">
+      ${unitLeaderCadres.map((c: any) => personCard(c, 'lg')).join('')}
+    </div>
+  </div>` : (orgUnitLeaders.length > 0 ? `
+  <div class="mb-2">
+    <div class="text-center text-xs font-semibold text-green-600 uppercase tracking-widest mb-4">聯隊領導 · Unit Leaders</div>
+    <div class="flex flex-wrap justify-center gap-6 sm:gap-10 mb-4">
+      ${orgUnitLeaders.map((l: any) => `
+      <div class="flex flex-col items-center gap-1.5 text-center">
+        <div class="w-28 h-28 rounded-full overflow-hidden bg-green-50 border-2 border-green-300 flex items-center justify-center shadow-md">
+          <span class="text-5xl">⭐</span>
+        </div>
+        <div>
+          <div class="inline-block text-xs font-semibold text-green-800 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full mb-0.5">${l.role}</div>
+          <div class="font-bold text-gray-400 text-base">（待填入）</div>
+        </div>
+      </div>`).join('')}
+    </div>
+  </div>` : '')
 
-  const plcHeadHtml = plcHeadItems.length > 0 ? `
-  <div class="flex flex-wrap justify-center gap-10 mb-8">
-    ${plcHeadItems.map((p: any) => personCard(
-      p.name || p.chinese_name || '',
-      p.role || '',
-      p.english_name || '',
-      p.photo_url || '',
-      'lg'
-    )).join('')}
-  </div>` : ''
-
-  // 各小隊卡片（PLC patrols）
+  // ─────────────────────────────────────────
+  // PLC 區塊（第3層）—— 小隊卡片從 org patrols + group_cadres 合併顯示
+  // ─────────────────────────────────────────
+  const patrolCadres = cadres.filter((c: any) => ['小隊長','副小隊長'].includes(c.role))
   const patrolCardsHtml = (() => {
-    // 優先用 org chart patrols
     if (patrols.length > 0) {
       return `
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
         ${patrols.map((patrol: any) => {
-          const leaderName = patrol.leaderName || patrol.leader || ''
-          const subName = patrol.subLeaderName || patrol.vice_leader || ''
-          const leaderRole = patrol.leaderRole || '小隊長'
-          const subRole = patrol.subLeaderRole || '副小隊長'
+          const members = patrolCadres.filter((c: any) => c.notes === patrol.name)
           const photo = patrol.photo_url || patrol.image_url || ''
-          const members: any[] = patrol.members || []
           return `
           <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
-            <!-- 小隊圖片 / 隊徽 -->
             <div class="h-36 overflow-hidden bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
               ${photo
                 ? `<img src="${photo}" alt="${patrol.name}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<span class=\\'text-6xl\\'>🏕️</span>'">`
                 : `<span class="text-6xl">🏕️</span>`}
             </div>
-            <!-- 小隊資訊 -->
             <div class="p-4 text-center">
-              <h4 class="font-bold text-gray-800 text-sm mb-3">${patrol.name || ''}</h4>
-              <div class="space-y-1.5">
-                ${leaderName ? `
+              <h4 class="font-bold text-gray-800 text-sm mb-2">${patrol.name || ''}</h4>
+              ${patrol.desc ? `<p class="text-xs text-gray-400 mb-2">${patrol.desc}</p>` : ''}
+              <div class="space-y-1">
+                ${members.length > 0 ? members.map((c: any) => `
                 <div class="flex items-center justify-center gap-1.5 text-xs">
-                  <span class="bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">${leaderRole}</span>
-                  <span class="font-medium text-gray-700">${leaderName}</span>
-                </div>` : ''}
-                ${subName ? `
-                <div class="flex items-center justify-center gap-1.5 text-xs">
-                  <span class="bg-green-50 text-green-600 px-2 py-0.5 rounded-full border border-green-200">${subRole}</span>
-                  <span class="text-gray-600">${subName}</span>
-                </div>` : ''}
-                ${members.filter((m: any) => m.name).map((m: any) => `
-                <div class="flex items-center justify-center gap-1.5 text-xs">
-                  ${m.role ? `<span class="text-gray-400">${m.role}：</span>` : ''}
-                  <span class="text-gray-600">${m.name}</span>
-                </div>`).join('')}
+                  <span class="bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">${c.role}</span>
+                  <span class="font-medium text-gray-700">${c.chinese_name}</span>
+                </div>`).join('') : '<div class="text-xs text-gray-300">尚無成員</div>'}
               </div>
             </div>
           </div>`
         }).join('')}
       </div>`
     }
-
-    // 否則從幹部職位中推斷小隊（群組小隊長/副小隊長）
-    const patrolLeaders = findCadresByRole(['小隊長','副小隊長','副隊長'])
-    if (patrolLeaders.length === 0) return ''
-    const byUnit: Record<string, any[]> = {}
-    patrolLeaders.forEach((c: any) => {
-      const key = c.notes || c.unit_name || '未分配小隊'
-      if (!byUnit[key]) byUnit[key] = []
-      byUnit[key].push(c)
-    })
-    return `
-    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
-      ${Object.entries(byUnit).map(([unitName, members]) => `
-        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
-          <div class="h-36 bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
-            <span class="text-6xl">🏕️</span>
-          </div>
-          <div class="p-4 text-center">
-            <h4 class="font-bold text-gray-800 text-sm mb-3">${unitName}</h4>
-            ${members.map((m: any) => `
-            <div class="flex items-center justify-center gap-1.5 text-xs mb-1.5">
-              <span class="bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">${m.role}</span>
-              <span class="font-medium text-gray-700">${m.chinese_name}</span>
-            </div>`).join('')}
-          </div>
-        </div>`).join('')}
-    </div>`
+    // 無 org 設定但有小隊幹部，按 notes 分組
+    if (patrolCadres.length > 0) {
+      const byUnit: Record<string, any[]> = {}
+      patrolCadres.forEach((c: any) => {
+        const key = c.notes || '未分配小隊'
+        if (!byUnit[key]) byUnit[key] = []
+        byUnit[key].push(c)
+      })
+      return `
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
+        ${Object.entries(byUnit).map(([unitName, members]) => `
+          <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
+            <div class="h-36 bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
+              <span class="text-6xl">🏕️</span>
+            </div>
+            <div class="p-4 text-center">
+              <h4 class="font-bold text-gray-800 text-sm mb-3">${unitName}</h4>
+              ${members.map((m: any) => `
+              <div class="flex items-center justify-center gap-1.5 text-xs mb-1.5">
+                <span class="bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">${m.role}</span>
+                <span class="font-medium text-gray-700">${m.chinese_name}</span>
+              </div>`).join('')}
+            </div>
+          </div>`).join('')}
+      </div>`
+    }
+    return ''
   })()
 
-  const hasPLC = plcHeadHtml || patrolCardsHtml
+  const hasPLC = !!(groupLeaderHtml || unitLeaderHtml || patrolCardsHtml)
 
   // ─────────────────────────────────────────
   // EC 執行委員會 區塊
   // ─────────────────────────────────────────
+  const ecCadres = cadres.filter((c: any) => ecRoleMap[c.role] || (committees.length > 0 && committees.some((oc: any) => oc.name && c.notes === oc.name)))
+  const ecGroups: Record<string, any[]> = {}
+  ecCadres.forEach((c: any) => {
+    const k = ecRoleMap[c.role] || c.notes || '其他'
+    if (!ecGroups[k]) ecGroups[k] = []
+    ecGroups[k].push(c)
+  })
+
   const ecCardsHtml = (() => {
     if (committees.length > 0) {
       return `
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
         ${committees.map((comm: any) => {
           const photo = comm.photo_url || comm.image_url || ''
-          const leaderName = comm.leaderName || comm.leader || ''
-          const leaderRole = comm.leaderRole || '組長'
-          const members: any[] = comm.members || []
+          const members = ecGroups[comm.name] || []
           return `
           <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
             <div class="h-32 overflow-hidden bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
@@ -2311,56 +2272,40 @@ function renderCadresPage(group: any, cadres: any[], orgChart: any, settings: Re
             </div>
             <div class="p-4 text-center">
               <h4 class="font-bold text-gray-800 text-sm mb-3">${comm.name || ''}</h4>
+              ${comm.desc ? `<p class="text-xs text-gray-400 mb-2">${comm.desc}</p>` : ''}
               <div class="space-y-1.5">
-                ${leaderName ? `
+                ${members.length > 0 ? members.map((c: any) => `
                 <div class="flex items-center justify-center gap-1.5 text-xs">
-                  <span class="bg-blue-100 text-blue-700 font-semibold px-2 py-0.5 rounded-full">${leaderRole}</span>
-                  <span class="font-medium text-gray-700">${leaderName}</span>
-                </div>` : ''}
-                ${members.filter((m: any) => m.name).map((m: any) => `
-                <div class="flex items-center justify-center gap-1.5 text-xs">
-                  ${m.role ? `<span class="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-200">${m.role}</span>` : ''}
-                  <span class="text-gray-600">${m.name}</span>
-                </div>`).join('')}
+                  <span class="bg-blue-100 text-blue-700 font-semibold px-2 py-0.5 rounded-full">${c.role}</span>
+                  <span class="font-medium text-gray-700">${c.chinese_name}</span>
+                </div>`).join('') : '<div class="text-xs text-gray-300">尚無成員</div>'}
               </div>
             </div>
           </div>`
         }).join('')}
       </div>`
     }
-
-    // 否則從幹部推斷 EC 組
-    const ecRoleMap: Record<string, string> = {
-      '展演組長': '展演組', '副展演長': '展演組',
-      '活動組長': '活動組', '副活動長': '活動組',
-      '行政組長': '行政組', '副行政長': '行政組', '行政長': '行政組',
-      '器材組長': '器材組', '副器材長': '器材組', '器材長': '器材組',
-      '公關組長': '公關組', '副公關長': '公關組',
+    // 無 org 設定但有 EC 幹部，從 ecRoleMap 分組
+    if (Object.keys(ecGroups).length > 0) {
+      return `
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
+        ${Object.entries(ecGroups).map(([groupName, members]) => `
+          <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
+            <div class="h-32 bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+              <span class="text-5xl">⚙️</span>
+            </div>
+            <div class="p-4 text-center">
+              <h4 class="font-bold text-gray-800 text-sm mb-3">${groupName}</h4>
+              ${members.map((m: any) => `
+              <div class="flex items-center justify-center gap-1.5 text-xs mb-1.5">
+                <span class="bg-blue-100 text-blue-700 font-semibold px-2 py-0.5 rounded-full">${m.role}</span>
+                <span class="font-medium text-gray-700">${m.chinese_name}</span>
+              </div>`).join('')}
+            </div>
+          </div>`).join('')}
+      </div>`
     }
-    const ecGroups: Record<string, any[]> = {}
-    cadres.filter((c: any) => ecRoleMap[c.role]).forEach((c: any) => {
-      const key = ecRoleMap[c.role]
-      if (!ecGroups[key]) ecGroups[key] = []
-      ecGroups[key].push(c)
-    })
-    if (Object.keys(ecGroups).length === 0) return ''
-    return `
-    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
-      ${Object.entries(ecGroups).map(([groupName, members]) => `
-        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
-          <div class="h-32 bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-            <span class="text-5xl">⚙️</span>
-          </div>
-          <div class="p-4 text-center">
-            <h4 class="font-bold text-gray-800 text-sm mb-3">${groupName}</h4>
-            ${members.map((m: any) => `
-            <div class="flex items-center justify-center gap-1.5 text-xs mb-1.5">
-              <span class="bg-blue-100 text-blue-700 font-semibold px-2 py-0.5 rounded-full">${m.role}</span>
-              <span class="font-medium text-gray-700">${m.chinese_name}</span>
-            </div>`).join('')}
-          </div>
-        </div>`).join('')}
-    </div>`
+    return ''
   })()
 
   const hasEC = ecCardsHtml !== ''
@@ -2368,31 +2313,21 @@ function renderCadresPage(group: any, cadres: any[], orgChart: any, settings: Re
   // ─────────────────────────────────────────
   // 剩餘幹部（服務員等未分類）
   // ─────────────────────────────────────────
-  // 已在 PLC/EC 中使用的職位
-  const plcRoles = new Set(plcHeadItems.map((p: any) => p.role).filter(Boolean))
-  const patrolRoles = new Set(['小隊長','副小隊長','副隊長'])
-  const ecRoleNames = new Set(Object.values({
-    '展演組長': '展演組', '副展演長': '展演組',
-    '活動組長': '活動組', '副活動長': '活動組',
-    '行政組長': '行政組', '副行政長': '行政組', '行政長': '行政組',
-    '器材組長': '器材組', '副器材長': '器材組', '器材長': '器材組',
-    '公關組長': '公關組', '副公關長': '公關組',
-  }))
-  const usedInEc = new Set(['展演組長','副展演長','活動組長','副活動長','行政組長','副行政長','行政長','器材組長','副器材長','器材長','公關組長','副公關長'])
-
-  const remainingCadres = cadres.filter((c: any) => {
-    if (plcRoles.has(c.role)) return false
-    if (patrolRoles.has(c.role)) return false
-    if (usedInEc.has(c.role)) return false
-    return true
-  })
+  const usedRoles = new Set([
+    ...effectiveGLRoles, ...effectiveULRoles,
+    '小隊長', '副小隊長',
+    ...Object.keys(ecRoleMap)
+  ])
+  const remainingCadres = cadres.filter((c: any) =>
+    !usedRoles.has(c.role) && !ecCadres.includes(c)
+  )
 
   const remainingHtml = remainingCadres.length > 0 ? `
   <div class="mb-10">
     <div class="flex items-center mb-6">
       <div class="flex-1 h-px bg-green-200"></div>
       <h3 class="text-lg font-bold text-green-800 px-5 flex items-center gap-2">
-        <span>🎖️</span> 服務員 / 行政幹部
+        <span>🎖️</span> 服務員 / 其他幹部
       </h3>
       <div class="flex-1 h-px bg-green-200"></div>
     </div>
@@ -2411,26 +2346,67 @@ function renderCadresPage(group: any, cadres: any[], orgChart: any, settings: Re
     </div>
   </div>` : ''
 
-  const isEmpty = !hasPLC && !hasEC && remainingCadres.length === 0
+  const isEmpty = cadres.length === 0
+
+  // ─────────────────────────────────────────
+  // 幹部組織架構圖（最上方摘要圖）
+  // ─────────────────────────────────────────
+  const orgChartHtml = (groupLeaderHtml || unitLeaderHtml) ? `
+  <div class="bg-white rounded-2xl shadow-md p-6 sm:p-8 mb-10">
+    <h2 class="text-xl font-bold text-gray-800 mb-8 text-center flex items-center justify-center gap-2">
+      <span>🏛️</span> 幹部組織
+    </h2>
+
+    <!-- 第1層 -->
+    ${groupLeaderHtml || ''}
+
+    <!-- 連接線 -->
+    ${(groupLeaderHtml && unitLeaderHtml) ? '<div class="flex justify-center my-4"><div class="w-px h-8 bg-gray-300"></div></div>' : ''}
+
+    <!-- 第2層 -->
+    ${unitLeaderHtml || ''}
+
+    <!-- 連接線到 PLC + EC -->
+    ${unitLeaderHtml ? `
+    <div class="flex justify-center gap-24 sm:gap-40 my-4">
+      <div class="w-px h-8 bg-gray-300"></div>
+      <div class="w-px h-8 bg-gray-300"></div>
+    </div>
+    <!-- 第3/4層標題 -->
+    <div class="grid grid-cols-2 gap-4">
+      <div class="bg-teal-50 border-2 border-teal-200 rounded-xl p-3 text-center">
+        <div class="font-bold text-teal-800 text-sm">PLC 小隊長議會</div>
+        <div class="text-xs text-teal-500 mt-0.5">Patrol Leaders' Council</div>
+      </div>
+      <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-3 text-center">
+        <div class="font-bold text-blue-800 text-sm">執行委員會 EC</div>
+        <div class="text-xs text-blue-400 mt-0.5">Executive Committee</div>
+      </div>
+    </div>` : ''}
+  </div>` : ''
 
   const contentHtml = `
-    ${remainingHtml}
+    ${isEmpty ? `
+    <div class="text-center py-20 text-gray-400">
+      <div class="text-6xl mb-4">⭐</div>
+      <p class="text-lg font-medium">尚無現任幹部資料</p>
+      <p class="text-sm mt-2">請至後台新增幹部或組織架構資料</p>
+    </div>` : ''}
+
+    ${orgChartHtml}
 
     ${hasPLC ? `
     <div class="mb-12">
       <!-- PLC 標題 -->
       <div class="flex items-center mb-8">
-        <div class="flex-1 h-px bg-green-200"></div>
+        <div class="flex-1 h-px bg-teal-200"></div>
         <div class="text-center px-6">
-          <h3 class="text-xl font-bold text-green-800">PLC 小隊長議會</h3>
-          <p class="text-xs text-green-500 mt-0.5">Patrol Leaders Council</p>
+          <h3 class="text-xl font-bold text-teal-800">⚔️ PLC 小隊長議會</h3>
+          <p class="text-xs text-teal-500 mt-0.5">Patrol Leaders Council</p>
         </div>
-        <div class="flex-1 h-px bg-green-200"></div>
+        <div class="flex-1 h-px bg-teal-200"></div>
       </div>
-      <!-- PLC 主席 -->
-      ${plcHeadHtml}
-      <!-- 各小隊 -->
-      ${patrolCardsHtml}
+      ${patrolCardsHtml || '<div class="text-center text-gray-300 py-4 text-sm">尚無小隊資料</div>'}
     </div>` : ''}
 
     ${hasEC ? `
@@ -2439,7 +2415,7 @@ function renderCadresPage(group: any, cadres: any[], orgChart: any, settings: Re
       <div class="flex items-center mb-8">
         <div class="flex-1 h-px bg-blue-200"></div>
         <div class="text-center px-6">
-          <h3 class="text-xl font-bold text-blue-800">執行委員會 EC</h3>
+          <h3 class="text-xl font-bold text-blue-800">⚙️ 執行委員會 EC</h3>
           <p class="text-xs text-blue-400 mt-0.5">Executive Committee</p>
         </div>
         <div class="flex-1 h-px bg-blue-200"></div>
@@ -2447,12 +2423,8 @@ function renderCadresPage(group: any, cadres: any[], orgChart: any, settings: Re
       ${ecCardsHtml}
     </div>` : ''}
 
-    ${isEmpty ? `
-    <div class="text-center py-20 text-gray-400">
-      <div class="text-6xl mb-4">⭐</div>
-      <p class="text-lg font-medium">尚無現任幹部資料</p>
-      <p class="text-sm mt-2">請至後台新增幹部或組織架構資料</p>
-    </div>` : ''}`
+    ${remainingHtml}
+  `
 
   const breadcrumb = `
     <div class="flex items-center gap-2 text-green-300 text-sm mb-4 flex-wrap">
