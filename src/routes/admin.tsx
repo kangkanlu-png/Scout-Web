@@ -5881,7 +5881,8 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
       <div class="bg-white rounded-xl shadow-sm p-5">
         <h3 class="font-bold text-gray-700 mb-4">系統操作</h3>
         ${member.section === '服務員'
-          ? `<a href="/admin/leaders/member/${id}" class="block w-full text-center bg-amber-600 text-white py-2 rounded-lg hover:bg-amber-500 mb-2">🏅 服務員進程與獎章管理</a>`
+          ? `<a href="/admin/leaders/member/${id}" class="block w-full text-center bg-slate-600 text-white py-2 rounded-lg hover:bg-slate-500 mb-2">👮 服務員資料頁</a>
+             <a href="/admin/leaders/member/${id}/advancement" class="block w-full text-center bg-amber-600 text-white py-2 rounded-lg hover:bg-amber-500 mb-2">🏅 進程與獎章管理</a>`
           : `<a href="/admin/members/${id}?tab=advancement" class="block w-full text-center bg-green-600 text-white py-2 rounded-lg hover:bg-green-500 mb-2">管理進程與專科章</a>`
         }
         <a href="/admin/members-legacy/${id}" class="block w-full text-center bg-gray-100 text-gray-600 py-2 rounded-lg hover:bg-gray-200 text-sm">完整資料與出席記錄</a>
@@ -6026,7 +6027,7 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
       <div class="flex gap-2 bg-white rounded-lg p-1 shadow-sm border">
         <a href="?tab=info" class="px-4 py-1.5 rounded-md text-sm font-medium ${tab==='info'?'bg-green-100 text-green-700':'text-gray-500 hover:bg-gray-50'}">基本資料</a>
         ${member.section === '服務員'
-          ? `<a href="/admin/leaders/member/${id}" class="px-4 py-1.5 rounded-md text-sm font-medium bg-amber-100 text-amber-700">🏅 進程與獎章</a>`
+          ? `<a href="/admin/leaders/member/${id}/advancement" class="px-4 py-1.5 rounded-md text-sm font-medium bg-amber-100 text-amber-700">🏅 進程與獎章</a>`
           : `<a href="?tab=advancement" class="px-4 py-1.5 rounded-md text-sm font-medium ${tab==='advancement'?'bg-green-100 text-green-700':'text-gray-500 hover:bg-gray-50'}">進程與專科章</a>`
         }
       </div>
@@ -8203,8 +8204,201 @@ adminRoutes.get('/leaders/roster', authMiddleware, async (c) => {
   `))
 })
 
-// ===================== 服務員個人資料（勾選式進程與獎章） =====================
+// ===================== 服務員個人資料（展示頁，唯讀） =====================
 adminRoutes.get('/leaders/member/:id', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+
+  const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(id).first() as any
+  if (!member) return c.redirect('/admin/leaders/roster')
+
+  // 木章訓練記錄
+  const trainings = await db.prepare(`
+    SELECT mlt.id, mlt.completed_at, mlt.certificate_number, mlt.notes,
+           lt.name, lt.category
+    FROM member_leader_trainings mlt
+    JOIN leader_trainings lt ON lt.id = mlt.training_id
+    WHERE mlt.member_id = ?
+    ORDER BY lt.category, mlt.completed_at DESC
+  `).bind(id).all()
+
+  // 領袖獎章記錄
+  const awards = await db.prepare(`
+    SELECT mla.id, mla.year_label, mla.awarded_at, mla.notes,
+           la.name, la.category, la.level, la.description
+    FROM member_leader_awards mla
+    JOIN leader_awards la ON la.id = mla.award_id
+    WHERE mla.member_id = ?
+    ORDER BY la.category, la.level ASC
+  `).bind(id).all()
+
+  // 服務年資
+  const serviceYears = await db.prepare(`SELECT * FROM member_service_years WHERE member_id = ?`).bind(id).first() as any
+
+  // 年資計算
+  let totalYears = 0
+  if (serviceYears) {
+    const prior = serviceYears.prior_years || 0
+    let current = 0
+    if (serviceYears.service_start_date) {
+      const start = new Date(serviceYears.service_start_date)
+      const now = new Date()
+      current = Math.round((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 365.25) * 10) / 10
+    }
+    totalYears = Math.round((prior + current) * 10) / 10
+  }
+
+  const basicTrainings = (trainings.results as any[]).filter((t: any) => t.category === 'Basic')
+  const wbTrainings = (trainings.results as any[]).filter((t: any) => t.category === 'WoodBadge')
+  const assocAwards = (awards.results as any[]).filter((a: any) => a.category === 'Association')
+  const svcAwards = (awards.results as any[]).filter((a: any) => a.category === 'Service')
+
+  return c.html(adminLayout('服務員名冊', `
+    <!-- 頁首 -->
+    <div class="flex items-center justify-between mb-5">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 text-lg font-bold">👮</div>
+        <div>
+          <h1 class="text-lg font-bold text-gray-800">${member.chinese_name} 服務員資料</h1>
+          <p class="text-xs text-gray-400">${member.role_name || '服務員'} · ${member.unit_name || member.troop || ''}</p>
+        </div>
+      </div>
+      <a href="/admin/leaders/roster" class="text-sm text-gray-400 hover:text-gray-600">← 返回名冊</a>
+    </div>
+
+    <!-- Hero 卡 -->
+    <div class="bg-gradient-to-r from-slate-700 to-slate-500 text-white rounded-2xl p-8 mb-6 relative overflow-hidden">
+      <div class="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+      <div class="relative flex flex-col items-center">
+        <div class="w-20 h-20 rounded-full bg-white/20 flex items-center justify-center text-3xl font-bold mb-3">
+          ${member.chinese_name.charAt(0)}
+        </div>
+        <h2 class="text-2xl font-bold">${member.chinese_name}</h2>
+        <div class="flex justify-center gap-2 mt-2 flex-wrap">
+          ${member.role_name ? `<span class="px-2 py-0.5 bg-white/20 rounded-full text-xs">${member.role_name}</span>` : ''}
+          ${member.section ? `<span class="px-2 py-0.5 bg-white/20 rounded-full text-xs">${member.section}</span>` : ''}
+          ${totalYears > 0 ? `<span class="px-2 py-0.5 bg-white/20 rounded-full text-xs">服務 ${totalYears} 年</span>` : ''}
+        </div>
+        <div class="flex gap-3 mt-4">
+          <a href="/admin/leaders/member/${id}/advancement"
+            class="bg-amber-500 hover:bg-amber-400 text-white text-sm font-medium px-5 py-2 rounded-xl transition">
+            🏅 進程與獎章管理
+          </a>
+          <a href="/admin/members/${member.id}"
+            class="bg-white/20 hover:bg-white/30 text-white text-sm px-4 py-2 rounded-xl transition">
+            ✏️ 編輯基本資料
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+      <!-- 左欄：學經歷 & 專長 -->
+      <div class="space-y-4">
+
+        <!-- 基本資訊 -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">ℹ️ 基本資訊</h3>
+          ${(!member.education && !member.occupation && !member.english_name)
+            ? '<p class="text-sm text-gray-400 text-center py-2">尚無基本資訊</p>'
+            : `<div class="space-y-2 text-sm">
+                ${member.english_name ? `<div class="flex justify-between"><span class="text-gray-500">英文名</span><span class="font-medium">${member.english_name}</span></div>` : ''}
+                ${member.education ? `<div class="flex justify-between"><span class="text-gray-500">學歷</span><span class="font-medium">${member.education}</span></div>` : ''}
+                ${member.occupation ? `<div class="flex justify-between"><span class="text-gray-500">職業</span><span class="font-medium">${member.occupation}</span></div>` : ''}
+              </div>`
+          }
+          <a href="/admin/members/${member.id}" class="text-xs text-blue-600 hover:underline mt-3 block">前往成員管理編輯 →</a>
+        </div>
+
+        <!-- 童軍經歷 -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">⛺ 童軍經歷</h3>
+          ${member.scout_history
+            ? `<p class="text-sm text-gray-700 whitespace-pre-wrap">${member.scout_history}</p>`
+            : '<p class="text-sm text-gray-400 text-center py-2">尚無童軍經歷資料</p>'
+          }
+        </div>
+
+        <!-- 個人專長 -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">✨ 個人專長</h3>
+          ${member.expertise
+            ? `<p class="text-sm text-gray-700 whitespace-pre-wrap">${member.expertise}</p>`
+            : '<p class="text-sm text-gray-400 text-center py-2">尚無專長資料</p>'
+          }
+        </div>
+
+      </div>
+
+      <!-- 右欄：年資 + 訓練 + 獎章 -->
+      <div class="space-y-4">
+
+        <!-- 服務年資 -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">📅 服務年資</h3>
+          ${serviceYears
+            ? `<div class="text-center mb-3">
+                <div class="text-4xl font-bold text-blue-600">${totalYears}</div>
+                <div class="text-xs text-gray-400 mt-1">年（外團 ${serviceYears.prior_years || 0} 年 + 本團 ${Math.round((totalYears - (serviceYears.prior_years || 0)) * 10) / 10} 年）</div>
+              </div>
+              <div class="text-xs text-gray-500 space-y-1">
+                <div>外團年資：${serviceYears.prior_years || 0} 年</div>
+                ${serviceYears.service_start_date ? `<div>本團開始：${serviceYears.service_start_date.substring(0,10)}</div>` : ''}
+              </div>`
+            : '<p class="text-sm text-gray-400 text-center py-2">尚未設定服務年資</p>'
+          }
+        </div>
+
+        <!-- 訓練記錄（唯讀） -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-bold text-gray-800 flex items-center gap-2">📖 訓練記錄</h3>
+            <a href="/admin/leaders/member/${id}/advancement" class="text-xs text-amber-600 hover:underline">管理 →</a>
+          </div>
+          ${(basicTrainings.length + wbTrainings.length) === 0
+            ? '<p class="text-sm text-gray-400 text-center py-3">尚無訓練記錄</p>'
+            : `<div class="space-y-1.5">
+                ${basicTrainings.map((t: any) => `
+                  <div class="flex items-center gap-2 text-sm">
+                    <span class="text-green-500">✓</span>
+                    <span class="text-gray-700">${t.name}</span>
+                    ${t.completed_at ? `<span class="text-xs text-gray-400 ml-auto">${t.completed_at.substring(0,4)}</span>` : ''}
+                  </div>`).join('')}
+                ${wbTrainings.map((t: any) => `
+                  <div class="flex items-center gap-2 text-sm">
+                    <span class="text-amber-500">✓</span>
+                    <span class="text-gray-700">${t.name}</span>
+                    ${t.completed_at ? `<span class="text-xs text-gray-400 ml-auto">${t.completed_at.substring(0,4)}</span>` : ''}
+                  </div>`).join('')}
+              </div>`
+          }
+        </div>
+
+        <!-- 獎章記錄（唯讀） -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-bold text-gray-800 flex items-center gap-2">🏅 獎章記錄</h3>
+            <a href="/admin/leaders/member/${id}/advancement" class="text-xs text-amber-600 hover:underline">管理 →</a>
+          </div>
+          ${awards.results.length === 0
+            ? '<p class="text-sm text-gray-400 text-center py-3">尚無獎章記錄</p>'
+            : `<div class="flex flex-wrap gap-2">
+                ${(awards.results as any[]).map((a: any) => `
+                  <span class="px-2.5 py-1 rounded-full text-xs font-medium
+                    ${a.category === 'Service' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}">
+                    ${a.name}
+                  </span>`).join('')}
+              </div>`
+          }
+        </div>
+
+      </div>
+    </div>
+  `))
+})
+
+// ===================== 服務員進程與獎章管理（勾選式） =====================
+adminRoutes.get('/leaders/member/:id/advancement', authMiddleware, async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
 
@@ -8326,7 +8520,7 @@ adminRoutes.get('/leaders/member/:id', authMiddleware, async (c) => {
         </div>
       </div>
       <div class="flex gap-2">
-        <a href="/admin/members/${member.id}" class="text-xs text-blue-600 hover:underline px-3 py-1.5 border border-blue-200 rounded-lg">← 基本資料</a>
+        <a href="/admin/leaders/member/${member.id}" class="text-xs text-blue-600 hover:underline px-3 py-1.5 border border-blue-200 rounded-lg">← 服務員資料</a>
         <a href="/admin/leaders/roster" class="text-gray-400 hover:text-gray-600 text-sm px-3 py-1.5 border border-gray-200 rounded-lg">← 返回名冊</a>
       </div>
     </div>
