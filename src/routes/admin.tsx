@@ -4382,30 +4382,44 @@ adminRoutes.get('/groups/:id/org', authMiddleware, async (c) => {
     } catch { /* not JSON, ignore */ }
   }
 
-  const leadersJson = JSON.stringify(orgData.leaders || []).replace(/</g,'\u003c')
+  // 解析三層領導設定（新格式）
+  const groupLeadersData: any[] = orgData.groupLeaders || []   // 第1層：團長/副團長
+  const unitLeadersData: any[] = orgData.unitLeaders || orgData.leaders || []  // 第2層：聯隊長/副聯隊長
+  const orgIntro: string = orgData.intro || ''   // 整體組織介紹
+
+  const groupLeadersJson = JSON.stringify(groupLeadersData).replace(/</g,'\u003c')
+  const unitLeadersJson = JSON.stringify(unitLeadersData).replace(/</g,'\u003c')
   const patrolsJson = JSON.stringify(orgData.patrols || []).replace(/</g,'\u003c')
   const committeesJson = JSON.stringify(orgData.committees || []).replace(/</g,'\u003c')
 
   return c.html(adminLayout(`組織架構 - ${group.name}`, `
     <div class="mb-6">
       <a href="/admin/groups/${id}/subpages" class="text-gray-500 hover:text-gray-700 text-sm">← 返回子頁面管理</a>
-      <h2 class="text-xl font-bold text-gray-800 mt-2">${group.name} · 組織架構</h2>
-      <p class="text-sm text-gray-400 mt-1">設定組織架構圖、PLC 小隊長議會與執行委員會成員</p>
+      <div class="flex items-center justify-between mt-2">
+        <div>
+          <h2 class="text-xl font-bold text-gray-800">${group.name} · 組織架構</h2>
+          <p class="text-sm text-gray-400 mt-1">設定各層級職位說明，前台展示組織架構介紹（職稱 + 職責說明，不顯示姓名）</p>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="saveOrg(${id})" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-medium">💾 儲存</button>
+          <a href="/group/${group.slug}/org" target="_blank" class="text-blue-600 border border-blue-200 px-4 py-2 rounded-lg text-sm hover:bg-blue-50">前台預覽 →</a>
+        </div>
+      </div>
     </div>
 
-    <!-- 說明提示 -->
-    <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5 text-sm text-amber-800">
-      <p class="font-medium mb-2">📌 組織架構說明（參考 Google Sites 頁面）</p>
-      <ul class="list-disc list-inside space-y-1 text-xs text-amber-700">
-        <li><strong>PLC（小隊長議會）</strong>：由聯隊長、副聯隊長等領導層 + 各小隊長組成，負責童軍活動規劃與執行</li>
-        <li><strong>EC（執行委員會）</strong>：由行政長、器材長等功能性委員組成，負責行政、器材、財務等事務</li>
-        <li>請在下方分別填入 PLC 領導層、各小隊資料，以及 EC 委員會資料</li>
-      </ul>
-    </div>
+    <div id="org-msg" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
 
-    <!-- 組織架構圖片 -->
+    <!-- ── 整體說明文字 ── -->
     <div class="bg-white rounded-xl shadow p-5 mb-5">
-      <h3 class="font-bold text-gray-700 mb-3">🖼️ 組織架構圖片</h3>
+      <h3 class="font-bold text-gray-700 mb-2">📝 組織整體介紹（選填）</h3>
+      <p class="text-xs text-gray-400 mb-3">顯示在頁面頂部的說明文字，可介紹童軍自治精神、組織運作方式等</p>
+      <textarea id="org-intro" rows="3" placeholder="例：本團為學生自治組織，由隊職幹部領導進行運作，分為小隊長議會（PLC）與執行委員會（EC）兩個主要系統…"
+        class="w-full border rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-300 resize-none">${orgIntro.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+    </div>
+
+    <!-- ── 組織架構圖片 ── -->
+    <div class="bg-white rounded-xl shadow p-5 mb-5">
+      <h3 class="font-bold text-gray-700 mb-3">🖼️ 組織架構圖片（選填）</h3>
       <div class="flex gap-3 items-start">
         <input type="url" id="org-image_url" value="${org?.image_url || ''}"
           class="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="https://... (圖片連結)">
@@ -4414,61 +4428,70 @@ adminRoutes.get('/groups/:id/org', authMiddleware, async (c) => {
       <div id="img-preview" class="${org?.image_url ? '' : 'hidden'} mt-3">
         <img id="preview-img" src="${org?.image_url || ''}" class="max-h-48 rounded border" onerror="this.style.display='none'">
       </div>
-      <p class="text-xs text-gray-400 mt-2">💡 可上傳組織架構圖到 Google 雲端硬碟或 Imgur，取得圖片直連後貼入</p>
+      <p class="text-xs text-gray-400 mt-2">💡 圖片會顯示在組織架構頁面頂部，可上傳到 Google Drive 或 Imgur 後貼入直連網址</p>
     </div>
 
-    <!-- PLC 領導層 -->
-    <div class="bg-white rounded-xl shadow p-5 mb-5">
+    <!-- ── 第1層：團長 / 副團長 ── -->
+    <div class="bg-white rounded-xl shadow p-5 mb-5 border-l-4 border-purple-400">
       <div class="flex items-center justify-between mb-4">
         <div>
-          <h3 class="font-bold text-gray-700">👑 PLC 領導層（聯隊長 / 副聯隊長等）</h3>
-          <p class="text-xs text-gray-400 mt-0.5">小隊長議會的領導成員，包含聯隊長、副聯隊長等職位</p>
+          <h3 class="font-bold text-gray-700">🏛️ 第1層：團長 / 副團長</h3>
+          <p class="text-xs text-gray-400 mt-0.5">最高領導層職位設定，填寫職稱和職責說明（前台不顯示姓名）</p>
         </div>
-        <button onclick="addLeader()" class="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700">＋ 新增</button>
-
+        <button onclick="addGroupLeader()" class="text-xs bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700">＋ 新增職位</button>
       </div>
-      <div id="leaders-list" class="space-y-3"><p class="text-gray-400 text-sm">載入中...</p></div>
+      <div id="group-leaders-list" class="space-y-2"></div>
     </div>
 
-    <!-- PLC 小隊 -->
-    <div class="bg-white rounded-xl shadow p-5 mb-5">
+    <!-- ── 第2層：聯隊長 / 副聯隊長 ── -->
+    <div class="bg-white rounded-xl shadow p-5 mb-5 border-l-4 border-green-500">
       <div class="flex items-center justify-between mb-4">
-          <div>
-            <h3 class="font-bold text-gray-700">⚔️ PLC 小隊列表</h3>
-            <p class="text-xs text-gray-400 mt-0.5">各小隊資料，包含小隊名稱、隊徽圖片、小隊長與副小隊長</p>
-          </div>
-        <button onclick="addPatrol()" class="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">＋ 新增小隊</button>
+        <div>
+          <h3 class="font-bold text-gray-700">🌿 第2層：聯隊長 / 副聯隊長</h3>
+          <p class="text-xs text-gray-400 mt-0.5">中層領導職位，負責統籌 PLC 與 EC 運作</p>
+        </div>
+        <button onclick="addUnitLeader()" class="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">＋ 新增職位</button>
       </div>
-      <div id="patrols-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"><p class="text-gray-400 text-sm">載入中...</p></div>
+      <div id="unit-leaders-list" class="space-y-2"></div>
     </div>
 
-    <!-- 執行委員會 -->
-    <div class="bg-white rounded-xl shadow p-5 mb-5">
+    <!-- ── PLC 小隊列表 ── -->
+    <div class="bg-white rounded-xl shadow p-5 mb-5 border-l-4 border-teal-400">
       <div class="flex items-center justify-between mb-4">
-          <div>
-            <h3 class="font-bold text-gray-700">⚙️ 執行委員會（EC）</h3>
-            <p class="text-xs text-gray-400 mt-0.5">功能性委員會，如行政組、公關組、器材組等，負責行政與庶務</p>
-          </div>
-        <button onclick="addCommittee()" class="text-xs bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700">＋ 新增委員會</button>
+        <div>
+          <h3 class="font-bold text-gray-700">⚔️ PLC 小隊列表</h3>
+          <p class="text-xs text-gray-400 mt-0.5">各小隊名稱與說明（前台展示小隊介紹，隊徽圖片選填）</p>
+        </div>
+        <button onclick="addPatrol()" class="text-xs bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700">＋ 新增小隊</button>
       </div>
-      <div id="committees-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"><p class="text-gray-400 text-sm">載入中...</p></div>
+      <div id="patrols-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
     </div>
 
-    <div id="org-msg" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+    <!-- ── 執行委員會 ── -->
+    <div class="bg-white rounded-xl shadow p-5 mb-5 border-l-4 border-blue-400">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="font-bold text-gray-700">⚙️ 執行委員會（EC）</h3>
+          <p class="text-xs text-gray-400 mt-0.5">各委員會職位說明，如行政組、器材組等</p>
+        </div>
+        <button onclick="addCommittee()" class="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700">＋ 新增委員會</button>
+      </div>
+      <div id="committees-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+    </div>
+
     <div class="flex gap-3 mb-10">
-      <button onclick="saveOrg(${id})" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2.5 rounded-lg text-sm font-medium">
-        💾 儲存組織架構
-      </button>
-      <a href="/group/${group.slug}" target="_blank" class="text-blue-600 border border-blue-200 px-4 py-2.5 rounded-lg text-sm hover:bg-blue-50">
-        前台預覽 →
-      </a>
+      <button onclick="saveOrg(${id})" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2.5 rounded-lg text-sm font-medium">💾 儲存組織架構</button>
+      <a href="/group/${group.slug}/org" target="_blank" class="text-blue-600 border border-blue-200 px-4 py-2.5 rounded-lg text-sm hover:bg-blue-50">前台預覽 →</a>
     </div>
 
     <!-- 通用 Modal -->
     <div id="org-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div class="bg-white rounded-xl shadow-xl w-full max-w-md">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
         <div class="p-6">
-          <h3 id="modal-title" class="text-lg font-bold text-gray-800 mb-4"></h3>
+          <div class="flex items-center justify-between mb-4">
+            <h3 id="modal-title" class="text-lg font-bold text-gray-800"></h3>
+            <button onclick="document.getElementById('org-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">✕</button>
+          </div>
           <div id="modal-fields"></div>
           <div class="flex gap-3 mt-4">
             <button onclick="saveModal()" class="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700">✓ 確認</button>
@@ -4479,127 +4502,166 @@ adminRoutes.get('/groups/:id/org', authMiddleware, async (c) => {
     </div>
 
     <script>
-    let leaders = ${leadersJson}
+    let groupLeaders = ${groupLeadersJson}
+    let unitLeaders = ${unitLeadersJson}
     let patrols = ${patrolsJson}
     let committees = ${committeesJson}
 
-    function renderLeaders() {
-      const el = document.getElementById('leaders-list')
-      if (!leaders.length) { el.innerHTML = '<p class="text-gray-400 text-sm">尚無資料，點右上方按鈕新增</p>'; return }
-      el.innerHTML = leaders.map((l, i) => \`
-        <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border">
-          \${l.photo_url ? \`<img src="\${l.photo_url}" class="w-12 h-12 rounded-full object-cover border">\` : '<div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-lg">👑</div>'}
+    // ── 渲染函式 ──
+    function renderGroupLeaders() {
+      const el = document.getElementById('group-leaders-list')
+      if (!groupLeaders.length) {
+        el.innerHTML = '<p class="text-gray-400 text-sm py-2">尚無資料，點右上方「新增職位」按鈕</p>'; return
+      }
+      el.innerHTML = groupLeaders.map((l, i) => \`
+        <div class="flex items-start gap-3 p-3 bg-purple-50 rounded-xl border border-purple-100 group hover:border-purple-300 transition">
+          <div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-bold text-sm flex-shrink-0 mt-0.5">🏛️</div>
           <div class="flex-1 min-w-0">
-            <div class="text-sm font-semibold text-gray-800">\${l.role || ''}</div>
-            <div class="text-xs text-gray-500">\${l.name || ''}</div>
+            <div class="font-semibold text-gray-800 text-sm">\${l.role || ''}</div>
+            \${l.desc ? \`<div class="text-xs text-gray-500 mt-0.5">\${l.desc}</div>\` : ''}
           </div>
-          <div class="flex gap-2">
-            <button onclick="editLeader(\${i})" class="text-xs text-blue-600 hover:underline px-2">編輯</button>
-            <button onclick="removeLeader(\${i})" class="text-xs text-red-400 hover:text-red-600 px-2">✕</button>
+          <div class="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+            <button onclick="editGroupLeader(\${i})" class="text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded border border-blue-200">✏️</button>
+            <button onclick="removeGroupLeader(\${i})" class="text-xs text-red-400 hover:bg-red-50 px-2 py-1 rounded border border-red-200">🗑️</button>
+          </div>
+        </div>\`).join('')
+    }
+
+    function renderUnitLeaders() {
+      const el = document.getElementById('unit-leaders-list')
+      if (!unitLeaders.length) {
+        el.innerHTML = '<p class="text-gray-400 text-sm py-2">尚無資料，點右上方「新增職位」按鈕</p>'; return
+      }
+      el.innerHTML = unitLeaders.map((l, i) => \`
+        <div class="flex items-start gap-3 p-3 bg-green-50 rounded-xl border border-green-100 group hover:border-green-300 transition">
+          <div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-bold text-sm flex-shrink-0 mt-0.5">🌿</div>
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-gray-800 text-sm">\${l.role || ''}</div>
+            \${l.desc ? \`<div class="text-xs text-gray-500 mt-0.5">\${l.desc}</div>\` : ''}
+          </div>
+          <div class="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+            <button onclick="editUnitLeader(\${i})" class="text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded border border-blue-200">✏️</button>
+            <button onclick="removeUnitLeader(\${i})" class="text-xs text-red-400 hover:bg-red-50 px-2 py-1 rounded border border-red-200">🗑️</button>
           </div>
         </div>\`).join('')
     }
 
     function renderPatrols() {
       const el = document.getElementById('patrols-list')
-      if (!patrols.length) { el.innerHTML = '<p class="text-gray-400 text-sm col-span-3">尚無資料，點右上方按鈕新增</p>'; return }
+      if (!patrols.length) { el.innerHTML = '<p class="text-gray-400 text-sm col-span-3 py-2">尚無資料</p>'; return }
       el.innerHTML = patrols.map((p, i) => \`
-        <div class="border rounded-xl p-4 bg-gray-50 relative group hover:shadow-sm transition">
-          <div class="absolute top-2 right-2 hidden group-hover:flex gap-1">
-            <button onclick="editPatrol(\${i})" class="text-xs text-blue-600 bg-white border rounded px-2 py-0.5">編輯</button>
-            <button onclick="removePatrol(\${i})" class="text-xs text-red-400 bg-white border rounded px-2 py-0.5">✕</button>
+        <div class="border rounded-xl p-4 bg-teal-50 border-teal-100 relative group hover:shadow-sm hover:border-teal-300 transition">
+          <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
+            <button onclick="editPatrol(\${i})" class="text-xs text-blue-600 bg-white border rounded px-2 py-0.5">✏️</button>
+            <button onclick="removePatrol(\${i})" class="text-xs text-red-400 bg-white border rounded px-2 py-0.5">🗑️</button>
           </div>
-          \${(p.photo_url||p.image_url) ? \`<img src="\${p.photo_url||p.image_url}" class="w-20 h-20 rounded-full object-cover mx-auto mb-2 border-2 border-gray-200">\` : '<div class="w-20 h-20 rounded-full bg-green-100 mx-auto mb-2 flex items-center justify-center text-3xl">⚔️</div>'}
+          \${(p.photo_url||p.image_url) ? \`<img src="\${p.photo_url||p.image_url}" class="w-16 h-16 rounded-full object-cover mx-auto mb-2 border-2 border-teal-200">\` : '<div class="w-16 h-16 rounded-full bg-teal-100 mx-auto mb-2 flex items-center justify-center text-2xl">⚔️</div>'}
           <div class="text-center">
             <div class="font-bold text-sm text-gray-800">\${p.name || ''}</div>
-            \${p.leaderName ? \`<div class="text-xs text-gray-500 mt-1">\${p.leaderRole||'小隊長'}：\${p.leaderName}</div>\` : p.leader ? \`<div class="text-xs text-gray-500 mt-1">小隊長：\${p.leader}</div>\` : ''}
-            \${p.subLeaderName ? \`<div class="text-xs text-gray-400">\${p.subLeaderRole||'副小隊長'}：\${p.subLeaderName}</div>\` : p.vice_leader ? \`<div class="text-xs text-gray-400">副小隊長：\${p.vice_leader}</div>\` : ''}
-            \${p.members && p.members.length ? p.members.map(m => \`<div class="text-xs text-gray-400">\${m.role ? m.role+'：' : ''}\${m.name}</div>\`).join('') : ''}
+            \${p.desc ? \`<div class="text-xs text-gray-500 mt-1">\${p.desc}</div>\` : ''}
           </div>
         </div>\`).join('')
     }
 
     function renderCommittees() {
       const el = document.getElementById('committees-list')
-      if (!committees.length) { el.innerHTML = '<p class="text-gray-400 text-sm col-span-3">尚無資料，點右上方按鈕新增</p>'; return }
+      if (!committees.length) { el.innerHTML = '<p class="text-gray-400 text-sm col-span-3 py-2">尚無資料</p>'; return }
       el.innerHTML = committees.map((c, i) => \`
-        <div class="border rounded-xl p-4 bg-gray-50 relative group hover:shadow-sm transition">
-          <div class="absolute top-2 right-2 hidden group-hover:flex gap-1">
-            <button onclick="editCommittee(\${i})" class="text-xs text-blue-600 bg-white border rounded px-2 py-0.5">編輯</button>
-            <button onclick="removeCommittee(\${i})" class="text-xs text-red-400 bg-white border rounded px-2 py-0.5">✕</button>
+        <div class="border rounded-xl p-4 bg-blue-50 border-blue-100 relative group hover:shadow-sm hover:border-blue-300 transition">
+          <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
+            <button onclick="editCommittee(\${i})" class="text-xs text-blue-600 bg-white border rounded px-2 py-0.5">✏️</button>
+            <button onclick="removeCommittee(\${i})" class="text-xs text-red-400 bg-white border rounded px-2 py-0.5">🗑️</button>
           </div>
-          \${(c.photo_url||c.image_url) ? \`<img src="\${c.photo_url||c.image_url}" class="w-20 h-20 rounded object-cover mx-auto mb-2 border-2 border-gray-200">\` : '<div class="w-20 h-20 rounded bg-purple-100 mx-auto mb-2 flex items-center justify-center text-3xl">⚙️</div>'}
+          <div class="w-16 h-16 rounded bg-blue-100 mx-auto mb-2 flex items-center justify-center text-2xl">⚙️</div>
           <div class="text-center">
             <div class="font-bold text-sm text-gray-800">\${c.name || ''}</div>
-            \${c.leaderName ? \`<div class="text-xs text-gray-500 mt-1">\${c.leaderRole||'組長'}：\${c.leaderName}</div>\` : c.leader ? \`<div class="text-xs text-gray-500 mt-1">組長：\${c.leader}</div>\` : ''}
-            \${c.members && c.members.length ? c.members.map(m => \`<div class="text-xs text-gray-400">\${m.role ? m.role+'：' : ''}\${m.name}</div>\`).join('') : c.vice_leaders ? \`<div class="text-xs text-gray-400">副組長：\${c.vice_leaders}</div>\` : ''}
+            \${c.desc ? \`<div class="text-xs text-gray-500 mt-1">\${c.desc}</div>\` : ''}
+            \${c.roles && c.roles.length ? \`<div class="text-xs text-blue-600 mt-1">\${c.roles.join(' · ')}</div>\` : ''}
           </div>
         </div>\`).join('')
     }
 
-    function renderAll() { renderLeaders(); renderPatrols(); renderCommittees() }
+    function renderAll() { renderGroupLeaders(); renderUnitLeaders(); renderPatrols(); renderCommittees() }
     renderAll()
 
-    function addLeader() { openModal('leader', -1, { role:'', name:'', photo_url:'' }) }
-    function editLeader(i) { openModal('leader', i, leaders[i]) }
-    function removeLeader(i) { if(!confirm('確定刪除？')) return; leaders.splice(i,1); renderLeaders() }
-    function addPatrol() { openModal('patrol', -1, { name:'', photo_url:'', leaderName:'', subLeaderName:'', leaderRole:'小隊長', subLeaderRole:'副小隊長' }) }
+    // ── CRUD 操作 ──
+    function addGroupLeader() { openModal('groupLeader', -1, { role:'', desc:'' }) }
+    function editGroupLeader(i) { openModal('groupLeader', i, groupLeaders[i]) }
+    function removeGroupLeader(i) {
+      if (!confirm('確定刪除「' + (groupLeaders[i].role||'此職位') + '」？')) return
+      groupLeaders.splice(i,1); renderGroupLeaders()
+    }
+    function addUnitLeader() { openModal('unitLeader', -1, { role:'', desc:'' }) }
+    function editUnitLeader(i) { openModal('unitLeader', i, unitLeaders[i]) }
+    function removeUnitLeader(i) {
+      if (!confirm('確定刪除「' + (unitLeaders[i].role||'此職位') + '」？')) return
+      unitLeaders.splice(i,1); renderUnitLeaders()
+    }
+    function addPatrol() { openModal('patrol', -1, { name:'', photo_url:'', desc:'' }) }
     function editPatrol(i) { openModal('patrol', i, patrols[i]) }
-    function removePatrol(i) { if(!confirm('確定刪除？')) return; patrols.splice(i,1); renderPatrols() }
-    function addCommittee() { openModal('committee', -1, { name:'', photo_url:'', leaderName:'', leaderRole:'組長', members:[] }) }
+    function removePatrol(i) {
+      if (!confirm('確定刪除「' + (patrols[i].name||'此小隊') + '」？')) return
+      patrols.splice(i,1); renderPatrols()
+    }
+    function addCommittee() { openModal('committee', -1, { name:'', desc:'', roles:[] }) }
     function editCommittee(i) { openModal('committee', i, committees[i]) }
-    function removeCommittee(i) { if(!confirm('確定刪除？')) return; committees.splice(i,1); renderCommittees() }
+    function removeCommittee(i) {
+      if (!confirm('確定刪除「' + (committees[i].name||'此委員會') + '」？')) return
+      committees.splice(i,1); renderCommittees()
+    }
 
     let _modalType = '', _modalIdx = -1
     const FIELDS = {
-      leader: [
-        { key:'role', label:'職位', placeholder:'聯隊長、副聯隊長...' },
-        { key:'name', label:'姓名', placeholder:'王小明' },
-        { key:'photo_url', label:'照片網址（選填）', placeholder:'https://...', type:'url' }
+      groupLeader: [
+        { key:'role', label:'職稱 *', placeholder:'如：團長、副團長、童軍團長…' },
+        { key:'desc', label:'職責說明', placeholder:'例：負責統籌全團事務、對外代表本團、主持重要會議…', type:'textarea', rows:3 }
+      ],
+      unitLeader: [
+        { key:'role', label:'職稱 *', placeholder:'如：聯隊長、副聯隊長…' },
+        { key:'desc', label:'職責說明', placeholder:'例：統籌 PLC 與 EC 運作，協調各小隊與委員會工作…', type:'textarea', rows:3 }
       ],
       patrol: [
-        { key:'name', label:'小隊名稱 *', placeholder:'遊俠小隊、刺客小隊...' },
+        { key:'name', label:'小隊名稱 *', placeholder:'如：遊俠小隊、刺客小隊…' },
         { key:'photo_url', label:'小隊圖片網址（選填）', placeholder:'https://...（隊徽圖片）', type:'url' },
-        { key:'leaderRole', label:'第1職稱', placeholder:'小隊長' },
-        { key:'leaderName', label:'第1姓名', placeholder:'張三' },
-        { key:'subLeaderRole', label:'第2職稱', placeholder:'副小隊長' },
-        { key:'subLeaderName', label:'第2姓名（選填）', placeholder:'李四' },
-        { key:'subMembers', label:'其他成員（每行一位，格式：姓名 或 職稱:姓名）', placeholder:'副隊長:王五
-林小明', type:'textarea' }
+        { key:'desc', label:'小隊說明（選填）', placeholder:'例：本小隊負責戶外探索活動…', type:'textarea', rows:2 }
       ],
       committee: [
-        { key:'name', label:'組名稱 *', placeholder:'行政組、公關組、展演組...' },
-        { key:'photo_url', label:'組圖片網址（選填）', placeholder:'https://...（組的標誌圖片）', type:'url' },
-        { key:'leaderRole', label:'組長職稱', placeholder:'組長' },
-        { key:'leaderName', label:'組長姓名', placeholder:'王組長' },
-        { key:'subMembers', label:'副組長 / 成員（每行一位，格式：姓名 或 職稱:姓名）', placeholder:'副組長:張三\n林小明', type:'textarea' }
+        { key:'name', label:'委員會名稱 *', placeholder:'如：行政組、器材組、展演組…' },
+        { key:'desc', label:'委員會說明', placeholder:'例：負責活動行政規劃與文書處理…', type:'textarea', rows:3 },
+        { key:'roles_text', label:'職位清單（每行一個）', placeholder:'組長\\n副組長\\n組員', type:'textarea', rows:3 }
       ]
     }
 
     function openModal(type, idx, data) {
       _modalType = type; _modalIdx = idx
-      const title = {leader:'領導層成員', patrol:'小隊', committee:'委員會'}[type]
-      document.getElementById('modal-title').textContent = (idx === -1 ? '新增' : '編輯') + title
+      const titles = { groupLeader:'第1層職位（團長/副團長）', unitLeader:'第2層職位（聯隊長/副聯隊長）', patrol:'小隊', committee:'委員會' }
+      document.getElementById('modal-title').textContent = (idx === -1 ? '新增' : '編輯') + titles[type]
       document.getElementById('modal-fields').innerHTML = FIELDS[type].map(f => {
-        const val = (data[f.key]||'').toString().replace(/"/g,'&quot;')
+        let val = ''
+        if (f.key === 'roles_text') {
+          val = (data.roles || []).join('\\n')
+        } else {
+          val = (data[f.key] || '').toString()
+        }
+        const safeVal = val.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
         if (f.type === 'textarea') {
           return \`<div class="mb-3">
             <label class="block text-xs font-medium text-gray-700 mb-1">\${f.label}</label>
-            <textarea id="mf-\${f.key}" class="w-full border rounded-lg px-3 py-2 text-sm" rows="4" placeholder="\${f.placeholder||''}">\${(data[f.key]||'')}</textarea>
-            <p class="text-xs text-gray-400 mt-1">每行一位，格式：姓名 或 職稱:姓名</p>
+            <textarea id="mf-\${f.key}" class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300" rows="\${f.rows||3}" placeholder="\${f.placeholder||''}">\${safeVal}</textarea>
+          </div>\`
+        }
+        if (f.type === 'url') {
+          return \`<div class="mb-3">
+            <label class="block text-xs font-medium text-gray-700 mb-1">\${f.label}</label>
+            <div class="flex gap-2"><input type="url" id="mf-\${f.key}" class="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="\${f.placeholder||''}" value="\${safeVal}"><button type="button" onclick="window.open(document.getElementById('mf-\${f.key}').value,'_blank')" class="text-xs border rounded px-2 text-blue-600 hover:bg-blue-50">預覽</button></div>
           </div>\`
         }
         return \`<div class="mb-3">
           <label class="block text-xs font-medium text-gray-700 mb-1">\${f.label}</label>
-          \${f.type === 'url' ? \`<div class="flex gap-2"><input type="url" id="mf-\${f.key}" class="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="\${f.placeholder||''}" value="\${val}"><button type="button" onclick="previewFieldImg('mf-\${f.key}')" class="text-xs border rounded px-2 text-blue-600 hover:bg-blue-50">預覽</button></div>\` : \`<input type="\${f.type||'text'}" id="mf-\${f.key}" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="\${f.placeholder||''}" value="\${val}">\`}
+          <input type="text" id="mf-\${f.key}" class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300" placeholder="\${f.placeholder||''}" value="\${safeVal}">
         </div>\`
       }).join('')
       document.getElementById('org-modal').classList.remove('hidden')
-    }
-
-    function previewFieldImg(id) {
-      const url = document.getElementById(id)?.value
-      if (url) window.open(url, '_blank')
     }
 
     function saveModal() {
@@ -4608,21 +4670,29 @@ adminRoutes.get('/groups/:id/org', authMiddleware, async (c) => {
       fields.forEach(f => {
         const el = document.getElementById('mf-'+f.key)
         if (!el) return
-        if (f.type === 'textarea') {
-          // 解析成員列表
-          const lines = el.value.trim().split('\\n').filter(l => l.trim())
-          obj['members'] = lines.map(line => {
-            const parts = line.split(':')
-            if (parts.length >= 2) return { role: parts[0].trim(), name: parts.slice(1).join(':').trim() }
-            return { name: line.trim() }
-          }).filter(m => m.name)
+        if (f.key === 'roles_text') {
+          obj['roles'] = el.value.trim().split('\\n').map(r => r.trim()).filter(Boolean)
         } else {
           obj[f.key] = el.value.trim()
         }
       })
-      const arr = _modalType === 'leader' ? leaders : _modalType === 'patrol' ? patrols : committees
-      if (_modalIdx === -1) arr.push(obj); else arr[_modalIdx] = obj
-      renderAll()
+      if (_modalType === 'groupLeader') {
+        if (!obj['role']) { alert('請填寫職稱'); return }
+        if (_modalIdx === -1) groupLeaders.push(obj); else groupLeaders[_modalIdx] = obj
+        renderGroupLeaders()
+      } else if (_modalType === 'unitLeader') {
+        if (!obj['role']) { alert('請填寫職稱'); return }
+        if (_modalIdx === -1) unitLeaders.push(obj); else unitLeaders[_modalIdx] = obj
+        renderUnitLeaders()
+      } else if (_modalType === 'patrol') {
+        if (!obj['name']) { alert('請填寫小隊名稱'); return }
+        if (_modalIdx === -1) patrols.push(obj); else patrols[_modalIdx] = obj
+        renderPatrols()
+      } else {
+        if (!obj['name']) { alert('請填寫委員會名稱'); return }
+        if (_modalIdx === -1) committees.push(obj); else committees[_modalIdx] = obj
+        renderCommittees()
+      }
       document.getElementById('org-modal').classList.add('hidden')
     }
 
@@ -4634,28 +4704,36 @@ adminRoutes.get('/groups/:id/org', authMiddleware, async (c) => {
     }
 
     async function saveOrg(groupId) {
-      const btn = event.target
+      const btn = document.querySelector('[onclick="saveOrg(${id})"]')
       const msg = document.getElementById('org-msg')
-      btn.disabled = true; btn.textContent = '儲存中...'
+      if (btn) { btn.disabled = true; btn.textContent = '儲存中...' }
       try {
+        const content = JSON.stringify({
+          intro: document.getElementById('org-intro').value.trim(),
+          groupLeaders,
+          unitLeaders,
+          leaders: unitLeaders,  // 向後相容
+          patrols,
+          committees
+        })
         const res = await fetch('/api/admin/group-org/' + groupId, {
           method: 'POST',
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({
             image_url: document.getElementById('org-image_url').value.trim(),
-            content: JSON.stringify({ leaders, patrols, committees })
+            content
           })
         })
         const data = await res.json()
         msg.className = 'mb-4 p-3 rounded-lg text-sm ' + (data.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200')
-        msg.textContent = data.success ? '✅ 儲存成功！' : '❌ 儲存失敗：' + data.error
+        msg.textContent = data.success ? '✅ 儲存成功！' : '❌ 儲存失敗：' + (data.error||'')
         msg.classList.remove('hidden')
         if (data.success) setTimeout(() => msg.classList.add('hidden'), 2500)
       } catch(e) {
         msg.className = 'mb-4 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
         msg.textContent = '❌ 網路錯誤'; msg.classList.remove('hidden')
       }
-      btn.disabled = false; btn.textContent = '💾 儲存組織架構'
+      if (btn) { btn.disabled = false; btn.textContent = '💾 儲存' }
     }
 
     document.getElementById('org-modal').addEventListener('click', function(e) {
