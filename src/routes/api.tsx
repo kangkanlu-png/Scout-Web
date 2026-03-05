@@ -2728,3 +2728,224 @@ apiRoutes.delete('/member-roles/:id', async (c) => {
   await db.prepare(`DELETE FROM member_roles WHERE id = ?`).bind(id).run()
   return c.json({ success: true })
 })
+
+// ===================== 組織/幹部/歷屆名單 APIs =====================
+
+// API: 儲存組織架構
+apiRoutes.post('/admin/group-org/:groupId', async (c) => {
+  const db = c.env.DB
+  const groupId = c.req.param('groupId')
+  const { image_url, content } = await c.req.json() as any
+  try {
+    const existing = await db.prepare(`SELECT id FROM group_org_chart WHERE group_id=?`).bind(groupId).first()
+    if (existing) {
+      await db.prepare(`UPDATE group_org_chart SET image_url=?, content=?, updated_at=CURRENT_TIMESTAMP WHERE group_id=?`)
+        .bind(image_url || null, content || null, groupId).run()
+    } else {
+      await db.prepare(`INSERT INTO group_org_chart (group_id, image_url, content) VALUES (?,?,?)`)
+        .bind(groupId, image_url || null, content || null).run()
+    }
+    return c.json({ success: true })
+  } catch(e: any) {
+    return c.json({ success: false, error: e.message })
+  }
+})
+
+// API: 新增幹部
+apiRoutes.post('/admin/group-cadres', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json() as any
+  try {
+    await db.prepare(`
+      INSERT INTO group_cadres (group_id, chinese_name, english_name, role, year_label, photo_url, notes, display_order, is_current)
+      VALUES (?,?,?,?,?,?,?,?,?)
+    `).bind(body.group_id, body.chinese_name, body.english_name||null, body.role, body.year_label||null,
+             body.photo_url||null, body.notes||null, body.display_order||0, body.is_current||0).run()
+    return c.json({ success: true })
+  } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
+
+// API: 更新幹部
+apiRoutes.put('/admin/group-cadres/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json() as any
+  try {
+    await db.prepare(`
+      UPDATE group_cadres SET chinese_name=?, english_name=?, role=?, year_label=?, photo_url=?, notes=?, display_order=?, is_current=?
+      WHERE id=?
+    `).bind(body.chinese_name, body.english_name||null, body.role, body.year_label||null,
+             body.photo_url||null, body.notes||null, body.display_order||0, body.is_current||0, id).run()
+    return c.json({ success: true })
+  } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
+
+// API: 刪除幹部
+apiRoutes.delete('/admin/group-cadres/:id', async (c) => {
+  const db = c.env.DB
+  await db.prepare(`DELETE FROM group_cadres WHERE id=?`).bind(c.req.param('id')).run()
+  return c.json({ success: true })
+})
+
+// API: 換年度
+apiRoutes.post('/admin/group-cadres-rollover/:groupId', async (c) => {
+  const db = c.env.DB
+  const groupId = c.req.param('groupId')
+  const { year_label } = await c.req.json() as any
+  try {
+    const current = await db.prepare(`SELECT * FROM group_cadres WHERE group_id=? AND is_current=1`).bind(groupId).all()
+    const cadres = current.results as any[]
+    if (cadres.length === 0) return c.json({ success: true, moved: 0 })
+    for (const c2 of cadres) {
+      await db.prepare(`
+        INSERT INTO group_alumni (group_id, year_label, member_name, english_name, unit_name, role_name, rank_level, notes)
+        VALUES (?,?,?,?,?,?,?,?)
+      `).bind(groupId, year_label || c2.year_label || '', c2.chinese_name, c2.english_name||null,
+               null, c2.role||null, null, c2.notes||null).run()
+    }
+    await db.prepare(`UPDATE group_cadres SET is_current=0, year_label=? WHERE group_id=? AND is_current=1`)
+      .bind(year_label || '', groupId).run()
+    return c.json({ success: true, moved: cadres.length })
+  } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
+
+// API: 新增歷屆名單
+apiRoutes.post('/admin/group-alumni', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json() as any
+  try {
+    await db.prepare(`
+      INSERT INTO group_alumni (group_id, year_label, member_name, english_name, unit_name, role_name, rank_level, notes)
+      VALUES (?,?,?,?,?,?,?,?)
+    `).bind(body.group_id, body.year_label, body.member_name, body.english_name||null,
+             body.unit_name||null, body.role_name||null, body.rank_level||null, body.notes||null).run()
+    return c.json({ success: true })
+  } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
+
+// API: 更新歷屆名單
+apiRoutes.put('/admin/group-alumni/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json() as any
+  try {
+    await db.prepare(`
+      UPDATE group_alumni SET year_label=?, member_name=?, english_name=?, unit_name=?, role_name=?, rank_level=?, notes=?
+      WHERE id=?
+    `).bind(body.year_label, body.member_name, body.english_name||null,
+             body.unit_name||null, body.role_name||null, body.rank_level||null, body.notes||null, id).run()
+    return c.json({ success: true })
+  } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
+
+// API: 刪除歷屆名單
+apiRoutes.delete('/admin/group-alumni/:id', async (c) => {
+  const db = c.env.DB
+  await db.prepare(`DELETE FROM group_alumni WHERE id=?`).bind(c.req.param('id')).run()
+  return c.json({ success: true })
+})
+
+// API: 預覽可匯入的歷屆成員（從 member_year_records + member_enrollments）
+apiRoutes.get('/admin/group-alumni-import-preview/:groupId', async (c) => {
+  const db = c.env.DB
+  const groupId = c.req.param('groupId')
+  const year = c.req.query('year')
+  if (!year) return c.json({ success: false, error: '請提供學年度' })
+
+  const sectionMap: Record<string, string[]> = {
+    '1': ['童軍'],
+    '2': ['行義童軍'],
+    '3': ['羅浮童軍']
+  }
+  const sections = sectionMap[groupId] || []
+  if (sections.length === 0) return c.json({ success: false, error: '不支援此團別的匯入' })
+
+  const ph = sections.map(() => '?').join(',')
+  const members: any[] = []
+
+  const pyrRows = await db.prepare(`
+    SELECT m.chinese_name as name, m.english_name, myr.unit_name as unit, myr.rank_level as rank, myr.role_name as role
+    FROM member_year_records myr
+    JOIN members m ON m.id = myr.member_id
+    WHERE myr.year_label=? AND myr.section IN (${ph})
+    ORDER BY myr.unit_name, m.chinese_name
+  `).bind(year, ...sections).all()
+
+  const foundNames = new Set<string>()
+  for (const r of pyrRows.results as any[]) {
+    members.push({ name: r.name, english_name: r.english_name || '', unit: r.unit || '', rank: r.rank || '', role: r.role || '' })
+    foundNames.add(r.name)
+  }
+
+  const penRows = await db.prepare(`
+    SELECT m.chinese_name as name, m.english_name, me.unit_name as unit, me.rank_level as rank, me.role_name as role
+    FROM member_enrollments me
+    JOIN members m ON m.id = me.member_id
+    WHERE me.year_label=? AND me.section IN (${ph})
+    ORDER BY me.unit_name, m.chinese_name
+  `).bind(year, ...sections).all()
+
+  for (const r of penRows.results as any[]) {
+    if (!foundNames.has(r.name)) {
+      members.push({ name: r.name, english_name: r.english_name || '', unit: r.unit || '', rank: r.rank || '', role: r.role || '' })
+    }
+  }
+
+  return c.json({ success: true, members })
+})
+
+// API: 執行匯入歷屆名單
+apiRoutes.post('/admin/group-alumni-import/:groupId', async (c) => {
+  const db = c.env.DB
+  const groupId = c.req.param('groupId')
+  const { year_label, members } = await c.req.json() as any
+  if (!year_label || !Array.isArray(members)) return c.json({ success: false, error: '參數錯誤' })
+
+  let imported = 0
+  try {
+    for (const m of members) {
+      if (!m.name) continue
+      const existing = await db.prepare(
+        `SELECT id FROM group_alumni WHERE group_id=? AND year_label=? AND member_name=?`
+      ).bind(groupId, year_label, m.name).first()
+      if (existing) continue
+      await db.prepare(`
+        INSERT INTO group_alumni (group_id, year_label, member_name, english_name, unit_name, role_name, rank_level)
+        VALUES (?,?,?,?,?,?,?)
+      `).bind(groupId, year_label, m.name, m.english_name || null,
+               m.unit || null, m.role || null, m.rank || null).run()
+      imported++
+    }
+    return c.json({ success: true, imported })
+  } catch(e: any) {
+    return c.json({ success: false, error: e.message })
+  }
+})
+
+// API: 從成員名冊匯入現任幹部
+apiRoutes.post('/admin/group-cadres-from-roster', async (c) => {
+  const db = c.env.DB
+  const { group_id, year_label, members } = await c.req.json() as any
+  if (!group_id || !Array.isArray(members)) return c.json({ success: false, error: '參數錯誤' })
+
+  let imported = 0
+  try {
+    for (const m of members) {
+      if (!m.chinese_name || !m.role_name) continue
+      // 檢查是否已在現任幹部（同名同組）
+      const existing = await db.prepare(
+        `SELECT id FROM group_cadres WHERE group_id=? AND chinese_name=? AND is_current=1`
+      ).bind(group_id, m.chinese_name).first()
+      if (existing) continue
+
+      await db.prepare(`
+        INSERT INTO group_cadres (group_id, chinese_name, english_name, role, year_label, is_current, display_order)
+        VALUES (?,?,?,?,?,1,?)
+      `).bind(group_id, m.chinese_name, m.english_name || null, m.role_name, year_label || null, imported).run()
+      imported++
+    }
+    return c.json({ success: true, imported })
+  } catch(e: any) {
+    return c.json({ success: false, error: e.message })
+  }
+})

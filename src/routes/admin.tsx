@@ -4368,66 +4368,266 @@ adminRoutes.get('/groups/:id/org', authMiddleware, async (c) => {
   if (!group) return c.redirect('/admin/groups')
   const org = await db.prepare(`SELECT * FROM group_org_chart WHERE group_id=?`).bind(id).first() as any
 
+  // 嘗試解析結構化 JSON（存在 content 欄位）
+  let orgData: any = { leaders: [], patrols: [], committees: [] }
+  if (org?.content) {
+    try {
+      const parsed = JSON.parse(org.content)
+      if (parsed && typeof parsed === 'object' && (parsed.leaders !== undefined || parsed.patrols !== undefined)) {
+        orgData = { leaders: [], patrols: [], committees: [], ...parsed }
+      }
+    } catch { /* not JSON, ignore */ }
+  }
+
+  const leadersJson = JSON.stringify(orgData.leaders || []).replace(/</g,'\u003c')
+  const patrolsJson = JSON.stringify(orgData.patrols || []).replace(/</g,'\u003c')
+  const committeesJson = JSON.stringify(orgData.committees || []).replace(/</g,'\u003c')
+
   return c.html(adminLayout(`組織架構 - ${group.name}`, `
     <div class="mb-6">
       <a href="/admin/groups/${id}/subpages" class="text-gray-500 hover:text-gray-700 text-sm">← 返回子頁面管理</a>
       <h2 class="text-xl font-bold text-gray-800 mt-2">${group.name} · 組織架構</h2>
+      <p class="text-sm text-gray-400 mt-1">設定組織架構圖、PLC 小隊長議會與執行委員會成員</p>
     </div>
 
-    <div class="bg-white rounded-xl shadow p-6 max-w-2xl">
-      <form id="org-form">
-        <div class="mb-4">
-          <label class="block text-sm font-medium text-gray-700 mb-1">組織架構圖片網址</label>
-          <input type="url" id="org-image_url" value="${org?.image_url || ''}"
-            class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="https://... (圖片連結)">
-          ${org?.image_url ? `<div class="mt-2"><img src="${org.image_url}" class="max-h-40 rounded border" onerror="this.style.display='none'"></div>` : ''}
+    <!-- 說明提示 -->
+    <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5 text-sm text-amber-800">
+      <p class="font-medium mb-2">📌 組織架構說明（參考 Google Sites 頁面）</p>
+      <ul class="list-disc list-inside space-y-1 text-xs text-amber-700">
+        <li><strong>PLC（小隊長議會）</strong>：由聯隊長、副聯隊長等領導層 + 各小隊長組成，負責童軍活動規劃與執行</li>
+        <li><strong>EC（執行委員會）</strong>：由行政長、器材長等功能性委員組成，負責行政、器材、財務等事務</li>
+        <li>請在下方分別填入 PLC 領導層、各小隊資料，以及 EC 委員會資料</li>
+      </ul>
+    </div>
+
+    <!-- 組織架構圖片 -->
+    <div class="bg-white rounded-xl shadow p-5 mb-5">
+      <h3 class="font-bold text-gray-700 mb-3">🖼️ 組織架構圖片</h3>
+      <div class="flex gap-3 items-start">
+        <input type="url" id="org-image_url" value="${org?.image_url || ''}"
+          class="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="https://... (圖片連結)">
+        <button onclick="previewImage()" class="text-xs text-blue-600 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-50 whitespace-nowrap">預覽</button>
+      </div>
+      <div id="img-preview" class="${org?.image_url ? '' : 'hidden'} mt-3">
+        <img id="preview-img" src="${org?.image_url || ''}" class="max-h-48 rounded border" onerror="this.style.display='none'">
+      </div>
+      <p class="text-xs text-gray-400 mt-2">💡 可上傳組織架構圖到 Google 雲端硬碟或 Imgur，取得圖片直連後貼入</p>
+    </div>
+
+    <!-- PLC 領導層 -->
+    <div class="bg-white rounded-xl shadow p-5 mb-5">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="font-bold text-gray-700">👑 PLC 領導層（聯隊長 / 副聯隊長等）</h3>
+          <p class="text-xs text-gray-400 mt-0.5">小隊長議會的領導成員，包含聯隊長、副聯隊長等職位</p>
         </div>
-        <div class="mb-5">
-          <label class="block text-sm font-medium text-gray-700 mb-1">組織說明內容（支援 HTML）</label>
-          <textarea id="org-content" rows="8"
-            class="w-full border rounded-lg px-3 py-2 text-sm font-mono"
-            placeholder="可輸入 HTML 或純文字說明...">${org?.content || ''}</textarea>
+        <button onclick="addLeader()" class="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700">＋ 新增</button>
+
+      </div>
+      <div id="leaders-list" class="space-y-3"><p class="text-gray-400 text-sm">載入中...</p></div>
+    </div>
+
+    <!-- PLC 小隊 -->
+    <div class="bg-white rounded-xl shadow p-5 mb-5">
+      <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="font-bold text-gray-700">⚔️ PLC 小隊列表</h3>
+            <p class="text-xs text-gray-400 mt-0.5">各小隊資料，包含小隊名稱、隊徽圖片、小隊長與副小隊長</p>
+          </div>
+        <button onclick="addPatrol()" class="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">＋ 新增小隊</button>
+      </div>
+      <div id="patrols-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"><p class="text-gray-400 text-sm">載入中...</p></div>
+    </div>
+
+    <!-- 執行委員會 -->
+    <div class="bg-white rounded-xl shadow p-5 mb-5">
+      <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="font-bold text-gray-700">⚙️ 執行委員會（EC）</h3>
+            <p class="text-xs text-gray-400 mt-0.5">功能性委員會，如行政組、公關組、器材組等，負責行政與庶務</p>
+          </div>
+        <button onclick="addCommittee()" class="text-xs bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700">＋ 新增委員會</button>
+      </div>
+      <div id="committees-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"><p class="text-gray-400 text-sm">載入中...</p></div>
+    </div>
+
+    <div id="org-msg" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+    <div class="flex gap-3 mb-10">
+      <button onclick="saveOrg(${id})" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2.5 rounded-lg text-sm font-medium">
+        💾 儲存組織架構
+      </button>
+      <a href="/group/${group.slug}" target="_blank" class="text-blue-600 border border-blue-200 px-4 py-2.5 rounded-lg text-sm hover:bg-blue-50">
+        前台預覽 →
+      </a>
+    </div>
+
+    <!-- 通用 Modal -->
+    <div id="org-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div class="p-6">
+          <h3 id="modal-title" class="text-lg font-bold text-gray-800 mb-4"></h3>
+          <div id="modal-fields"></div>
+          <div class="flex gap-3 mt-4">
+            <button onclick="saveModal()" class="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700">✓ 確認</button>
+            <button onclick="document.getElementById('org-modal').classList.add('hidden')" class="px-6 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+          </div>
         </div>
-        <div id="org-msg" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
-        <button type="button" onclick="saveOrg(${id})"
-          class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg text-sm font-medium">
-          💾 儲存組織架構
-        </button>
-      </form>
+      </div>
     </div>
 
     <script>
+    let leaders = ${leadersJson}
+    let patrols = ${patrolsJson}
+    let committees = ${committeesJson}
+
+    function renderLeaders() {
+      const el = document.getElementById('leaders-list')
+      if (!leaders.length) { el.innerHTML = '<p class="text-gray-400 text-sm">尚無資料，點右上方按鈕新增</p>'; return }
+      el.innerHTML = leaders.map((l, i) => \`
+        <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border">
+          \${l.photo_url ? \`<img src="\${l.photo_url}" class="w-12 h-12 rounded-full object-cover border">\` : '<div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-lg">👑</div>'}
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-semibold text-gray-800">\${l.role || ''}</div>
+            <div class="text-xs text-gray-500">\${l.name || ''}</div>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="editLeader(\${i})" class="text-xs text-blue-600 hover:underline px-2">編輯</button>
+            <button onclick="removeLeader(\${i})" class="text-xs text-red-400 hover:text-red-600 px-2">✕</button>
+          </div>
+        </div>\`).join('')
+    }
+
+    function renderPatrols() {
+      const el = document.getElementById('patrols-list')
+      if (!patrols.length) { el.innerHTML = '<p class="text-gray-400 text-sm col-span-3">尚無資料，點右上方按鈕新增</p>'; return }
+      el.innerHTML = patrols.map((p, i) => \`
+        <div class="border rounded-xl p-4 bg-gray-50 relative group hover:shadow-sm transition">
+          <div class="absolute top-2 right-2 hidden group-hover:flex gap-1">
+            <button onclick="editPatrol(\${i})" class="text-xs text-blue-600 bg-white border rounded px-2 py-0.5">編輯</button>
+            <button onclick="removePatrol(\${i})" class="text-xs text-red-400 bg-white border rounded px-2 py-0.5">✕</button>
+          </div>
+          \${p.image_url ? \`<img src="\${p.image_url}" class="w-20 h-20 rounded-full object-cover mx-auto mb-2 border-2 border-gray-200">\` : '<div class="w-20 h-20 rounded-full bg-green-100 mx-auto mb-2 flex items-center justify-center text-3xl">⚔️</div>'}
+          <div class="text-center">
+            <div class="font-bold text-sm text-gray-800">\${p.name || ''}</div>
+            \${p.leader ? \`<div class="text-xs text-gray-500 mt-1">小隊長：\${p.leader}</div>\` : ''}
+            \${p.vice_leader ? \`<div class="text-xs text-gray-400">副小隊長：\${p.vice_leader}</div>\` : ''}
+          </div>
+        </div>\`).join('')
+    }
+
+    function renderCommittees() {
+      const el = document.getElementById('committees-list')
+      if (!committees.length) { el.innerHTML = '<p class="text-gray-400 text-sm col-span-3">尚無資料，點右上方按鈕新增</p>'; return }
+      el.innerHTML = committees.map((c, i) => \`
+        <div class="border rounded-xl p-4 bg-gray-50 relative group hover:shadow-sm transition">
+          <div class="absolute top-2 right-2 hidden group-hover:flex gap-1">
+            <button onclick="editCommittee(\${i})" class="text-xs text-blue-600 bg-white border rounded px-2 py-0.5">編輯</button>
+            <button onclick="removeCommittee(\${i})" class="text-xs text-red-400 bg-white border rounded px-2 py-0.5">✕</button>
+          </div>
+          \${c.image_url ? \`<img src="\${c.image_url}" class="w-20 h-20 rounded object-cover mx-auto mb-2 border-2 border-gray-200">\` : '<div class="w-20 h-20 rounded bg-purple-100 mx-auto mb-2 flex items-center justify-center text-3xl">⚙️</div>'}
+          <div class="text-center">
+            <div class="font-bold text-sm text-gray-800">\${c.name || ''}</div>
+            \${c.leader ? \`<div class="text-xs text-gray-500 mt-1">組長：\${c.leader}</div>\` : ''}
+            \${c.vice_leaders ? \`<div class="text-xs text-gray-400">副組長：\${c.vice_leaders}</div>\` : ''}
+          </div>
+        </div>\`).join('')
+    }
+
+    function renderAll() { renderLeaders(); renderPatrols(); renderCommittees() }
+    renderAll()
+
+    function addLeader() { openModal('leader', -1, { role:'', name:'', photo_url:'' }) }
+    function editLeader(i) { openModal('leader', i, leaders[i]) }
+    function removeLeader(i) { if(!confirm('確定刪除？')) return; leaders.splice(i,1); renderLeaders() }
+    function addPatrol() { openModal('patrol', -1, { name:'', image_url:'', leader:'', vice_leader:'' }) }
+    function editPatrol(i) { openModal('patrol', i, patrols[i]) }
+    function removePatrol(i) { if(!confirm('確定刪除？')) return; patrols.splice(i,1); renderPatrols() }
+    function addCommittee() { openModal('committee', -1, { name:'', image_url:'', leader:'', vice_leaders:'' }) }
+    function editCommittee(i) { openModal('committee', i, committees[i]) }
+    function removeCommittee(i) { if(!confirm('確定刪除？')) return; committees.splice(i,1); renderCommittees() }
+
+    let _modalType = '', _modalIdx = -1
+    const FIELDS = {
+      leader: [
+        { key:'role', label:'職位', placeholder:'聯隊長、副聯隊長...' },
+        { key:'name', label:'姓名', placeholder:'王小明' },
+        { key:'photo_url', label:'照片網址（選填）', placeholder:'https://...', type:'url' }
+      ],
+      patrol: [
+        { key:'name', label:'小隊名稱', placeholder:'遊俠小隊' },
+        { key:'image_url', label:'小隊圖片網址（選填）', placeholder:'https://...', type:'url' },
+        { key:'leader', label:'小隊長姓名', placeholder:'張三' },
+        { key:'vice_leader', label:'副小隊長姓名（選填）', placeholder:'李四' }
+      ],
+      committee: [
+        { key:'name', label:'組名稱', placeholder:'行政組、公關組...' },
+        { key:'image_url', label:'組圖片網址（選填）', placeholder:'https://...', type:'url' },
+        { key:'leader', label:'組長姓名', placeholder:'王組長' },
+        { key:'vice_leaders', label:'副組長姓名（多人用、分隔，選填）', placeholder:'張三、李四' }
+      ]
+    }
+
+    function openModal(type, idx, data) {
+      _modalType = type; _modalIdx = idx
+      const title = {leader:'領導層成員', patrol:'小隊', committee:'委員會'}[type]
+      document.getElementById('modal-title').textContent = (idx === -1 ? '新增' : '編輯') + title
+      document.getElementById('modal-fields').innerHTML = FIELDS[type].map(f => \`
+        <div class="mb-3">
+          <label class="block text-xs font-medium text-gray-700 mb-1">\${f.label}</label>
+          <input type="\${f.type||'text'}" id="mf-\${f.key}" class="w-full border rounded-lg px-3 py-2 text-sm"
+            placeholder="\${f.placeholder||''}" value="\${(data[f.key]||'').toString().replace(/"/g,'&quot;')}">
+        </div>\`).join('')
+      document.getElementById('org-modal').classList.remove('hidden')
+    }
+
+    function saveModal() {
+      const fields = FIELDS[_modalType]
+      const obj = {}
+      fields.forEach(f => { obj[f.key] = document.getElementById('mf-'+f.key).value.trim() })
+      const arr = _modalType === 'leader' ? leaders : _modalType === 'patrol' ? patrols : committees
+      if (_modalIdx === -1) arr.push(obj); else arr[_modalIdx] = obj
+      renderAll()
+      document.getElementById('org-modal').classList.add('hidden')
+    }
+
+    function previewImage() {
+      const url = document.getElementById('org-image_url').value.trim()
+      if (!url) return
+      document.getElementById('preview-img').src = url
+      document.getElementById('img-preview').classList.remove('hidden')
+    }
+
     async function saveOrg(groupId) {
       const btn = event.target
       const msg = document.getElementById('org-msg')
-      btn.disabled = true
-      btn.textContent = '儲存中...'
+      btn.disabled = true; btn.textContent = '儲存中...'
       try {
         const res = await fetch('/api/admin/group-org/' + groupId, {
           method: 'POST',
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({
             image_url: document.getElementById('org-image_url').value.trim(),
-            content: document.getElementById('org-content').value.trim()
+            content: JSON.stringify({ leaders, patrols, committees })
           })
         })
         const data = await res.json()
         msg.className = 'mb-4 p-3 rounded-lg text-sm ' + (data.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200')
         msg.textContent = data.success ? '✅ 儲存成功！' : '❌ 儲存失敗：' + data.error
         msg.classList.remove('hidden')
-        if (data.success) setTimeout(() => location.reload(), 1000)
+        if (data.success) setTimeout(() => msg.classList.add('hidden'), 2500)
       } catch(e) {
         msg.className = 'mb-4 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
-        msg.textContent = '❌ 網路錯誤'
-        msg.classList.remove('hidden')
+        msg.textContent = '❌ 網路錯誤'; msg.classList.remove('hidden')
       }
-      btn.disabled = false
-      btn.textContent = '💾 儲存組織架構'
+      btn.disabled = false; btn.textContent = '💾 儲存組織架構'
     }
+
+    document.getElementById('org-modal').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.add('hidden')
+    })
     </script>
   `))
 })
-
 // API: 儲存組織架構
 adminRoutes.post('/api/admin/group-org/:groupId', authMiddleware, async (c) => {
   const db = c.env.DB
@@ -4455,6 +4655,39 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
   const group = await db.prepare(`SELECT * FROM scout_groups WHERE id=?`).bind(id).first() as any
   if (!group) return c.redirect('/admin/groups')
   const cadres = await db.prepare(`SELECT * FROM group_cadres WHERE group_id=? ORDER BY is_current DESC, year_label DESC, display_order ASC`).bind(id).all()
+  // 取得目前學年度
+  const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
+  const currentYear = yearSetting?.value || ''
+
+  // 取得可匯入的成員名冊幹部（role_name 非「團員」「隊員」的在籍成員）
+  // 依 group_id 決定對應的 section
+  const sectionMap: Record<string, string[]> = {
+    '1': ['童軍', '服務員'],
+    '2': ['行義童軍'],
+    '3': ['羅浮童軍']
+  }
+  const groupSections = sectionMap[id] || []
+  const secPh = groupSections.map(() => '?').join(',')
+
+  let rosterCadres: any[] = []
+  if (groupSections.length > 0) {
+    const rosterRows = await db.prepare(`
+      SELECT chinese_name, english_name, role_name, unit_name, section
+      FROM members
+      WHERE section IN (${secPh})
+        AND role_name NOT IN ('團員','隊員')
+        AND role_name IS NOT NULL
+      ORDER BY section, role_name, chinese_name
+    `).bind(...groupSections).all()
+    rosterCadres = rosterRows.results as any[]
+  }
+
+  // 已存在現任幹部姓名集合
+  const existingCurrentNames = new Set<string>(
+    (cadres.results as any[])
+      .filter((c: any) => c.is_current)
+      .map((c: any) => c.chinese_name)
+  )
 
   const rows = cadres.results.map((c: any) => `
     <tr class="border-b hover:bg-gray-50 text-sm">
@@ -4479,8 +4712,71 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       <div>
         <a href="/admin/groups/${id}/subpages" class="text-gray-500 hover:text-gray-700 text-sm">← 返回子頁面管理</a>
         <h2 class="text-xl font-bold text-gray-800 mt-2">${group.name} · 幹部名單管理</h2>
+        <p class="text-sm text-gray-400 mt-1">目前學年度：<strong>${currentYear}</strong></p>
       </div>
-      <button onclick="openAddCadre()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium">➕ 新增幹部</button>
+      <div class="flex gap-2">
+        ${rosterCadres.length > 0 ? `
+        <button onclick="openRosterImport()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+          📋 從成員名冊匯入
+        </button>` : ''}
+        <button onclick="rolloverYear('${currentYear}')"
+          class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          title="將現任幹部移至歷屆名單，開始新一年度">
+          📅 換年度
+        </button>
+        <button onclick="openAddCadre()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium">➕ 新增幹部</button>
+      </div>
+    </div>
+
+    <!-- 從成員名冊匯入幹部 Modal -->
+    <div id="roster-import-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div class="p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-gray-800">📋 從成員名冊匯入幹部</h3>
+            <button onclick="document.getElementById('roster-import-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+          </div>
+
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm text-blue-700">
+            <p>從成員名冊中，將有特定職位（非「團員」「隊員」）的成員匯入為現任幹部。</p>
+            <p class="mt-1 text-xs text-blue-500">已在現任幹部名單中的成員（同姓名）會標示為灰色。</p>
+          </div>
+
+          <div class="flex items-center justify-between mb-3">
+            <p class="text-sm text-gray-600">共 <strong>${rosterCadres.length}</strong> 位成員有特定職位</p>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" id="select-all-roster" onchange="toggleSelectAllRoster(this.checked)"> 全選新成員
+            </label>
+          </div>
+
+          <div class="border rounded-lg divide-y max-h-72 overflow-y-auto mb-4">
+            ${rosterCadres.map((m: any, i: number) => {
+              const isDup = existingCurrentNames.has(m.chinese_name)
+              return `<div class="flex items-center gap-3 px-4 py-2.5 ${isDup ? 'bg-gray-50 opacity-60' : 'hover:bg-blue-50'}">
+                <input type="checkbox" id="roster-cb-${i}" ${isDup ? 'disabled' : 'checked'} value="${i}" class="rounded">
+                <div class="flex-1 min-w-0">
+                  <span class="text-sm font-medium text-gray-800">${m.chinese_name}</span>
+                  ${m.english_name ? `<span class="text-xs text-gray-400 ml-2">${m.english_name}</span>` : ''}
+                  <span class="ml-2 text-xs font-medium text-green-700 bg-green-50 px-1.5 py-0.5 rounded">${m.role_name}</span>
+                  <span class="text-xs text-gray-400 ml-1">${m.unit_name || m.section || ''}</span>
+                </div>
+                ${isDup ? '<span class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded whitespace-nowrap">已在幹部名單</span>' : ''}
+              </div>`
+            }).join('')}
+          </div>
+
+          <div id="roster-import-msg" class="hidden mb-3 p-3 rounded-lg text-sm"></div>
+
+          <div class="flex gap-3">
+            <button onclick="execRosterImport(${id}, '${currentYear}')" id="exec-roster-btn"
+              class="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
+              ✅ 匯入選取成員為現任幹部
+            </button>
+            <button onclick="document.getElementById('roster-import-modal').classList.add('hidden')"
+              class="px-4 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="bg-white rounded-xl shadow overflow-hidden">
@@ -4488,6 +4784,7 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
         <thead class="bg-gray-50 border-b text-xs text-gray-500">
           <tr>
             <th class="py-2 px-3 text-left">狀態/年度</th>
+
             <th class="py-2 px-3 text-left">姓名</th>
             <th class="py-2 px-3 text-left">英文名</th>
             <th class="py-2 px-3 text-left">職位</th>
@@ -4561,13 +4858,70 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       document.getElementById('cadre-chinese_name').value = ''
       document.getElementById('cadre-english_name').value = ''
       document.getElementById('cadre-role').value = ''
-      document.getElementById('cadre-year_label').value = ''
+      document.getElementById('cadre-year_label').value = '${currentYear}'
       document.getElementById('cadre-photo_url').value = ''
       document.getElementById('cadre-notes').value = ''
       document.getElementById('cadre-display_order').value = '0'
       document.getElementById('cadre-is_current').checked = true
       document.getElementById('cadre-msg').classList.add('hidden')
       document.getElementById('cadre-modal').classList.remove('hidden')
+    }
+
+    // ---- 從成員名冊匯入幹部 ----
+    const ROSTER_DATA = ${JSON.stringify(rosterCadres).replace(/</g, '\\u003c')}
+    function openRosterImport() {
+      document.getElementById('roster-import-modal').classList.remove('hidden')
+      document.getElementById('roster-import-msg').classList.add('hidden')
+    }
+    function toggleSelectAllRoster(checked) {
+      document.querySelectorAll('[id^="roster-cb-"]').forEach(cb => {
+        if (!cb.disabled) cb.checked = checked
+      })
+    }
+    async function execRosterImport(groupId, yearLabel) {
+      const selected = []
+      document.querySelectorAll('[id^="roster-cb-"]:checked:not(:disabled)').forEach(cb => {
+        selected.push(ROSTER_DATA[parseInt(cb.value)])
+      })
+      if (selected.length === 0) { alert('請選擇要匯入的成員'); return }
+      if (!confirm('確定匯入 ' + selected.length + ' 位成員為 ' + yearLabel + ' 學年度現任幹部？')) return
+      const btn = document.getElementById('exec-roster-btn')
+      btn.disabled = true; btn.textContent = '匯入中...'
+      const msg = document.getElementById('roster-import-msg')
+      try {
+        const res = await fetch('/api/admin/group-cadres-from-roster', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ group_id: groupId, year_label: yearLabel, members: selected })
+        })
+        const data = await res.json()
+        msg.className = 'mb-3 p-3 rounded-lg text-sm ' + (data.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200')
+        msg.textContent = data.success ? '✅ 成功匯入 ' + data.imported + ' 位現任幹部！' : '❌ 匯入失敗：' + (data.error||'')
+        msg.classList.remove('hidden')
+        if (data.success) setTimeout(() => location.reload(), 1500)
+      } catch(e) {
+        msg.className = 'mb-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
+        msg.textContent = '❌ 網路錯誤'; msg.classList.remove('hidden')
+      }
+      btn.disabled = false; btn.textContent = '✅ 匯入選取成員為現任幹部'
+    }
+    document.getElementById('roster-import-modal').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.add('hidden')
+    })
+
+    async function rolloverYear(currentYear) {
+      if (!confirm('換年度操作：\\n\\n① 現任幹部將複製到「歷屆名單」（學年度：' + currentYear + '）\\n② 現任幹部的「現任」標記將被清除\\n\\n確定繼續？')) return
+      const res = await fetch('/api/admin/group-cadres-rollover/${id}', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ year_label: currentYear })
+      })
+      const data = await res.json()
+      if (data.success) {
+        alert('✅ 換年度完成！已匯入 ' + data.moved + ' 筆幹部到歷屆名單')
+        location.reload()
+      } else {
+        alert('❌ 換年度失敗：' + (data.error || ''))
+      }
     }
     function editCadre(data) {
       document.getElementById('cadre-modal-title').textContent = '編輯幹部'
@@ -4660,6 +5014,31 @@ adminRoutes.delete('/api/admin/group-cadres/:id', authMiddleware, async (c) => {
   return c.json({ success: true })
 })
 
+// API: 換年度 - 現任幹部 → 歷屆名單，然後清空現任標記
+adminRoutes.post('/api/admin/group-cadres-rollover/:groupId', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const groupId = c.req.param('groupId')
+  const { year_label } = await c.req.json() as any
+  try {
+    // 取出所有現任幹部
+    const current = await db.prepare(`SELECT * FROM group_cadres WHERE group_id=? AND is_current=1`).bind(groupId).all()
+    const cadres = current.results as any[]
+    if (cadres.length === 0) return c.json({ success: true, moved: 0 })
+    // 逐一寫入歷屆名單（group_alumni）
+    for (const c2 of cadres) {
+      await db.prepare(`
+        INSERT INTO group_alumni (group_id, year_label, member_name, english_name, unit_name, role_name, rank_level, notes)
+        VALUES (?,?,?,?,?,?,?,?)
+      `).bind(groupId, year_label || c2.year_label || '', c2.chinese_name, c2.english_name||null,
+               null, c2.role||null, null, c2.notes||null).run()
+    }
+    // 清除現任標記
+    await db.prepare(`UPDATE group_cadres SET is_current=0, year_label=? WHERE group_id=? AND is_current=1`)
+      .bind(year_label || '', groupId).run()
+    return c.json({ success: true, moved: cadres.length })
+  } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
+
 // ---- 歷屆名單管理 ----
 adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
   const db = c.env.DB
@@ -4668,7 +5047,46 @@ adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
   if (!group) return c.redirect('/admin/groups')
   const alumni = await db.prepare(`SELECT * FROM group_alumni WHERE group_id=? ORDER BY year_label DESC, display_order ASC`).bind(id).all()
 
-  const rows = alumni.results.map((a: any) => `
+  // 取得目前學年度設定
+  const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
+  const currentYear = yearSetting?.value || ''
+
+  // 取得可匯入的學年度（從 member_year_records 和 member_enrollments）
+  // 依 group_id 決定對應的 section
+  const sectionMap: Record<string, string[]> = {
+    '1': ['童軍'],
+    '2': ['行義童軍'],
+    '3': ['羅浮童軍']
+  }
+  const groupSections = sectionMap[id] || []
+  const sectionPlaceholders = groupSections.map(() => '?').join(',')
+
+  let availableYears: string[] = []
+  if (groupSections.length > 0) {
+    const pyrRows = await db.prepare(
+      `SELECT DISTINCT year_label FROM member_year_records WHERE section IN (${sectionPlaceholders}) ORDER BY year_label DESC`
+    ).bind(...groupSections).all()
+    const penRows = await db.prepare(
+      `SELECT DISTINCT year_label FROM member_enrollments WHERE section IN (${sectionPlaceholders}) ORDER BY year_label DESC`
+    ).bind(...groupSections).all()
+    const yearSet = new Set<string>()
+    ;(pyrRows.results as any[]).forEach((r: any) => yearSet.add(r.year_label))
+    ;(penRows.results as any[]).forEach((r: any) => yearSet.add(r.year_label))
+    availableYears = Array.from(yearSet).sort((a, b) => b.localeCompare(a))
+  }
+
+  // 已匯入的（學年度 + 姓名）組合，用於前端去重提示
+  const importedSet = new Set<string>((alumni.results as any[]).map((a: any) => `${a.year_label}__${a.member_name}`))
+
+  // 依學年度分組顯示
+  const yearGroups: Record<string, any[]> = {}
+  for (const a of alumni.results as any[]) {
+    if (!yearGroups[a.year_label]) yearGroups[a.year_label] = []
+    yearGroups[a.year_label].push(a)
+  }
+  const sortedYears = Object.keys(yearGroups).sort((a, b) => b.localeCompare(a))
+
+  const tableRows = (alumni.results as any[]).map((a: any) => `
     <tr class="border-b hover:bg-gray-50 text-sm">
       <td class="py-2 px-3 text-gray-500">${a.year_label}</td>
       <td class="py-2 px-3 font-medium">${a.member_name}</td>
@@ -4683,13 +5101,22 @@ adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
     </tr>
   `).join('')
 
+  const yearOptions = availableYears.map(y => `<option value="${y}">${y} 學年度</option>`).join('')
+
   return c.html(adminLayout(`歷屆名單 - ${group.name}`, `
     <div class="mb-6 flex items-center justify-between">
       <div>
         <a href="/admin/groups/${id}/subpages" class="text-gray-500 hover:text-gray-700 text-sm">← 返回子頁面管理</a>
         <h2 class="text-xl font-bold text-gray-800 mt-2">${group.name} · 歷屆名單管理</h2>
+        <p class="text-sm text-gray-400 mt-1">共 ${(alumni.results as any[]).length} 筆記錄</p>
       </div>
-      <button onclick="openAddAlumni()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium">➕ 新增成員</button>
+      <div class="flex gap-2">
+        ${availableYears.length > 0 ? `
+        <button onclick="openImportModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+          📥 從成員管理匯入
+        </button>` : ''}
+        <button onclick="openAddAlumni()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium">➕ 新增成員</button>
+      </div>
     </div>
 
     <div class="bg-white rounded-xl shadow overflow-hidden">
@@ -4706,9 +5133,56 @@ adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
           </tr>
         </thead>
         <tbody>
-          ${rows || '<tr><td colspan="7" class="py-8 text-center text-gray-400">尚無歷屆名單資料</td></tr>'}
+          ${tableRows || '<tr><td colspan="7" class="py-8 text-center text-gray-400">尚無歷屆名單資料</td></tr>'}
         </tbody>
       </table>
+    </div>
+
+    <!-- 從成員管理匯入 Modal -->
+    <div id="import-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div class="p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-gray-800">📥 從成員管理匯入歷屆名單</h3>
+            <button onclick="document.getElementById('import-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">✕</button>
+          </div>
+
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm text-blue-700">
+            <p>依學年度從成員管理資料（年度記錄）匯入成員到歷屆名單。</p>
+            <p class="mt-1 text-xs text-blue-500">已存在於歷屆名單的同學（同年度同姓名）會標記為灰色，不重複匯入。</p>
+          </div>
+
+          <div class="flex gap-3 mb-4">
+            <select id="import-year" class="flex-1 border rounded-lg px-3 py-2 text-sm" onchange="loadImportPreview()">
+              <option value="">選擇學年度...</option>
+              ${yearOptions}
+            </select>
+            <button onclick="loadImportPreview()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">查看名單</button>
+          </div>
+
+          <div id="import-preview" class="hidden">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-sm text-gray-600">
+                <span id="import-count">0</span> 位成員（<span id="import-new-count" class="text-green-600 font-medium">0</span> 位新成員，<span id="import-dup-count" class="text-gray-400">0</span> 位已存在）
+              </p>
+              <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                <input type="checkbox" id="select-all-import" onchange="toggleSelectAll(this.checked)">
+                全選新成員
+              </label>
+            </div>
+            <div id="import-list" class="border rounded-lg divide-y max-h-64 overflow-y-auto"></div>
+          </div>
+
+          <div id="import-msg" class="hidden mt-3 p-3 rounded-lg text-sm"></div>
+
+          <div class="flex gap-3 mt-4">
+            <button onclick="execImport(${id})" id="exec-import-btn" class="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+              ✅ 匯入選取成員
+            </button>
+            <button onclick="document.getElementById('import-modal').classList.add('hidden')" class="px-4 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 新增/編輯 Modal -->
@@ -4823,6 +5297,105 @@ adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
       await fetch('/api/admin/group-alumni/' + id, { method: 'DELETE' })
       location.reload()
     }
+
+    // ---- 匯入功能 ----
+    const IMPORTED_KEYS = new Set(${JSON.stringify(Array.from(importedSet))})
+    let previewData = []
+
+    function openImportModal() {
+      document.getElementById('import-modal').classList.remove('hidden')
+      document.getElementById('import-preview').classList.add('hidden')
+      document.getElementById('import-msg').classList.add('hidden')
+      document.getElementById('import-year').value = ''
+    }
+
+    async function loadImportPreview() {
+      const year = document.getElementById('import-year').value
+      if (!year) return
+      const res = await fetch('/api/admin/group-alumni-import-preview/${id}?year=' + encodeURIComponent(year))
+      const data = await res.json()
+      if (!data.success) {
+        alert('載入失敗：' + data.error)
+        return
+      }
+      previewData = data.members
+      const newMembers = previewData.filter(m => !IMPORTED_KEYS.has(year + '__' + m.name))
+      const dupMembers = previewData.filter(m => IMPORTED_KEYS.has(year + '__' + m.name))
+
+      document.getElementById('import-count').textContent = previewData.length
+      document.getElementById('import-new-count').textContent = newMembers.length
+      document.getElementById('import-dup-count').textContent = dupMembers.length
+
+      const listEl = document.getElementById('import-list')
+      if (previewData.length === 0) {
+        listEl.innerHTML = '<p class="p-4 text-center text-gray-400 text-sm">此年度無可匯入的成員資料</p>'
+      } else {
+        listEl.innerHTML = previewData.map((m, i) => {
+          const key = year + '__' + m.name
+          const isDup = IMPORTED_KEYS.has(key)
+          return \`<div class="flex items-center gap-3 px-4 py-2.5 \${isDup ? 'bg-gray-50 opacity-60' : 'hover:bg-blue-50'}">
+            <input type="checkbox" id="imp-\${i}" \${isDup ? 'disabled' : 'checked'}
+              class="rounded" value="\${i}">
+            <div class="flex-1 min-w-0">
+              <span class="text-sm font-medium text-gray-800">\${m.name}</span>
+              \${m.english_name ? \`<span class="text-xs text-gray-400 ml-2">\${m.english_name}</span>\` : ''}
+              <span class="text-xs text-gray-400 ml-2">/ \${m.unit || '-'} / \${m.rank || '-'} / \${m.role || '-'}</span>
+            </div>
+            \${isDup ? '<span class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">已存在</span>' : ''}
+          </div>\`
+        }).join('')
+      }
+
+      document.getElementById('import-preview').classList.remove('hidden')
+      document.getElementById('select-all-import').checked = true
+    }
+
+    function toggleSelectAll(checked) {
+      const year = document.getElementById('import-year').value
+      previewData.forEach((m, i) => {
+        const key = year + '__' + m.name
+        if (!IMPORTED_KEYS.has(key)) {
+          const cb = document.getElementById('imp-' + i)
+          if (cb) cb.checked = checked
+        }
+      })
+    }
+
+    async function execImport(groupId) {
+      const year = document.getElementById('import-year').value
+      if (!year) { alert('請先選擇學年度'); return }
+      const selected = previewData.filter((m, i) => {
+        const cb = document.getElementById('imp-' + i)
+        return cb && cb.checked && !cb.disabled
+      })
+      if (selected.length === 0) { alert('請選擇要匯入的成員'); return }
+      if (!confirm('確定匯入 ' + selected.length + ' 位成員到 ' + year + ' 學年度歷屆名單？')) return
+
+      const btn = document.getElementById('exec-import-btn')
+      btn.disabled = true; btn.textContent = '匯入中...'
+      const msg = document.getElementById('import-msg')
+      try {
+        const res = await fetch('/api/admin/group-alumni-import/' + groupId, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ year_label: year, members: selected })
+        })
+        const data = await res.json()
+        msg.className = 'mt-3 p-3 rounded-lg text-sm ' + (data.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200')
+        msg.textContent = data.success ? '✅ 成功匯入 ' + data.imported + ' 筆記錄！' : '❌ 匯入失敗：' + (data.error || '')
+        msg.classList.remove('hidden')
+        if (data.success) setTimeout(() => location.reload(), 1500)
+      } catch(e) {
+        msg.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
+        msg.textContent = '❌ 網路錯誤'
+        msg.classList.remove('hidden')
+      }
+      btn.disabled = false; btn.textContent = '✅ 匯入選取成員'
+    }
+
+    document.getElementById('import-modal').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.add('hidden')
+    })
     </script>
   `))
 })
@@ -4861,6 +5434,94 @@ adminRoutes.delete('/api/admin/group-alumni/:id', authMiddleware, async (c) => {
   const db = c.env.DB
   await db.prepare(`DELETE FROM group_alumni WHERE id=?`).bind(c.req.param('id')).run()
   return c.json({ success: true })
+})
+
+// API: 預覽可匯入的歷屆成員（從 member_year_records + member_enrollments）
+adminRoutes.get('/api/admin/group-alumni-import-preview/:groupId', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const groupId = c.req.param('groupId')
+  const year = c.req.query('year')
+  if (!year) return c.json({ success: false, error: '請提供學年度' })
+
+  // group_id → sections 對應
+  const sectionMap: Record<string, string[]> = {
+    '1': ['童軍'],
+    '2': ['行義童軍'],
+    '3': ['羅浮童軍']
+  }
+  const sections = sectionMap[groupId] || []
+  if (sections.length === 0) return c.json({ success: false, error: '不支援此團別的匯入' })
+
+  const ph = sections.map(() => '?').join(',')
+  const members: any[] = []
+
+  // 從 member_year_records 取得（較完整）
+  const pyrRows = await db.prepare(`
+    SELECT m.chinese_name as name, m.english_name, myr.unit_name as unit, myr.rank_level as rank, myr.role_name as role
+    FROM member_year_records myr
+    JOIN members m ON m.id = myr.member_id
+    WHERE myr.year_label=? AND myr.section IN (${ph})
+    ORDER BY myr.unit_name, m.chinese_name
+  `).bind(year, ...sections).all()
+
+  const foundNames = new Set<string>()
+  for (const r of pyrRows.results as any[]) {
+    members.push({
+      name: r.name, english_name: r.english_name || '',
+      unit: r.unit || '', rank: r.rank || '', role: r.role || ''
+    })
+    foundNames.add(r.name)
+  }
+
+  // 從 member_enrollments 補充（如果 year_records 沒有的）
+  const penRows = await db.prepare(`
+    SELECT m.chinese_name as name, m.english_name, me.unit_name as unit, me.rank_level as rank, me.role_name as role
+    FROM member_enrollments me
+    JOIN members m ON m.id = me.member_id
+    WHERE me.year_label=? AND me.section IN (${ph})
+    ORDER BY me.unit_name, m.chinese_name
+  `).bind(year, ...sections).all()
+
+  for (const r of penRows.results as any[]) {
+    if (!foundNames.has(r.name)) {
+      members.push({
+        name: r.name, english_name: r.english_name || '',
+        unit: r.unit || '', rank: r.rank || '', role: r.role || ''
+      })
+    }
+  }
+
+  return c.json({ success: true, members })
+})
+
+// API: 執行匯入歷屆名單
+adminRoutes.post('/api/admin/group-alumni-import/:groupId', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const groupId = c.req.param('groupId')
+  const { year_label, members } = await c.req.json() as any
+  if (!year_label || !Array.isArray(members)) return c.json({ success: false, error: '參數錯誤' })
+
+  let imported = 0
+  try {
+    for (const m of members) {
+      if (!m.name) continue
+      // 檢查是否已存在（同組+同年度+同姓名）
+      const existing = await db.prepare(
+        `SELECT id FROM group_alumni WHERE group_id=? AND year_label=? AND member_name=?`
+      ).bind(groupId, year_label, m.name).first()
+      if (existing) continue
+
+      await db.prepare(`
+        INSERT INTO group_alumni (group_id, year_label, member_name, english_name, unit_name, role_name, rank_level)
+        VALUES (?,?,?,?,?,?,?)
+      `).bind(groupId, year_label, m.name, m.english_name || null,
+               m.unit || null, m.role || null, m.rank || null).run()
+      imported++
+    }
+    return c.json({ success: true, imported })
+  } catch(e: any) {
+    return c.json({ success: false, error: e.message })
+  }
 })
 
 // ===================== 成員 CSV 批次匯入 =====================
