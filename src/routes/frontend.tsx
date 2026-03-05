@@ -1123,10 +1123,12 @@ frontendRoutes.get('/group/:slug/cadres', async (c) => {
   const group = await db.prepare(`SELECT * FROM scout_groups WHERE slug=? AND is_active=1`).bind(slug).first() as any
   if (!group) return c.notFound()
   const cadres = await db.prepare(`SELECT * FROM group_cadres WHERE group_id=? AND is_current=1 ORDER BY display_order`).bind(group.id).all()
+  // 同時載入組織架構（含 PLC/EC 資料）
+  const orgChart = await db.prepare(`SELECT * FROM group_org_chart WHERE group_id=?`).bind(group.id).first() as any
   const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
   const settings: Record<string, string> = {}
   settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
-  return c.html(renderSubPage(group, 'cadres', cadres.results, settings))
+  return c.html(renderCadresPage(group, cadres.results, orgChart, settings))
 })
 
 // 歷屆幹部頁
@@ -1883,6 +1885,380 @@ function renderSubPage(group: any, pageType: string, data: any, settings: Record
   </div>
   ${pageFooter(settings)}
 `
+}
+
+// ===================== 現任幹部頁（PLC + EC 排版）=====================
+function renderCadresPage(group: any, cadres: any[], orgChart: any, settings: Record<string, string>) {
+  // 解析 org chart JSON
+  let leaders: any[] = []
+  let patrols: any[] = []
+  let committees: any[] = []
+  if (orgChart?.content) {
+    try {
+      const parsed = JSON.parse(orgChart.content)
+      leaders = parsed.leaders || []
+      patrols = parsed.patrols || []
+      committees = parsed.committees || []
+    } catch {}
+  }
+
+  // 學年度
+  const yearLabel = cadres.length > 0 ? (cadres[0].year_label || '') : ''
+  const schoolTitle = yearLabel ? `民國 ${yearLabel} 學年度` : ''
+
+  // Sub nav
+  const subNavItems: any[] = ({
+    '1': [
+      { label: '現任幹部', path: 'cadres' },
+      { label: '歷屆幹部', path: 'past-cadres' },
+      { label: '歷屆名單', path: 'alumni' },
+      { label: '組織架構', path: 'org' },
+    ],
+    '2': [
+      { label: '行義團現任幹部', path: 'cadres' },
+      { label: '行義團歷屆幹部', path: 'past-cadres' },
+      { label: '歷屆名單', path: 'alumni' },
+      { label: '組織架構', path: 'org' },
+    ],
+    '3': [
+      { label: '現任幹部', path: 'cadres' },
+      { label: '歷屆幹部', path: 'past-cadres' },
+      { label: '歷屆名單', path: 'alumni' },
+    ],
+  } as Record<string, any[]>)[String(group.id)] || []
+
+  const subNavHtml = subNavItems.length > 0 ? `
+  <div class="bg-white border-b sticky top-0 z-30 shadow-sm">
+    <div class="max-w-5xl mx-auto px-4 flex gap-1 overflow-x-auto py-2">
+      ${subNavItems.map((item: any) => `
+        <a href="/group/${group.slug}/${item.path}"
+           class="whitespace-nowrap px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${item.path === 'cadres' ? 'bg-green-700 text-white' : 'text-gray-600 hover:bg-gray-100'}">
+          ${item.label}
+        </a>`).join('')}
+    </div>
+  </div>` : ''
+
+  // 輔助：從幹部名單找特定職位
+  const findCadre = (role: string) => cadres.find((c: any) => c.role === role)
+  const findCadresByRole = (roles: string[]) => cadres.filter((c: any) => roles.includes(c.role))
+
+  // 渲染一個人物卡片（photo圓形，姓名＋職銜）
+  const personCard = (name: string, role: string, engName: string, photo: string, size: 'lg'|'md'|'sm' = 'md') => {
+    const sizes = {
+      lg: { wrap: 'w-28 h-28', emoji: 'text-5xl', nameSize: 'text-base', roleSize: 'text-xs' },
+      md: { wrap: 'w-20 h-20', emoji: 'text-3xl', nameSize: 'text-sm', roleSize: 'text-xs' },
+      sm: { wrap: 'w-16 h-16', emoji: 'text-2xl', nameSize: 'text-xs', roleSize: 'text-xs' },
+    }[size]
+    const displayName = name || '（待填入）'
+    return `
+    <div class="flex flex-col items-center gap-1.5 text-center">
+      <div class="${sizes.wrap} rounded-full overflow-hidden bg-green-50 border-2 border-green-300 flex items-center justify-center shadow-md flex-shrink-0">
+        ${photo
+          ? `<img src="${photo}" alt="${displayName}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<span class=\\'${sizes.emoji}\\'>⭐</span>'">`
+          : `<span class="${sizes.emoji}">⭐</span>`}
+      </div>
+      <div>
+        <div class="inline-block text-xs font-semibold text-green-800 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full mb-0.5">${role}</div>
+        <div class="font-bold text-gray-800 ${sizes.nameSize}">${displayName}</div>
+        ${engName ? `<div class="text-gray-400 text-xs">${engName}</div>` : ''}
+      </div>
+    </div>`
+  }
+
+  // ─────────────────────────────────────────
+  // PLC 區塊
+  // ─────────────────────────────────────────
+
+  // PLC 主席（聯隊長 / 副聯隊長）
+  // 優先從 org chart leaders 取，其次從 cadres
+  const plcHeadItems: any[] = (() => {
+    if (leaders.length > 0) return leaders
+    return findCadresByRole(['聯隊長','副聯隊長','隊長','副隊長','群長','副群長'])
+      .map((c: any) => ({ role: c.role, name: c.chinese_name, english_name: c.english_name, photo_url: c.photo_url || '' }))
+  })()
+
+  const plcHeadHtml = plcHeadItems.length > 0 ? `
+  <div class="flex flex-wrap justify-center gap-10 mb-8">
+    ${plcHeadItems.map((p: any) => personCard(
+      p.name || p.chinese_name || '',
+      p.role || '',
+      p.english_name || '',
+      p.photo_url || '',
+      'lg'
+    )).join('')}
+  </div>` : ''
+
+  // 各小隊卡片（PLC patrols）
+  const patrolCardsHtml = (() => {
+    // 優先用 org chart patrols
+    if (patrols.length > 0) {
+      return `
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
+        ${patrols.map((patrol: any) => {
+          const leaderName = patrol.leaderName || patrol.leader || ''
+          const subName = patrol.subLeaderName || patrol.vice_leader || ''
+          const leaderRole = patrol.leaderRole || '小隊長'
+          const subRole = patrol.subLeaderRole || '副小隊長'
+          const photo = patrol.photo_url || patrol.image_url || ''
+          const members: any[] = patrol.members || []
+          return `
+          <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
+            <!-- 小隊圖片 / 隊徽 -->
+            <div class="h-36 overflow-hidden bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
+              ${photo
+                ? `<img src="${photo}" alt="${patrol.name}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<span class=\\'text-6xl\\'>🏕️</span>'">`
+                : `<span class="text-6xl">🏕️</span>`}
+            </div>
+            <!-- 小隊資訊 -->
+            <div class="p-4 text-center">
+              <h4 class="font-bold text-gray-800 text-sm mb-3">${patrol.name || ''}</h4>
+              <div class="space-y-1.5">
+                ${leaderName ? `
+                <div class="flex items-center justify-center gap-1.5 text-xs">
+                  <span class="bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">${leaderRole}</span>
+                  <span class="font-medium text-gray-700">${leaderName}</span>
+                </div>` : ''}
+                ${subName ? `
+                <div class="flex items-center justify-center gap-1.5 text-xs">
+                  <span class="bg-green-50 text-green-600 px-2 py-0.5 rounded-full border border-green-200">${subRole}</span>
+                  <span class="text-gray-600">${subName}</span>
+                </div>` : ''}
+                ${members.filter((m: any) => m.name).map((m: any) => `
+                <div class="flex items-center justify-center gap-1.5 text-xs">
+                  ${m.role ? `<span class="text-gray-400">${m.role}：</span>` : ''}
+                  <span class="text-gray-600">${m.name}</span>
+                </div>`).join('')}
+              </div>
+            </div>
+          </div>`
+        }).join('')}
+      </div>`
+    }
+
+    // 否則從幹部職位中推斷小隊（群組小隊長/副小隊長）
+    const patrolLeaders = findCadresByRole(['小隊長','副小隊長','副隊長'])
+    if (patrolLeaders.length === 0) return ''
+    const byUnit: Record<string, any[]> = {}
+    patrolLeaders.forEach((c: any) => {
+      const key = c.notes || c.unit_name || '未分配小隊'
+      if (!byUnit[key]) byUnit[key] = []
+      byUnit[key].push(c)
+    })
+    return `
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
+      ${Object.entries(byUnit).map(([unitName, members]) => `
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
+          <div class="h-36 bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
+            <span class="text-6xl">🏕️</span>
+          </div>
+          <div class="p-4 text-center">
+            <h4 class="font-bold text-gray-800 text-sm mb-3">${unitName}</h4>
+            ${members.map((m: any) => `
+            <div class="flex items-center justify-center gap-1.5 text-xs mb-1.5">
+              <span class="bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">${m.role}</span>
+              <span class="font-medium text-gray-700">${m.chinese_name}</span>
+            </div>`).join('')}
+          </div>
+        </div>`).join('')}
+    </div>`
+  })()
+
+  const hasPLC = plcHeadHtml || patrolCardsHtml
+
+  // ─────────────────────────────────────────
+  // EC 執行委員會 區塊
+  // ─────────────────────────────────────────
+  const ecCardsHtml = (() => {
+    if (committees.length > 0) {
+      return `
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
+        ${committees.map((comm: any) => {
+          const photo = comm.photo_url || comm.image_url || ''
+          const leaderName = comm.leaderName || comm.leader || ''
+          const leaderRole = comm.leaderRole || '組長'
+          const members: any[] = comm.members || []
+          return `
+          <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
+            <div class="h-32 overflow-hidden bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+              ${photo
+                ? `<img src="${photo}" alt="${comm.name}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<span class=\\'text-5xl\\'>⚙️</span>'">`
+                : `<span class="text-5xl">⚙️</span>`}
+            </div>
+            <div class="p-4 text-center">
+              <h4 class="font-bold text-gray-800 text-sm mb-3">${comm.name || ''}</h4>
+              <div class="space-y-1.5">
+                ${leaderName ? `
+                <div class="flex items-center justify-center gap-1.5 text-xs">
+                  <span class="bg-blue-100 text-blue-700 font-semibold px-2 py-0.5 rounded-full">${leaderRole}</span>
+                  <span class="font-medium text-gray-700">${leaderName}</span>
+                </div>` : ''}
+                ${members.filter((m: any) => m.name).map((m: any) => `
+                <div class="flex items-center justify-center gap-1.5 text-xs">
+                  ${m.role ? `<span class="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-200">${m.role}</span>` : ''}
+                  <span class="text-gray-600">${m.name}</span>
+                </div>`).join('')}
+              </div>
+            </div>
+          </div>`
+        }).join('')}
+      </div>`
+    }
+
+    // 否則從幹部推斷 EC 組
+    const ecRoleMap: Record<string, string> = {
+      '展演組長': '展演組', '副展演長': '展演組',
+      '活動組長': '活動組', '副活動長': '活動組',
+      '行政組長': '行政組', '副行政長': '行政組', '行政長': '行政組',
+      '器材組長': '器材組', '副器材長': '器材組', '器材長': '器材組',
+      '公關組長': '公關組', '副公關長': '公關組',
+    }
+    const ecGroups: Record<string, any[]> = {}
+    cadres.filter((c: any) => ecRoleMap[c.role]).forEach((c: any) => {
+      const key = ecRoleMap[c.role]
+      if (!ecGroups[key]) ecGroups[key] = []
+      ecGroups[key].push(c)
+    })
+    if (Object.keys(ecGroups).length === 0) return ''
+    return `
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
+      ${Object.entries(ecGroups).map(([groupName, members]) => `
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
+          <div class="h-32 bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+            <span class="text-5xl">⚙️</span>
+          </div>
+          <div class="p-4 text-center">
+            <h4 class="font-bold text-gray-800 text-sm mb-3">${groupName}</h4>
+            ${members.map((m: any) => `
+            <div class="flex items-center justify-center gap-1.5 text-xs mb-1.5">
+              <span class="bg-blue-100 text-blue-700 font-semibold px-2 py-0.5 rounded-full">${m.role}</span>
+              <span class="font-medium text-gray-700">${m.chinese_name}</span>
+            </div>`).join('')}
+          </div>
+        </div>`).join('')}
+    </div>`
+  })()
+
+  const hasEC = ecCardsHtml !== ''
+
+  // ─────────────────────────────────────────
+  // 剩餘幹部（服務員等未分類）
+  // ─────────────────────────────────────────
+  // 已在 PLC/EC 中使用的職位
+  const plcRoles = new Set(plcHeadItems.map((p: any) => p.role).filter(Boolean))
+  const patrolRoles = new Set(['小隊長','副小隊長','副隊長'])
+  const ecRoleNames = new Set(Object.values({
+    '展演組長': '展演組', '副展演長': '展演組',
+    '活動組長': '活動組', '副活動長': '活動組',
+    '行政組長': '行政組', '副行政長': '行政組', '行政長': '行政組',
+    '器材組長': '器材組', '副器材長': '器材組', '器材長': '器材組',
+    '公關組長': '公關組', '副公關長': '公關組',
+  }))
+  const usedInEc = new Set(['展演組長','副展演長','活動組長','副活動長','行政組長','副行政長','行政長','器材組長','副器材長','器材長','公關組長','副公關長'])
+
+  const remainingCadres = cadres.filter((c: any) => {
+    if (plcRoles.has(c.role)) return false
+    if (patrolRoles.has(c.role)) return false
+    if (usedInEc.has(c.role)) return false
+    return true
+  })
+
+  const remainingHtml = remainingCadres.length > 0 ? `
+  <div class="mb-10">
+    <div class="flex items-center mb-6">
+      <div class="flex-1 h-px bg-green-200"></div>
+      <h3 class="text-lg font-bold text-green-800 px-5 flex items-center gap-2">
+        <span>🎖️</span> 服務員 / 行政幹部
+      </h3>
+      <div class="flex-1 h-px bg-green-200"></div>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+      ${remainingCadres.map((c: any) => `
+        <div class="bg-white rounded-2xl border border-green-100 shadow-sm p-4 flex flex-col items-center text-center hover:shadow-md transition-all duration-200">
+          <div class="w-16 h-16 rounded-full overflow-hidden bg-gradient-to-br from-green-100 to-teal-100 flex items-center justify-center mb-3 border-2 border-green-200 shadow-sm">
+            ${c.photo_url
+              ? `<img src="${c.photo_url}" alt="${c.chinese_name}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<span class=\\'text-xl\\'>⭐</span>'">`
+              : `<span class="text-xl">⭐</span>`}
+          </div>
+          <div class="text-xs font-semibold text-green-800 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full mb-1">${c.role}</div>
+          <p class="font-bold text-gray-800 text-sm">${c.chinese_name}</p>
+          ${c.english_name && c.english_name !== 'null' ? `<p class="text-xs text-gray-400 mt-0.5">${c.english_name}</p>` : ''}
+        </div>`).join('')}
+    </div>
+  </div>` : ''
+
+  const isEmpty = !hasPLC && !hasEC && remainingCadres.length === 0
+
+  const contentHtml = `
+    ${remainingHtml}
+
+    ${hasPLC ? `
+    <div class="mb-12">
+      <!-- PLC 標題 -->
+      <div class="flex items-center mb-8">
+        <div class="flex-1 h-px bg-green-200"></div>
+        <div class="text-center px-6">
+          <h3 class="text-xl font-bold text-green-800">PLC 小隊長議會</h3>
+          <p class="text-xs text-green-500 mt-0.5">Patrol Leaders Council</p>
+        </div>
+        <div class="flex-1 h-px bg-green-200"></div>
+      </div>
+      <!-- PLC 主席 -->
+      ${plcHeadHtml}
+      <!-- 各小隊 -->
+      ${patrolCardsHtml}
+    </div>` : ''}
+
+    ${hasEC ? `
+    <div class="mb-12">
+      <!-- EC 標題 -->
+      <div class="flex items-center mb-8">
+        <div class="flex-1 h-px bg-blue-200"></div>
+        <div class="text-center px-6">
+          <h3 class="text-xl font-bold text-blue-800">執行委員會 EC</h3>
+          <p class="text-xs text-blue-400 mt-0.5">Executive Committee</p>
+        </div>
+        <div class="flex-1 h-px bg-blue-200"></div>
+      </div>
+      ${ecCardsHtml}
+    </div>` : ''}
+
+    ${isEmpty ? `
+    <div class="text-center py-20 text-gray-400">
+      <div class="text-6xl mb-4">⭐</div>
+      <p class="text-lg font-medium">尚無現任幹部資料</p>
+      <p class="text-sm mt-2">請至後台新增幹部或組織架構資料</p>
+    </div>` : ''}`
+
+  const breadcrumb = `
+    <div class="flex items-center gap-2 text-green-300 text-sm mb-4 flex-wrap">
+      <a href="/" class="hover:text-white transition-colors">首頁</a>
+      <span>›</span>
+      <a href="/group/${group.slug}" class="hover:text-white transition-colors">${group.name}</a>
+      <span>›</span>
+      <span class="text-white">現任幹部</span>
+    </div>`
+
+  return `${pageHead(`現任幹部 - ${group.name} - 林口康橋童軍團`)}
+<body class="bg-gray-50">
+  ${navBar(settings)}
+  <div class="hero-gradient text-white py-12 px-4">
+    <div class="max-w-5xl mx-auto">
+      ${breadcrumb}
+      <div class="flex items-center gap-4">
+        <span class="text-4xl">⭐</span>
+        <div>
+          <h1 class="text-2xl md:text-3xl font-bold">${group.name} · 現任幹部名單</h1>
+          ${schoolTitle ? `<p class="text-green-200 mt-1">${schoolTitle}</p>` : ''}
+        </div>
+      </div>
+    </div>
+  </div>
+  ${subNavHtml}
+  <div class="max-w-5xl mx-auto px-4 py-10">
+    ${contentHtml}
+  </div>
+  ${pageFooter(settings)}
+</body></html>`
 }
 
 // ===================== 教練團頁（行義團）=====================

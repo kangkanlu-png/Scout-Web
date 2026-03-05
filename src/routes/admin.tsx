@@ -4506,11 +4506,12 @@ adminRoutes.get('/groups/:id/org', authMiddleware, async (c) => {
             <button onclick="editPatrol(\${i})" class="text-xs text-blue-600 bg-white border rounded px-2 py-0.5">編輯</button>
             <button onclick="removePatrol(\${i})" class="text-xs text-red-400 bg-white border rounded px-2 py-0.5">✕</button>
           </div>
-          \${p.image_url ? \`<img src="\${p.image_url}" class="w-20 h-20 rounded-full object-cover mx-auto mb-2 border-2 border-gray-200">\` : '<div class="w-20 h-20 rounded-full bg-green-100 mx-auto mb-2 flex items-center justify-center text-3xl">⚔️</div>'}
+          \${(p.photo_url||p.image_url) ? \`<img src="\${p.photo_url||p.image_url}" class="w-20 h-20 rounded-full object-cover mx-auto mb-2 border-2 border-gray-200">\` : '<div class="w-20 h-20 rounded-full bg-green-100 mx-auto mb-2 flex items-center justify-center text-3xl">⚔️</div>'}
           <div class="text-center">
             <div class="font-bold text-sm text-gray-800">\${p.name || ''}</div>
-            \${p.leader ? \`<div class="text-xs text-gray-500 mt-1">小隊長：\${p.leader}</div>\` : ''}
-            \${p.vice_leader ? \`<div class="text-xs text-gray-400">副小隊長：\${p.vice_leader}</div>\` : ''}
+            \${p.leaderName ? \`<div class="text-xs text-gray-500 mt-1">\${p.leaderRole||'小隊長'}：\${p.leaderName}</div>\` : p.leader ? \`<div class="text-xs text-gray-500 mt-1">小隊長：\${p.leader}</div>\` : ''}
+            \${p.subLeaderName ? \`<div class="text-xs text-gray-400">\${p.subLeaderRole||'副小隊長'}：\${p.subLeaderName}</div>\` : p.vice_leader ? \`<div class="text-xs text-gray-400">副小隊長：\${p.vice_leader}</div>\` : ''}
+            \${p.members && p.members.length ? p.members.map(m => \`<div class="text-xs text-gray-400">\${m.role ? m.role+'：' : ''}\${m.name}</div>\`).join('') : ''}
           </div>
         </div>\`).join('')
     }
@@ -4524,11 +4525,11 @@ adminRoutes.get('/groups/:id/org', authMiddleware, async (c) => {
             <button onclick="editCommittee(\${i})" class="text-xs text-blue-600 bg-white border rounded px-2 py-0.5">編輯</button>
             <button onclick="removeCommittee(\${i})" class="text-xs text-red-400 bg-white border rounded px-2 py-0.5">✕</button>
           </div>
-          \${c.image_url ? \`<img src="\${c.image_url}" class="w-20 h-20 rounded object-cover mx-auto mb-2 border-2 border-gray-200">\` : '<div class="w-20 h-20 rounded bg-purple-100 mx-auto mb-2 flex items-center justify-center text-3xl">⚙️</div>'}
+          \${(c.photo_url||c.image_url) ? \`<img src="\${c.photo_url||c.image_url}" class="w-20 h-20 rounded object-cover mx-auto mb-2 border-2 border-gray-200">\` : '<div class="w-20 h-20 rounded bg-purple-100 mx-auto mb-2 flex items-center justify-center text-3xl">⚙️</div>'}
           <div class="text-center">
             <div class="font-bold text-sm text-gray-800">\${c.name || ''}</div>
-            \${c.leader ? \`<div class="text-xs text-gray-500 mt-1">組長：\${c.leader}</div>\` : ''}
-            \${c.vice_leaders ? \`<div class="text-xs text-gray-400">副組長：\${c.vice_leaders}</div>\` : ''}
+            \${c.leaderName ? \`<div class="text-xs text-gray-500 mt-1">\${c.leaderRole||'組長'}：\${c.leaderName}</div>\` : c.leader ? \`<div class="text-xs text-gray-500 mt-1">組長：\${c.leader}</div>\` : ''}
+            \${c.members && c.members.length ? c.members.map(m => \`<div class="text-xs text-gray-400">\${m.role ? m.role+'：' : ''}\${m.name}</div>\`).join('') : c.vice_leaders ? \`<div class="text-xs text-gray-400">副組長：\${c.vice_leaders}</div>\` : ''}
           </div>
         </div>\`).join('')
     }
@@ -4539,10 +4540,10 @@ adminRoutes.get('/groups/:id/org', authMiddleware, async (c) => {
     function addLeader() { openModal('leader', -1, { role:'', name:'', photo_url:'' }) }
     function editLeader(i) { openModal('leader', i, leaders[i]) }
     function removeLeader(i) { if(!confirm('確定刪除？')) return; leaders.splice(i,1); renderLeaders() }
-    function addPatrol() { openModal('patrol', -1, { name:'', image_url:'', leader:'', vice_leader:'' }) }
+    function addPatrol() { openModal('patrol', -1, { name:'', photo_url:'', leaderName:'', subLeaderName:'', leaderRole:'小隊長', subLeaderRole:'副小隊長' }) }
     function editPatrol(i) { openModal('patrol', i, patrols[i]) }
     function removePatrol(i) { if(!confirm('確定刪除？')) return; patrols.splice(i,1); renderPatrols() }
-    function addCommittee() { openModal('committee', -1, { name:'', image_url:'', leader:'', vice_leaders:'' }) }
+    function addCommittee() { openModal('committee', -1, { name:'', photo_url:'', leaderName:'', leaderRole:'組長', members:[] }) }
     function editCommittee(i) { openModal('committee', i, committees[i]) }
     function removeCommittee(i) { if(!confirm('確定刪除？')) return; committees.splice(i,1); renderCommittees() }
 
@@ -4554,16 +4555,21 @@ adminRoutes.get('/groups/:id/org', authMiddleware, async (c) => {
         { key:'photo_url', label:'照片網址（選填）', placeholder:'https://...', type:'url' }
       ],
       patrol: [
-        { key:'name', label:'小隊名稱', placeholder:'遊俠小隊' },
-        { key:'image_url', label:'小隊圖片網址（選填）', placeholder:'https://...', type:'url' },
-        { key:'leader', label:'小隊長姓名', placeholder:'張三' },
-        { key:'vice_leader', label:'副小隊長姓名（選填）', placeholder:'李四' }
+        { key:'name', label:'小隊名稱 *', placeholder:'遊俠小隊、刺客小隊...' },
+        { key:'photo_url', label:'小隊圖片網址（選填）', placeholder:'https://...（隊徽圖片）', type:'url' },
+        { key:'leaderRole', label:'第1職稱', placeholder:'小隊長' },
+        { key:'leaderName', label:'第1姓名', placeholder:'張三' },
+        { key:'subLeaderRole', label:'第2職稱', placeholder:'副小隊長' },
+        { key:'subLeaderName', label:'第2姓名（選填）', placeholder:'李四' },
+        { key:'subMembers', label:'其他成員（每行一位，格式：姓名 或 職稱:姓名）', placeholder:'副隊長:王五
+林小明', type:'textarea' }
       ],
       committee: [
-        { key:'name', label:'組名稱', placeholder:'行政組、公關組...' },
-        { key:'image_url', label:'組圖片網址（選填）', placeholder:'https://...', type:'url' },
-        { key:'leader', label:'組長姓名', placeholder:'王組長' },
-        { key:'vice_leaders', label:'副組長姓名（多人用、分隔，選填）', placeholder:'張三、李四' }
+        { key:'name', label:'組名稱 *', placeholder:'行政組、公關組、展演組...' },
+        { key:'photo_url', label:'組圖片網址（選填）', placeholder:'https://...（組的標誌圖片）', type:'url' },
+        { key:'leaderRole', label:'組長職稱', placeholder:'組長' },
+        { key:'leaderName', label:'組長姓名', placeholder:'王組長' },
+        { key:'subMembers', label:'副組長 / 成員（每行一位，格式：姓名 或 職稱:姓名）', placeholder:'副組長:張三\n林小明', type:'textarea' }
       ]
     }
 
@@ -4571,19 +4577,46 @@ adminRoutes.get('/groups/:id/org', authMiddleware, async (c) => {
       _modalType = type; _modalIdx = idx
       const title = {leader:'領導層成員', patrol:'小隊', committee:'委員會'}[type]
       document.getElementById('modal-title').textContent = (idx === -1 ? '新增' : '編輯') + title
-      document.getElementById('modal-fields').innerHTML = FIELDS[type].map(f => \`
-        <div class="mb-3">
+      document.getElementById('modal-fields').innerHTML = FIELDS[type].map(f => {
+        const val = (data[f.key]||'').toString().replace(/"/g,'&quot;')
+        if (f.type === 'textarea') {
+          return \`<div class="mb-3">
+            <label class="block text-xs font-medium text-gray-700 mb-1">\${f.label}</label>
+            <textarea id="mf-\${f.key}" class="w-full border rounded-lg px-3 py-2 text-sm" rows="4" placeholder="\${f.placeholder||''}">\${(data[f.key]||'')}</textarea>
+            <p class="text-xs text-gray-400 mt-1">每行一位，格式：姓名 或 職稱:姓名</p>
+          </div>\`
+        }
+        return \`<div class="mb-3">
           <label class="block text-xs font-medium text-gray-700 mb-1">\${f.label}</label>
-          <input type="\${f.type||'text'}" id="mf-\${f.key}" class="w-full border rounded-lg px-3 py-2 text-sm"
-            placeholder="\${f.placeholder||''}" value="\${(data[f.key]||'').toString().replace(/"/g,'&quot;')}">
-        </div>\`).join('')
+          \${f.type === 'url' ? \`<div class="flex gap-2"><input type="url" id="mf-\${f.key}" class="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="\${f.placeholder||''}" value="\${val}"><button type="button" onclick="previewFieldImg('mf-\${f.key}')" class="text-xs border rounded px-2 text-blue-600 hover:bg-blue-50">預覽</button></div>\` : \`<input type="\${f.type||'text'}" id="mf-\${f.key}" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="\${f.placeholder||''}" value="\${val}">\`}
+        </div>\`
+      }).join('')
       document.getElementById('org-modal').classList.remove('hidden')
+    }
+
+    function previewFieldImg(id) {
+      const url = document.getElementById(id)?.value
+      if (url) window.open(url, '_blank')
     }
 
     function saveModal() {
       const fields = FIELDS[_modalType]
       const obj = {}
-      fields.forEach(f => { obj[f.key] = document.getElementById('mf-'+f.key).value.trim() })
+      fields.forEach(f => {
+        const el = document.getElementById('mf-'+f.key)
+        if (!el) return
+        if (f.type === 'textarea') {
+          // 解析成員列表
+          const lines = el.value.trim().split('\\n').filter(l => l.trim())
+          obj['members'] = lines.map(line => {
+            const parts = line.split(':')
+            if (parts.length >= 2) return { role: parts[0].trim(), name: parts.slice(1).join(':').trim() }
+            return { name: line.trim() }
+          }).filter(m => m.name)
+        } else {
+          obj[f.key] = el.value.trim()
+        }
+      })
       const arr = _modalType === 'leader' ? leaders : _modalType === 'patrol' ? patrols : committees
       if (_modalIdx === -1) arr.push(obj); else arr[_modalIdx] = obj
       renderAll()
