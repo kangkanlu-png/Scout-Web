@@ -4336,8 +4336,11 @@ adminRoutes.get('/groups/:id/subpages', authMiddleware, async (c) => {
         <div class="text-3xl mb-3">⭐</div>
         <h3 class="text-lg font-bold text-gray-800 mb-1">幹部名單</h3>
         <p class="text-gray-500 text-sm mb-4">共 ${cadresCount?.cnt || 0} 筆記錄</p>
-        <a href="/admin/groups/${id}/cadres" class="block text-center bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors">
-          管理幹部名單
+        <a href="/admin/groups/${id}/cadres" class="block text-center bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors mb-2">
+          管理現任幹部
+        </a>
+        <a href="/admin/groups/${id}/past-cadres" class="block text-center bg-green-100 hover:bg-green-200 text-green-800 py-2 px-4 rounded-lg text-sm font-medium transition-colors">
+          📚 歷屆幹部記錄
         </a>
       </div>
 
@@ -4986,6 +4989,10 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
             class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5">
             👁 前台預覽
           </a>
+          <a href="/admin/groups/${id}/past-cadres"
+            class="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5">
+            📚 歷屆幹部
+          </a>
           <button onclick="openPickFromRoster()"
             class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5">
             👤 從成員名冊選取
@@ -5020,10 +5027,14 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
     <div class="mb-10">
       <div class="flex items-center mb-6">
         <div class="flex-1 h-px bg-green-200"></div>
-        <div class="text-center px-6">
+        <div class="text-center px-4">
           <h3 class="text-lg font-bold text-green-800">PLC 小隊長議會</h3>
           <p class="text-xs text-green-500 mt-0.5">Patrol Leaders Council</p>
         </div>
+        <button onclick="openManagePatrols()"
+          class="ml-2 text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-300 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors">
+          ⚙️ 管理小隊
+        </button>
         <div class="flex-1 h-px bg-green-200"></div>
       </div>
 
@@ -5040,30 +5051,33 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
 
       ${patrolGridHtml || `
         <div class="text-center py-4 text-gray-400 text-sm">
-          尚無小隊資料，請先至
-          <a href="/admin/groups/${id}/org" class="text-blue-500 hover:underline">組織架構</a>
-          設定小隊，或直接
+          尚無小隊資料。
+          <button onclick="openManagePatrols()" class="text-green-600 hover:underline">點此新增小隊</button>
+          或直接
           <button onclick="openAddCadre('小隊長')" class="text-blue-500 hover:underline">新增小隊長</button>
         </div>
       `}
     </div>
     ` : `
     <!-- 沒有 PLC 資料時顯示新增引導 -->
-    ${currentCadres.length > 0 ? '' : `
     <div class="mb-10 bg-green-50 border border-green-200 rounded-xl p-5">
       <div class="flex items-center mb-3">
         <div class="flex-1 h-px bg-green-200"></div>
-        <div class="text-center px-6">
+        <div class="text-center px-4">
           <h3 class="text-base font-bold text-green-700">PLC 小隊長議會</h3>
         </div>
+        <button onclick="openManagePatrols()"
+          class="ml-2 text-xs bg-green-100 hover:bg-green-200 text-green-700 border border-green-300 px-3 py-1.5 rounded-lg flex items-center gap-1">
+          ⚙️ 管理小隊
+        </button>
         <div class="flex-1 h-px bg-green-200"></div>
       </div>
       <div class="flex flex-wrap justify-center gap-3">
+        <button onclick="openManagePatrols()" class="bg-white border border-green-300 rounded-xl px-4 py-2.5 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">
+          ➕ 新增小隊
+        </button>
         <button onclick="openAddCadre('聯隊長')" class="bg-white border border-green-300 rounded-xl px-4 py-2.5 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">
           ➕ 新增聯隊長
-        </button>
-        <button onclick="openAddCadre('副聯隊長')" class="bg-white border border-green-300 rounded-xl px-4 py-2.5 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">
-          ➕ 新增副聯隊長
         </button>
         <button onclick="openAddCadre('小隊長')" class="bg-white border border-green-300 rounded-xl px-4 py-2.5 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">
           ➕ 新增小隊長
@@ -5071,22 +5085,28 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       </div>
     </div>
     `}
-    `}
 
-    ${Object.keys(ecGroups).length > 0 || orgCommittees.length > 0 ? `
-    <!-- EC 區塊 -->
+    <!-- EC 區塊（固定顯示，方便管理） -->
     <div class="mb-10">
       <div class="flex items-center mb-6">
         <div class="flex-1 h-px bg-blue-200"></div>
-        <div class="text-center px-6">
+        <div class="text-center px-4">
           <h3 class="text-lg font-bold text-blue-800">執行委員會 EC</h3>
           <p class="text-xs text-blue-400 mt-0.5">Executive Committee</p>
         </div>
+        <button onclick="openManageCommittees()"
+          class="ml-2 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-300 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors">
+          ⚙️ 管理委員會
+        </button>
         <div class="flex-1 h-px bg-blue-200"></div>
       </div>
-      ${ecGridHtml}
+      ${ecGridHtml || `
+        <div class="text-center py-4 text-gray-400 text-sm">
+          尚無委員會資料。
+          <button onclick="openManageCommittees()" class="text-blue-600 hover:underline">點此新增委員會</button>
+        </div>
+      `}
     </div>
-    ` : ''}
 
     ${remainingCadres.length > 0 ? `
     <!-- 服務員 / 其他幹部 -->
@@ -5102,17 +5122,27 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
     </div>
     ` : ''}
 
-    <!-- ===== 歷屆幹部列表 ===== -->
-    ${histYears.length > 0 ? `
-    <div class="mt-8 pt-8 border-t border-gray-200">
-      <div class="flex items-center gap-3 mb-4">
-        <h3 class="text-base font-bold text-gray-600 flex items-center gap-2">
-          <span class="w-2 h-2 bg-gray-400 rounded-full"></span> 歷屆幹部
-        </h3>
-        <span class="text-xs text-gray-400">${histCadres.length} 筆紀錄</span>
+    <!-- ===== 歷屆幹部名單 ===== -->
+    <div class="mt-8 pt-8 border-t-2 border-dashed border-gray-200">
+      <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center gap-3">
+          <h3 class="text-lg font-bold text-gray-700 flex items-center gap-2">
+            📚 歷屆幹部名單
+          </h3>
+          <span class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">${histCadres.length} 筆紀錄</span>
+        </div>
+        <a href="/group/${group.slug}/past-cadres" target="_blank"
+          class="text-xs text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg hover:bg-blue-50">
+          👁 前台展示 →
+        </a>
       </div>
-      ${histRows}
-    </div>` : ''}
+      ${histYears.length > 0 ? histRows : `
+      <div class="text-center py-10 text-gray-300 bg-gray-50 rounded-xl">
+        <div class="text-4xl mb-2">📭</div>
+        <p class="text-sm">尚無歷屆幹部記錄</p>
+        <p class="text-xs mt-1">執行「換年度」後，現任幹部將自動存入歷屆名單</p>
+      </div>`}
+    </div>
 
     <!-- ===== 從成員名冊選取 Modal ===== -->
     <div id="pick-roster-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
@@ -5581,7 +5611,284 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
         if (r) r.classList.add('hidden')
       }
     })
+
+    // ===== 管理小隊 (PLC) =====
+    let ORG_PATROLS = ${JSON.stringify(orgPatrols).replace(/</g, '\\u003c')}
+    let ORG_COMMITTEES = ${JSON.stringify(orgCommittees).replace(/</g, '\\u003c')}
+    let ORG_LEADERS = ${JSON.stringify(orgLeaders).replace(/</g, '\\u003c')}
+    let editingPatrolIdx = -1
+    let editingCommitteeIdx = -1
+
+    function openManagePatrols() {
+      renderPatrolList()
+      document.getElementById('manage-patrols-modal').classList.remove('hidden')
+    }
+    function closeManagePatrols() {
+      document.getElementById('manage-patrols-modal').classList.add('hidden')
+    }
+    function renderPatrolList() {
+      const ul = document.getElementById('patrol-list')
+      if (ORG_PATROLS.length === 0) {
+        ul.innerHTML = '<li class="text-center text-gray-300 text-sm py-6">尚無小隊，請點「新增小隊」</li>'
+        return
+      }
+      ul.innerHTML = ORG_PATROLS.map((p, i) => \`
+        <li class="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-xl border border-gray-200 group">
+          <span class="text-lg">🏕️</span>
+          <div class="flex-1 min-w-0">
+            <span class="font-medium text-gray-800 text-sm">\${p.name}</span>
+            \${p.photo_url ? '<span class="text-xs text-gray-400 ml-2">（含圖片）</span>' : ''}
+          </div>
+          <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onclick="editPatrolItem(\${i})" class="text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg border border-blue-200">✏️ 編輯</button>
+            <button onclick="removePatrolItem(\${i})" class="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg border border-red-200">🗑️ 刪除</button>
+          </div>
+        </li>
+      \`).join('')
+    }
+    function editPatrolItem(idx) {
+      editingPatrolIdx = idx
+      const p = ORG_PATROLS[idx]
+      document.getElementById('patrol-edit-name').value = p.name || ''
+      document.getElementById('patrol-edit-photo').value = p.photo_url || ''
+      document.getElementById('patrol-edit-section').classList.remove('hidden')
+      document.getElementById('patrol-edit-title').textContent = '編輯小隊：' + p.name
+    }
+    function addNewPatrol() {
+      editingPatrolIdx = -1
+      document.getElementById('patrol-edit-name').value = ''
+      document.getElementById('patrol-edit-photo').value = ''
+      document.getElementById('patrol-edit-section').classList.remove('hidden')
+      document.getElementById('patrol-edit-title').textContent = '新增小隊'
+      document.getElementById('patrol-edit-name').focus()
+    }
+    function savePatrolItem() {
+      const name = document.getElementById('patrol-edit-name').value.trim()
+      if (!name) { alert('請輸入小隊名稱'); return }
+      const photo = document.getElementById('patrol-edit-photo').value.trim()
+      const entry = { name, photo_url: photo }
+      if (editingPatrolIdx >= 0) {
+        ORG_PATROLS[editingPatrolIdx] = entry
+      } else {
+        ORG_PATROLS.push(entry)
+      }
+      document.getElementById('patrol-edit-section').classList.add('hidden')
+      editingPatrolIdx = -1
+      renderPatrolList()
+    }
+    function cancelPatrolEdit() {
+      document.getElementById('patrol-edit-section').classList.add('hidden')
+      editingPatrolIdx = -1
+    }
+    function removePatrolItem(idx) {
+      if (!confirm('確定刪除「' + ORG_PATROLS[idx].name + '」小隊？\\n（只刪除架構設定，不影響幹部記錄）')) return
+      ORG_PATROLS.splice(idx, 1)
+      renderPatrolList()
+    }
+    async function saveOrgPatrols() {
+      const btn = document.getElementById('save-patrols-btn')
+      btn.disabled = true; btn.textContent = '儲存中...'
+      try {
+        const orgContent = JSON.stringify({ leaders: ORG_LEADERS, patrols: ORG_PATROLS, committees: ORG_COMMITTEES })
+        const res = await fetch('/api/admin/group-org/${id}', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ image_url: '', content: orgContent })
+        })
+        const data = await res.json()
+        if (data.success) {
+          btn.textContent = '✅ 已儲存'
+          setTimeout(() => { closeManagePatrols(); location.reload() }, 800)
+        } else {
+          btn.textContent = '❌ 失敗：' + (data.error || '')
+          btn.disabled = false
+        }
+      } catch(e) {
+        btn.textContent = '❌ 網路錯誤'; btn.disabled = false
+      }
+    }
+
+    // ===== 管理委員會 (EC) =====
+    function openManageCommittees() {
+      renderCommitteeList()
+      document.getElementById('manage-committees-modal').classList.remove('hidden')
+    }
+    function closeManageCommittees() {
+      document.getElementById('manage-committees-modal').classList.add('hidden')
+    }
+    function renderCommitteeList() {
+      const ul = document.getElementById('committee-list')
+      if (ORG_COMMITTEES.length === 0) {
+        ul.innerHTML = '<li class="text-center text-gray-300 text-sm py-6">尚無委員會，請點「新增委員會」</li>'
+        return
+      }
+      ul.innerHTML = ORG_COMMITTEES.map((comm, i) => \`
+        <li class="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-xl border border-gray-200 group">
+          <span class="text-lg">⚙️</span>
+          <div class="flex-1 min-w-0">
+            <span class="font-medium text-gray-800 text-sm">\${comm.name}</span>
+            \${comm.roles ? '<span class="text-xs text-gray-400 ml-2">（含職位設定）</span>' : ''}
+          </div>
+          <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onclick="editCommitteeItem(\${i})" class="text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg border border-blue-200">✏️ 編輯</button>
+            <button onclick="removeCommitteeItem(\${i})" class="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg border border-red-200">🗑️ 刪除</button>
+          </div>
+        </li>
+      \`).join('')
+    }
+    function editCommitteeItem(idx) {
+      editingCommitteeIdx = idx
+      const comm = ORG_COMMITTEES[idx]
+      document.getElementById('committee-edit-name').value = comm.name || ''
+      document.getElementById('committee-edit-roles').value = (comm.roles || []).join('\\n')
+      document.getElementById('committee-edit-section').classList.remove('hidden')
+      document.getElementById('committee-edit-title').textContent = '編輯委員會：' + comm.name
+    }
+    function addNewCommittee() {
+      editingCommitteeIdx = -1
+      document.getElementById('committee-edit-name').value = ''
+      document.getElementById('committee-edit-roles').value = ''
+      document.getElementById('committee-edit-section').classList.remove('hidden')
+      document.getElementById('committee-edit-title').textContent = '新增委員會'
+      document.getElementById('committee-edit-name').focus()
+    }
+    function saveCommitteeItem() {
+      const name = document.getElementById('committee-edit-name').value.trim()
+      if (!name) { alert('請輸入委員會名稱'); return }
+      const rolesRaw = document.getElementById('committee-edit-roles').value.trim()
+      const roles = rolesRaw ? rolesRaw.split('\\n').map(r => r.trim()).filter(Boolean) : []
+      const entry = { name, roles }
+      if (editingCommitteeIdx >= 0) {
+        ORG_COMMITTEES[editingCommitteeIdx] = entry
+      } else {
+        ORG_COMMITTEES.push(entry)
+      }
+      document.getElementById('committee-edit-section').classList.add('hidden')
+      editingCommitteeIdx = -1
+      renderCommitteeList()
+    }
+    function cancelCommitteeEdit() {
+      document.getElementById('committee-edit-section').classList.add('hidden')
+      editingCommitteeIdx = -1
+    }
+    function removeCommitteeItem(idx) {
+      if (!confirm('確定刪除「' + ORG_COMMITTEES[idx].name + '」委員會？\\n（只刪除架構設定，不影響幹部記錄）')) return
+      ORG_COMMITTEES.splice(idx, 1)
+      renderCommitteeList()
+    }
+    async function saveOrgCommittees() {
+      const btn = document.getElementById('save-committees-btn')
+      btn.disabled = true; btn.textContent = '儲存中...'
+      try {
+        const orgContent = JSON.stringify({ leaders: ORG_LEADERS, patrols: ORG_PATROLS, committees: ORG_COMMITTEES })
+        const res = await fetch('/api/admin/group-org/${id}', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ image_url: '', content: orgContent })
+        })
+        const data = await res.json()
+        if (data.success) {
+          btn.textContent = '✅ 已儲存'
+          setTimeout(() => { closeManageCommittees(); location.reload() }, 800)
+        } else {
+          btn.textContent = '❌ 失敗：' + (data.error || '')
+          btn.disabled = false
+        }
+      } catch(e) {
+        btn.textContent = '❌ 網路錯誤'; btn.disabled = false
+      }
+    }
     </script>
+
+    <!-- ===== 管理小隊 Modal ===== -->
+    <div id="manage-patrols-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col">
+        <div class="flex items-center justify-between p-5 border-b flex-shrink-0">
+          <div>
+            <h3 class="text-lg font-bold text-gray-800">⚙️ 管理小隊（PLC）</h3>
+            <p class="text-xs text-gray-400 mt-0.5">新增、修改或刪除小隊設定，儲存後即刻反映到幹部頁面</p>
+          </div>
+          <button onclick="closeManagePatrols()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">✕</button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-5">
+          <ul id="patrol-list" class="space-y-2 mb-4"></ul>
+          <button onclick="addNewPatrol()" class="w-full bg-green-50 hover:bg-green-100 border-2 border-dashed border-green-300 text-green-700 rounded-xl py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-colors">
+            ➕ 新增小隊
+          </button>
+
+          <!-- 編輯表單（預設隱藏） -->
+          <div id="patrol-edit-section" class="hidden mt-4 bg-green-50 border border-green-200 rounded-xl p-4">
+            <h4 id="patrol-edit-title" class="font-semibold text-green-800 text-sm mb-3">新增小隊</h4>
+            <div class="mb-3">
+              <label class="block text-xs font-medium text-gray-700 mb-1">小隊名稱 <span class="text-red-500">*</span></label>
+              <input type="text" id="patrol-edit-name" placeholder="如：第1小隊 遊俠小隊"
+                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+              <p class="text-xs text-gray-400 mt-1">建議格式：第X小隊 XXXX小隊</p>
+            </div>
+            <div class="mb-3">
+              <label class="block text-xs font-medium text-gray-700 mb-1">小隊圖片網址（選填）</label>
+              <input type="url" id="patrol-edit-photo" placeholder="https://..."
+                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+            </div>
+            <div class="flex gap-2">
+              <button onclick="savePatrolItem()" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-medium">💾 確認</button>
+              <button onclick="cancelPatrolEdit()" class="px-4 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 border-t flex-shrink-0 flex gap-3">
+          <button id="save-patrols-btn" onclick="saveOrgPatrols()"
+            class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg text-sm font-bold">
+            💾 儲存所有變更
+          </button>
+          <button onclick="closeManagePatrols()" class="px-5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">關閉</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 管理委員會 Modal ===== -->
+    <div id="manage-committees-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col">
+        <div class="flex items-center justify-between p-5 border-b flex-shrink-0">
+          <div>
+            <h3 class="text-lg font-bold text-gray-800">⚙️ 管理執行委員會（EC）</h3>
+            <p class="text-xs text-gray-400 mt-0.5">新增、修改或刪除委員會職位，儲存後即刻反映</p>
+          </div>
+          <button onclick="closeManageCommittees()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">✕</button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-5">
+          <ul id="committee-list" class="space-y-2 mb-4"></ul>
+          <button onclick="addNewCommittee()" class="w-full bg-blue-50 hover:bg-blue-100 border-2 border-dashed border-blue-300 text-blue-700 rounded-xl py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-colors">
+            ➕ 新增委員會職位
+          </button>
+
+          <!-- 編輯表單（預設隱藏） -->
+          <div id="committee-edit-section" class="hidden mt-4 bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <h4 id="committee-edit-title" class="font-semibold text-blue-800 text-sm mb-3">新增委員會</h4>
+            <div class="mb-3">
+              <label class="block text-xs font-medium text-gray-700 mb-1">委員會名稱 <span class="text-red-500">*</span></label>
+              <input type="text" id="committee-edit-name" placeholder="如：展演組、活動組、行政組…"
+                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+            </div>
+            <div class="mb-3">
+              <label class="block text-xs font-medium text-gray-700 mb-1">職位清單（選填，每行一個）</label>
+              <textarea id="committee-edit-roles" rows="3" placeholder="組長&#10;副組長&#10;組員"
+                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"></textarea>
+              <p class="text-xs text-gray-400 mt-1">可留空，職位可在指派幹部時自行輸入</p>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="saveCommitteeItem()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-medium">💾 確認</button>
+              <button onclick="cancelCommitteeEdit()" class="px-4 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 border-t flex-shrink-0 flex gap-3">
+          <button id="save-committees-btn" onclick="saveOrgCommittees()"
+            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg text-sm font-bold">
+            💾 儲存所有變更
+          </button>
+          <button onclick="closeManageCommittees()" class="px-5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">關閉</button>
+        </div>
+      </div>
+    </div>
   `))
 })
 
@@ -5644,6 +5951,303 @@ adminRoutes.post('/api/admin/group-cadres-rollover/:groupId', authMiddleware, as
       .bind(year_label || '', groupId).run()
     return c.json({ success: true, moved: cadres.length })
   } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
+
+// ---- 歷屆幹部管理（獨立頁面） ----
+adminRoutes.get('/groups/:id/past-cadres', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const group = await db.prepare(`SELECT * FROM scout_groups WHERE id=?`).bind(id).first() as any
+  if (!group) return c.redirect('/admin/groups')
+
+  // 取出所有非現任幹部（歷屆）
+  const histRows = await db.prepare(`
+    SELECT * FROM group_cadres WHERE group_id=? AND (is_current=0 OR is_current IS NULL)
+    ORDER BY year_label DESC, display_order ASC, id DESC
+  `).bind(id).all()
+  const histCadres = histRows.results as any[]
+
+  // 取出現任幹部（供換年度參考）
+  const currentRows = await db.prepare(`
+    SELECT * FROM group_cadres WHERE group_id=? AND is_current=1
+    ORDER BY display_order ASC
+  `).bind(id).all()
+  const currentCadres = currentRows.results as any[]
+
+  const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
+  const currentYear = yearSetting?.value || ''
+
+  // 依學年度分組
+  const byYear: Record<string, any[]> = {}
+  histCadres.forEach((c2: any) => {
+    const yr = c2.year_label || '未標示年度'
+    if (!byYear[yr]) byYear[yr] = []
+    byYear[yr].push(c2)
+  })
+  const sortedYears = Object.keys(byYear).sort((a, b) => b.localeCompare(a))
+
+  const yearBlocks = sortedYears.map(yr => {
+    const rows = byYear[yr].map((c2: any) => {
+      const sd = JSON.stringify(c2).replace(/'/g, "&#39;").replace(/</g, '\\u003c')
+      return `
+      <div class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 group/row">
+        <div class="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-base flex-shrink-0 overflow-hidden">
+          ${c2.photo_url ? `<img src="${c2.photo_url}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='👤'">` : '👤'}
+        </div>
+        <div class="flex-1 min-w-0">
+          <span class="font-medium text-gray-800">${c2.chinese_name}</span>
+          ${c2.english_name ? `<span class="text-xs text-gray-400 ml-2">${c2.english_name}</span>` : ''}
+          <span class="ml-2 text-xs bg-gray-100 text-gray-600 border px-2 py-0.5 rounded">${c2.role}</span>
+          ${c2.notes ? `<span class="text-xs text-gray-400 ml-1">${c2.notes}</span>` : ''}
+        </div>
+        <div class="flex gap-1 flex-shrink-0 opacity-0 group-hover/row:opacity-100 transition-opacity">
+          <button onclick='editPastCadre(${sd})' class="text-blue-500 hover:text-blue-700 text-xs px-2 py-1 rounded hover:bg-blue-50">✏️ 編輯</button>
+          <button onclick="deletePastCadre(${c2.id})" class="text-red-400 hover:text-red-600 text-xs px-2 py-1 rounded hover:bg-red-50">🗑️ 刪除</button>
+        </div>
+      </div>`
+    }).join('')
+    return `
+    <div class="mb-6 bg-white rounded-xl border shadow-sm overflow-hidden">
+      <div class="bg-gray-50 border-b px-4 py-3 flex items-center justify-between">
+        <h4 class="font-semibold text-gray-700 flex items-center gap-2">
+          <span class="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full">${yr} 學年度</span>
+          <span class="text-xs text-gray-400">${byYear[yr].length} 位</span>
+        </h4>
+        <button onclick="openAddPastCadre('${yr}')"
+          class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 px-3 py-1 rounded-lg flex items-center gap-1">
+          ➕ 新增此年度幹部
+        </button>
+      </div>
+      <div class="divide-y">${rows}</div>
+    </div>`
+  }).join('')
+
+  return c.html(adminLayout(`歷屆幹部 - ${group.name}`, `
+    <div class="mb-6">
+      <a href="/admin/groups/${id}/cadres" class="text-gray-500 hover:text-gray-700 text-sm">← 返回幹部管理</a>
+      <div class="flex items-start justify-between mt-2 flex-wrap gap-3">
+        <div>
+          <h2 class="text-xl font-bold text-gray-800">${group.name} · 歷屆幹部名單</h2>
+          <p class="text-sm text-gray-400 mt-1">記錄歷年任職的幹部，可手動增刪或從現任幹部換年度產生</p>
+        </div>
+        <div class="flex gap-2 flex-wrap">
+          <a href="/group/${group.slug}/past-cadres" target="_blank"
+            class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5">
+            👁 前台預覽
+          </a>
+          <button onclick="openRolloverModal()"
+            class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5"
+            title="將現任幹部複製到歷屆，開始新一年度">
+            📅 從現任幹部換年度
+          </button>
+          <button onclick="openAddPastCadre('${currentYear}')"
+            class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5">
+            ➕ 手動新增歷屆幹部
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="page-msg" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+
+    <!-- 現任幹部快覽（供換年度參考） -->
+    ${currentCadres.length > 0 ? `
+    <div class="mb-6 bg-green-50 border border-green-200 rounded-xl p-4">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-sm font-semibold text-green-800">📋 現任幹部（${currentYear} 學年度）— 共 ${currentCadres.length} 位</h3>
+        <button onclick="openRolloverModal()"
+          class="text-xs bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg">
+          📅 換年度（存入歷屆）
+        </button>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        ${currentCadres.map((c2: any) => `
+          <span class="text-xs bg-white border border-green-200 text-gray-700 px-2 py-1 rounded-lg flex items-center gap-1.5">
+            <span class="text-green-600 font-medium">${c2.role}</span>
+            <span>${c2.chinese_name}</span>
+          </span>
+        `).join('')}
+      </div>
+    </div>
+    ` : `
+    <div class="mb-6 bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-400 text-center">
+      目前無現任幹部，請先至「幹部名單管理」新增
+    </div>
+    `}
+
+    <!-- 歷屆幹部按年度列表 -->
+    ${sortedYears.length > 0 ? yearBlocks : `
+    <div class="text-center py-16 text-gray-300">
+      <div class="text-5xl mb-4">📭</div>
+      <p class="text-base">尚無歷屆幹部記錄</p>
+      <p class="text-sm mt-2">執行「換年度」後，現任幹部將自動存入歷屆名單</p>
+    </div>
+    `}
+
+    <!-- ===== 換年度 Modal ===== -->
+    <div id="rollover-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div class="p-6">
+          <h3 class="text-lg font-bold text-gray-800 mb-1">📅 換年度</h3>
+          <p class="text-sm text-gray-500 mb-4">將現任幹部（${currentCadres.length} 位）標記為歷屆，並清除現任標記，開始新一年度</p>
+          <div class="mb-4">
+            <label class="block text-xs font-medium text-gray-700 mb-1">學年度標籤（填入要存入的年度）</label>
+            <input type="text" id="rollover-year" value="${currentYear}"
+              class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              placeholder="如：115">
+          </div>
+          <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-700">
+            ⚠️ 此操作會：<br>
+            ① 將所有現任幹部的「現任」標記取消<br>
+            ② 幹部記錄仍保留在資料庫，下方歷屆名單即可看到<br>
+            ③ 不會刪除任何記錄
+          </div>
+          <div id="rollover-msg" class="hidden mb-3 p-3 rounded-lg text-sm"></div>
+          <div class="flex gap-3">
+            <button onclick="doRollover()" class="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-2.5 rounded-lg text-sm font-bold">
+              ✅ 確認換年度
+            </button>
+            <button onclick="document.getElementById('rollover-modal').classList.add('hidden')"
+              class="px-4 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 新增/編輯歷屆幹部 Modal ===== -->
+    <div id="past-cadre-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+        <div class="p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 id="past-cadre-modal-title" class="text-lg font-bold text-gray-800">新增歷屆幹部</h3>
+            <button onclick="document.getElementById('past-cadre-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">✕</button>
+          </div>
+          <input type="hidden" id="past-cadre-id">
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">中文姓名 <span class="text-red-500">*</span></label>
+              <input type="text" id="past-cadre-chinese_name" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" placeholder="王小明">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">英文姓名</label>
+              <input type="text" id="past-cadre-english_name" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" placeholder="Ming Wang">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="block text-xs font-medium text-gray-700 mb-1">幹部職位 <span class="text-red-500">*</span></label>
+            <input type="text" id="past-cadre-role" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="如：聯隊長、小隊長…" list="role-suggestions">
+          </div>
+          <div class="mb-3">
+            <label class="block text-xs font-medium text-gray-700 mb-1">學年度 <span class="text-red-500">*</span></label>
+            <input type="text" id="past-cadre-year_label" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="如：115">
+          </div>
+          <div class="mb-3">
+            <label class="block text-xs font-medium text-gray-700 mb-1">備注（小隊名稱等）</label>
+            <input type="text" id="past-cadre-notes" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="如：第1小隊 遊俠小隊">
+          </div>
+          <div class="mb-3">
+            <label class="block text-xs font-medium text-gray-700 mb-1">照片網址</label>
+            <input type="url" id="past-cadre-photo_url" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="https://...">
+          </div>
+          <div id="past-cadre-msg" class="hidden mb-3 p-3 rounded-lg text-sm"></div>
+          <div class="flex gap-3">
+            <button type="button" onclick="savePastCadre(${id})" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg text-sm font-medium">💾 儲存</button>
+            <button type="button" onclick="document.getElementById('past-cadre-modal').classList.add('hidden')" class="px-4 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    function openRolloverModal() {
+      document.getElementById('rollover-modal').classList.remove('hidden')
+    }
+    async function doRollover() {
+      const yr = document.getElementById('rollover-year').value.trim()
+      if (!yr) { alert('請輸入學年度標籤'); return }
+      const msg = document.getElementById('rollover-msg')
+      const res = await fetch('/api/admin/group-cadres-rollover/${id}', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ year_label: yr })
+      })
+      const data = await res.json()
+      if (data.success) {
+        msg.className = 'mb-3 p-3 rounded-lg text-sm bg-green-50 text-green-700 border border-green-200'
+        msg.textContent = '✅ 換年度完成！已移動 ' + data.moved + ' 筆幹部到歷屆名單'
+        msg.classList.remove('hidden')
+        setTimeout(() => location.reload(), 1200)
+      } else {
+        msg.className = 'mb-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
+        msg.textContent = '❌ ' + (data.error || '換年度失敗'); msg.classList.remove('hidden')
+      }
+    }
+
+    function openAddPastCadre(defaultYear) {
+      document.getElementById('past-cadre-modal-title').textContent = '新增歷屆幹部'
+      document.getElementById('past-cadre-id').value = ''
+      document.getElementById('past-cadre-chinese_name').value = ''
+      document.getElementById('past-cadre-english_name').value = ''
+      document.getElementById('past-cadre-role').value = ''
+      document.getElementById('past-cadre-year_label').value = defaultYear || '${currentYear}'
+      document.getElementById('past-cadre-notes').value = ''
+      document.getElementById('past-cadre-photo_url').value = ''
+      document.getElementById('past-cadre-msg').classList.add('hidden')
+      document.getElementById('past-cadre-modal').classList.remove('hidden')
+    }
+    function editPastCadre(data) {
+      document.getElementById('past-cadre-modal-title').textContent = '編輯歷屆幹部 — ' + data.chinese_name
+      document.getElementById('past-cadre-id').value = data.id
+      document.getElementById('past-cadre-chinese_name').value = data.chinese_name || ''
+      document.getElementById('past-cadre-english_name').value = data.english_name || ''
+      document.getElementById('past-cadre-role').value = data.role || ''
+      document.getElementById('past-cadre-year_label').value = data.year_label || ''
+      document.getElementById('past-cadre-notes').value = data.notes || ''
+      document.getElementById('past-cadre-photo_url').value = data.photo_url || ''
+      document.getElementById('past-cadre-msg').classList.add('hidden')
+      document.getElementById('past-cadre-modal').classList.remove('hidden')
+    }
+    async function savePastCadre(groupId) {
+      const cadreId = document.getElementById('past-cadre-id').value
+      const msg = document.getElementById('past-cadre-msg')
+      const payload = {
+        group_id: groupId,
+        chinese_name: document.getElementById('past-cadre-chinese_name').value.trim(),
+        english_name: document.getElementById('past-cadre-english_name').value.trim(),
+        role: document.getElementById('past-cadre-role').value.trim(),
+        year_label: document.getElementById('past-cadre-year_label').value.trim(),
+        photo_url: document.getElementById('past-cadre-photo_url').value.trim(),
+        notes: document.getElementById('past-cadre-notes').value.trim(),
+        display_order: 0,
+        is_current: 0
+      }
+      if (!payload.chinese_name || !payload.role) {
+        msg.className = 'mb-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
+        msg.textContent = '❌ 請填寫姓名和職位'; msg.classList.remove('hidden'); return
+      }
+      const url = cadreId ? '/api/admin/group-cadres/' + cadreId : '/api/admin/group-cadres'
+      const method = cadreId ? 'PUT' : 'POST'
+      const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+      const data = await res.json()
+      if (data.success) {
+        location.reload()
+      } else {
+        msg.className = 'mb-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
+        msg.textContent = '❌ ' + (data.error || '儲存失敗'); msg.classList.remove('hidden')
+      }
+    }
+    async function deletePastCadre(id) {
+      if (!confirm('確定刪除這筆歷屆幹部記錄？')) return
+      await fetch('/api/admin/group-cadres/' + id, { method: 'DELETE' })
+      location.reload()
+    }
+    document.getElementById('rollover-modal').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.add('hidden')
+    })
+    document.getElementById('past-cadre-modal').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.add('hidden')
+    })
+    </script>
+  `))
 })
 
 // ---- 歷屆名單管理 ----
