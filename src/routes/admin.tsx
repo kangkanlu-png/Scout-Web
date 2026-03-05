@@ -5124,17 +5124,18 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
           <h3 class="text-base font-bold text-purple-800">🏛️ 第1層：全團領導</h3>
           <p class="text-xs text-purple-400 mt-0.5">Group Leaders</p>
         </div>
-        <a href="/admin/groups/${id}/org" class="text-xs text-purple-600 border border-purple-200 px-2 py-1 rounded hover:bg-purple-50" title="至組織架構頁管理職稱">✏️ 管理職稱</a>
+        <button onclick="openManageGLRoles()" class="text-xs text-purple-600 border border-purple-200 px-2 py-1 rounded hover:bg-purple-50" title="新增/修改/刪除第1層職稱">✏️ 管理職稱</button>
         <div class="flex-1 h-px bg-purple-200"></div>
       </div>
-      ${groupLeaderHtml || `
-        <div class="flex flex-wrap justify-center gap-3 mb-2">
-          ${orgGroupLeaders.length > 0
-            ? orgGroupLeaders.map((l: any) => `<button onclick="openAddCadre('${l.role}')" class="bg-purple-50 border border-purple-300 rounded-xl px-4 py-2 text-sm text-purple-700 hover:bg-purple-100 flex items-center gap-2">➕ 新增${l.role}</button>`).join('')
-            : `<button onclick="openAddCadre('團長')" class="bg-purple-50 border border-purple-300 rounded-xl px-4 py-2 text-sm text-purple-700 hover:bg-purple-100 flex items-center gap-2">➕ 新增團長</button>
-               <button onclick="openAddCadre('副團長')" class="bg-purple-50 border border-purple-300 rounded-xl px-4 py-2 text-sm text-purple-700 hover:bg-purple-100 flex items-center gap-2">➕ 新增副團長</button>`}
-        </div>
-      `}
+      <!-- 已指派的第1層幹部卡片 -->
+      ${groupLeaderHtml}
+      <!-- 依 org 職稱定義的快速新增按鈕（永遠顯示，方便補充同層人選） -->
+      <div class="flex flex-wrap justify-center gap-2 mt-3">
+        ${orgGroupLeaders.length > 0
+          ? orgGroupLeaders.map((l: any) => `<button onclick="openAddCadre('${l.role}')" class="text-xs bg-purple-50 border border-purple-300 rounded-lg px-3 py-1.5 text-purple-700 hover:bg-purple-100 flex items-center gap-1.5 transition-colors">➕ 新增${l.role}</button>`).join('')
+          : `<button onclick="openAddCadre('團長')" class="text-xs bg-purple-50 border border-purple-300 rounded-lg px-3 py-1.5 text-purple-700 hover:bg-purple-100 flex items-center gap-1.5">➕ 新增團長</button>
+             <button onclick="openAddCadre('副團長')" class="text-xs bg-purple-50 border border-purple-300 rounded-lg px-3 py-1.5 text-purple-700 hover:bg-purple-100 flex items-center gap-1.5">➕ 新增副團長</button>`}
+      </div>
     </div>
 
     <!-- 連接線 -->
@@ -5150,17 +5151,18 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
           <h3 class="text-base font-bold text-green-800">🌿 第2層：聯隊領導</h3>
           <p class="text-xs text-green-400 mt-0.5">Unit Leaders</p>
         </div>
-        <a href="/admin/groups/${id}/org" class="text-xs text-green-700 border border-green-200 px-2 py-1 rounded hover:bg-green-50" title="至組織架構頁管理職稱">✏️ 管理職稱</a>
+        <button onclick="openManageULRoles()" class="text-xs text-green-700 border border-green-200 px-2 py-1 rounded hover:bg-green-50" title="新增/修改/刪除第2層職稱">✏️ 管理職稱</button>
         <div class="flex-1 h-px bg-green-300"></div>
       </div>
-      ${unitLeaderHtml || `
-        <div class="flex flex-wrap justify-center gap-3 mb-2">
-          ${orgUnitLeaders.length > 0
-            ? orgUnitLeaders.map((l: any) => `<button onclick="openAddCadre('${l.role}')" class="bg-green-50 border border-green-300 rounded-xl px-4 py-2 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">➕ 新增${l.role}</button>`).join('')
-            : `<button onclick="openAddCadre('聯隊長')" class="bg-green-50 border border-green-300 rounded-xl px-4 py-2 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">➕ 新增聯隊長</button>
-               <button onclick="openAddCadre('副聯隊長')" class="bg-green-50 border border-green-300 rounded-xl px-4 py-2 text-sm text-green-700 hover:bg-green-100 flex items-center gap-2">➕ 新增副聯隊長</button>`}
-        </div>
-      `}
+      <!-- 已指派的第2層幹部卡片 -->
+      ${unitLeaderHtml}
+      <!-- 依 org 職稱定義的快速新增按鈕（永遠顯示，方便補充同層人選） -->
+      <div class="flex flex-wrap justify-center gap-2 mt-3">
+        ${orgUnitLeaders.length > 0
+          ? orgUnitLeaders.map((l: any) => `<button onclick="openAddCadre('${l.role}')" class="text-xs bg-green-50 border border-green-300 rounded-lg px-3 py-1.5 text-green-700 hover:bg-green-100 flex items-center gap-1.5 transition-colors">➕ 新增${l.role}</button>`).join('')
+          : `<button onclick="openAddCadre('聯隊長')" class="text-xs bg-green-50 border border-green-300 rounded-lg px-3 py-1.5 text-green-700 hover:bg-green-100 flex items-center gap-1.5">➕ 新增聯隊長</button>
+             <button onclick="openAddCadre('副聯隊長')" class="text-xs bg-green-50 border border-green-300 rounded-lg px-3 py-1.5 text-green-700 hover:bg-green-100 flex items-center gap-1.5">➕ 新增副聯隊長</button>`}
+      </div>
     </div>
 
     <!-- 連接線 -->
@@ -5462,6 +5464,8 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
     // ===== 全部成員資料 =====
     const ALL_MEMBERS = ${JSON.stringify(allMembers).replace(/</g, '\\u003c')}
     const EXISTING_NAMES = new Set(${JSON.stringify([...existingCurrentNames])})
+    // 保留既有的組織架構圖片網址，避免儲存職稱時覆寫
+    const ORG_IMAGE_URL = ${JSON.stringify(orgChart?.image_url || '')}
     let selectedMembers = []
     let currentFilter = 'all'
     let searchKeyword = ''
@@ -5759,9 +5763,210 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
     // ===== 管理小隊 (PLC) =====
     let ORG_PATROLS = ${JSON.stringify(orgPatrols).replace(/</g, '\\u003c')}
     let ORG_COMMITTEES = ${JSON.stringify(orgCommittees).replace(/</g, '\\u003c')}
-    let ORG_LEADERS = ${JSON.stringify([...orgGroupLeaders, ...orgUnitLeaders]).replace(/</g, '\\u003c')}
+    // 第1層職稱（Group Leaders）
+    let ORG_GL = ${JSON.stringify(orgGroupLeaders).replace(/</g, '\\u003c')}
+    // 第2層職稱（Unit Leaders）
+    let ORG_UL = ${JSON.stringify(orgUnitLeaders).replace(/</g, '\\u003c')}
+    // 保留舊名稱相容性
+    let ORG_LEADERS = [...ORG_GL, ...ORG_UL]
     let editingPatrolIdx = -1
     let editingCommitteeIdx = -1
+    let editingGLIdx = -1
+    let editingULIdx = -1
+
+    // ===== 管理第1層職稱 (Group Leaders) =====
+    function openManageGLRoles() {
+      renderGLRoleList()
+      document.getElementById('manage-gl-modal').classList.remove('hidden')
+    }
+    function closeManageGLRoles() {
+      document.getElementById('manage-gl-modal').classList.add('hidden')
+      document.getElementById('gl-role-edit-section').classList.add('hidden')
+      editingGLIdx = -1
+    }
+    function renderGLRoleList() {
+      const ul = document.getElementById('gl-role-list')
+      if (ORG_GL.length === 0) {
+        ul.innerHTML = '<li class="text-center text-gray-300 text-sm py-6">尚無職稱，請點「新增職稱」</li>'
+        return
+      }
+      ul.innerHTML = ORG_GL.map((l, i) => \`
+        <li class="flex items-center gap-3 px-4 py-3 bg-purple-50 rounded-xl border border-purple-100 group">
+          <span class="text-lg">🏛️</span>
+          <div class="flex-1 min-w-0">
+            <span class="font-semibold text-gray-800 text-sm">\${l.role||''}</span>
+            \${l.desc ? '<span class="text-xs text-gray-400 ml-2">'+l.desc+'</span>' : ''}
+          </div>
+          <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onclick="editGLRoleItem(\${i})" class="text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg border border-blue-200">✏️ 編輯</button>
+            <button onclick="removeGLRoleItem(\${i})" class="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg border border-red-200">🗑️ 刪除</button>
+          </div>
+        </li>
+      \`).join('')
+    }
+    function editGLRoleItem(idx) {
+      editingGLIdx = idx
+      const l = ORG_GL[idx]
+      document.getElementById('gl-role-edit-name').value = l.role || ''
+      document.getElementById('gl-role-edit-desc').value = l.desc || ''
+      document.getElementById('gl-role-edit-section').classList.remove('hidden')
+      document.getElementById('gl-role-edit-title').textContent = '編輯職稱：' + l.role
+      document.getElementById('gl-role-edit-name').focus()
+    }
+    function addNewGLRole() {
+      editingGLIdx = -1
+      document.getElementById('gl-role-edit-name').value = ''
+      document.getElementById('gl-role-edit-desc').value = ''
+      document.getElementById('gl-role-edit-section').classList.remove('hidden')
+      document.getElementById('gl-role-edit-title').textContent = '新增第1層職稱'
+      document.getElementById('gl-role-edit-name').focus()
+    }
+    function saveGLRoleItem() {
+      const role = document.getElementById('gl-role-edit-name').value.trim()
+      if (!role) { alert('請輸入職稱名稱'); return }
+      const desc = document.getElementById('gl-role-edit-desc').value.trim()
+      const entry = { role, desc }
+      if (editingGLIdx >= 0) {
+        ORG_GL[editingGLIdx] = entry
+      } else {
+        ORG_GL.push(entry)
+      }
+      document.getElementById('gl-role-edit-section').classList.add('hidden')
+      editingGLIdx = -1
+      renderGLRoleList()
+    }
+    function cancelGLRoleEdit() {
+      document.getElementById('gl-role-edit-section').classList.add('hidden')
+      editingGLIdx = -1
+    }
+    function removeGLRoleItem(idx) {
+      if (!confirm('確定刪除「' + ORG_GL[idx].role + '」職稱？\\n（只刪除架構定義，不影響已指派的幹部記錄）')) return
+      ORG_GL.splice(idx, 1)
+      renderGLRoleList()
+    }
+    async function saveOrgGLRoles() {
+      const btn = document.getElementById('save-gl-btn')
+      btn.disabled = true; btn.textContent = '儲存中...'
+      try {
+        const orgContent = JSON.stringify({
+          groupLeaders: ORG_GL,
+          unitLeaders: ORG_UL,
+          patrols: ORG_PATROLS,
+          committees: ORG_COMMITTEES
+        })
+        const res = await fetch('/api/admin/group-org/${id}', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ content: orgContent })
+        })
+        const data = await res.json()
+        if (data.success) {
+          btn.textContent = '✅ 已儲存'
+          setTimeout(() => { closeManageGLRoles(); location.reload() }, 800)
+        } else {
+          btn.textContent = '❌ 失敗：' + (data.error || '')
+          btn.disabled = false
+        }
+      } catch(e) {
+        btn.textContent = '❌ 網路錯誤'; btn.disabled = false
+      }
+    }
+
+    // ===== 管理第2層職稱 (Unit Leaders) =====
+    function openManageULRoles() {
+      renderULRoleList()
+      document.getElementById('manage-ul-modal').classList.remove('hidden')
+    }
+    function closeManageULRoles() {
+      document.getElementById('manage-ul-modal').classList.add('hidden')
+      document.getElementById('ul-role-edit-section').classList.add('hidden')
+      editingULIdx = -1
+    }
+    function renderULRoleList() {
+      const ul = document.getElementById('ul-role-list')
+      if (ORG_UL.length === 0) {
+        ul.innerHTML = '<li class="text-center text-gray-300 text-sm py-6">尚無職稱，請點「新增職稱」</li>'
+        return
+      }
+      ul.innerHTML = ORG_UL.map((l, i) => \`
+        <li class="flex items-center gap-3 px-4 py-3 bg-green-50 rounded-xl border border-green-100 group">
+          <span class="text-lg">🌿</span>
+          <div class="flex-1 min-w-0">
+            <span class="font-semibold text-gray-800 text-sm">\${l.role||''}</span>
+            \${l.desc ? '<span class="text-xs text-gray-400 ml-2">'+l.desc+'</span>' : ''}
+          </div>
+          <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onclick="editULRoleItem(\${i})" class="text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg border border-blue-200">✏️ 編輯</button>
+            <button onclick="removeULRoleItem(\${i})" class="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg border border-red-200">🗑️ 刪除</button>
+          </div>
+        </li>
+      \`).join('')
+    }
+    function editULRoleItem(idx) {
+      editingULIdx = idx
+      const l = ORG_UL[idx]
+      document.getElementById('ul-role-edit-name').value = l.role || ''
+      document.getElementById('ul-role-edit-desc').value = l.desc || ''
+      document.getElementById('ul-role-edit-section').classList.remove('hidden')
+      document.getElementById('ul-role-edit-title').textContent = '編輯職稱：' + l.role
+      document.getElementById('ul-role-edit-name').focus()
+    }
+    function addNewULRole() {
+      editingULIdx = -1
+      document.getElementById('ul-role-edit-name').value = ''
+      document.getElementById('ul-role-edit-desc').value = ''
+      document.getElementById('ul-role-edit-section').classList.remove('hidden')
+      document.getElementById('ul-role-edit-title').textContent = '新增第2層職稱'
+      document.getElementById('ul-role-edit-name').focus()
+    }
+    function saveULRoleItem() {
+      const role = document.getElementById('ul-role-edit-name').value.trim()
+      if (!role) { alert('請輸入職稱名稱'); return }
+      const desc = document.getElementById('ul-role-edit-desc').value.trim()
+      const entry = { role, desc }
+      if (editingULIdx >= 0) {
+        ORG_UL[editingULIdx] = entry
+      } else {
+        ORG_UL.push(entry)
+      }
+      document.getElementById('ul-role-edit-section').classList.add('hidden')
+      editingULIdx = -1
+      renderULRoleList()
+    }
+    function cancelULRoleEdit() {
+      document.getElementById('ul-role-edit-section').classList.add('hidden')
+      editingULIdx = -1
+    }
+    function removeULRoleItem(idx) {
+      if (!confirm('確定刪除「' + ORG_UL[idx].role + '」職稱？\\n（只刪除架構定義，不影響已指派的幹部記錄）')) return
+      ORG_UL.splice(idx, 1)
+      renderULRoleList()
+    }
+    async function saveOrgULRoles() {
+      const btn = document.getElementById('save-ul-btn')
+      btn.disabled = true; btn.textContent = '儲存中...'
+      try {
+        const orgContent = JSON.stringify({
+          groupLeaders: ORG_GL,
+          unitLeaders: ORG_UL,
+          patrols: ORG_PATROLS,
+          committees: ORG_COMMITTEES
+        })
+        const res = await fetch('/api/admin/group-org/${id}', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ content: orgContent })
+        })
+        const data = await res.json()
+        if (data.success) {
+          btn.textContent = '✅ 已儲存'
+          setTimeout(() => { closeManageULRoles(); location.reload() }, 800)
+        } else {
+          btn.textContent = '❌ 失敗：' + (data.error || '')
+          btn.disabled = false
+        }
+      } catch(e) {
+        btn.textContent = '❌ 網路錯誤'; btn.disabled = false
+      }
+    }
 
     function openManagePatrols() {
       renderPatrolList()
@@ -5833,10 +6038,15 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       const btn = document.getElementById('save-patrols-btn')
       btn.disabled = true; btn.textContent = '儲存中...'
       try {
-        const orgContent = JSON.stringify({ leaders: ORG_LEADERS, patrols: ORG_PATROLS, committees: ORG_COMMITTEES })
+        const orgContent = JSON.stringify({
+          groupLeaders: ORG_GL,
+          unitLeaders: ORG_UL,
+          patrols: ORG_PATROLS,
+          committees: ORG_COMMITTEES
+        })
         const res = await fetch('/api/admin/group-org/${id}', {
           method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ image_url: '', content: orgContent })
+          body: JSON.stringify({ image_url: ORG_IMAGE_URL, content: orgContent })
         })
         const data = await res.json()
         if (data.success) {
@@ -5923,10 +6133,15 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       const btn = document.getElementById('save-committees-btn')
       btn.disabled = true; btn.textContent = '儲存中...'
       try {
-        const orgContent = JSON.stringify({ leaders: ORG_LEADERS, patrols: ORG_PATROLS, committees: ORG_COMMITTEES })
+        const orgContent = JSON.stringify({
+          groupLeaders: ORG_GL,
+          unitLeaders: ORG_UL,
+          patrols: ORG_PATROLS,
+          committees: ORG_COMMITTEES
+        })
         const res = await fetch('/api/admin/group-org/${id}', {
           method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ image_url: '', content: orgContent })
+          body: JSON.stringify({ image_url: ORG_IMAGE_URL, content: orgContent })
         })
         const data = await res.json()
         if (data.success) {
@@ -5941,6 +6156,96 @@ adminRoutes.get('/groups/:id/cadres', authMiddleware, async (c) => {
       }
     }
     </script>
+
+    <!-- ===== 管理第1層職稱 Modal (Group Leaders) ===== -->
+    <div id="manage-gl-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col">
+        <div class="flex items-center justify-between p-5 border-b flex-shrink-0">
+          <div>
+            <h3 class="text-lg font-bold text-gray-800">🏛️ 管理第1層職稱（全團領導）</h3>
+            <p class="text-xs text-gray-400 mt-0.5">新增、修改或刪除職稱定義，儲存後幹部管理頁的新增按鈕即刻更新</p>
+          </div>
+          <button onclick="closeManageGLRoles()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">✕</button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-5">
+          <ul id="gl-role-list" class="space-y-2 mb-4"></ul>
+          <button onclick="addNewGLRole()" class="w-full bg-purple-50 hover:bg-purple-100 border-2 border-dashed border-purple-300 text-purple-700 rounded-xl py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-colors">
+            ➕ 新增第1層職稱（如：團長、副團長、群長…）
+          </button>
+
+          <!-- 編輯表單（預設隱藏） -->
+          <div id="gl-role-edit-section" class="hidden mt-4 bg-purple-50 border border-purple-200 rounded-xl p-4">
+            <h4 id="gl-role-edit-title" class="font-semibold text-purple-800 text-sm mb-3">新增第1層職稱</h4>
+            <div class="mb-3">
+              <label class="block text-xs font-medium text-gray-700 mb-1">職稱名稱 <span class="text-red-500">*</span></label>
+              <input type="text" id="gl-role-edit-name" placeholder="如：團長、副團長、童軍團長、群長…"
+                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
+            </div>
+            <div class="mb-3">
+              <label class="block text-xs font-medium text-gray-700 mb-1">職責說明（選填）</label>
+              <input type="text" id="gl-role-edit-desc" placeholder="如：負責全團運作與政策制定"
+                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
+            </div>
+            <div class="flex gap-2">
+              <button onclick="saveGLRoleItem()" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-lg text-sm font-medium">💾 確認</button>
+              <button onclick="cancelGLRoleEdit()" class="px-4 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 border-t flex-shrink-0 flex gap-3">
+          <button id="save-gl-btn" onclick="saveOrgGLRoles()"
+            class="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2.5 rounded-lg text-sm font-bold">
+            💾 儲存所有變更
+          </button>
+          <button onclick="closeManageGLRoles()" class="px-5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">關閉</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 管理第2層職稱 Modal (Unit Leaders) ===== -->
+    <div id="manage-ul-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col">
+        <div class="flex items-center justify-between p-5 border-b flex-shrink-0">
+          <div>
+            <h3 class="text-lg font-bold text-gray-800">🌿 管理第2層職稱（聯隊領導）</h3>
+            <p class="text-xs text-gray-400 mt-0.5">新增、修改或刪除職稱定義，儲存後幹部管理頁的新增按鈕即刻更新</p>
+          </div>
+          <button onclick="closeManageULRoles()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">✕</button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-5">
+          <ul id="ul-role-list" class="space-y-2 mb-4"></ul>
+          <button onclick="addNewULRole()" class="w-full bg-green-50 hover:bg-green-100 border-2 border-dashed border-green-300 text-green-700 rounded-xl py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-colors">
+            ➕ 新增第2層職稱（如：聯隊長、副聯隊長…）
+          </button>
+
+          <!-- 編輯表單（預設隱藏） -->
+          <div id="ul-role-edit-section" class="hidden mt-4 bg-green-50 border border-green-200 rounded-xl p-4">
+            <h4 id="ul-role-edit-title" class="font-semibold text-green-800 text-sm mb-3">新增第2層職稱</h4>
+            <div class="mb-3">
+              <label class="block text-xs font-medium text-gray-700 mb-1">職稱名稱 <span class="text-red-500">*</span></label>
+              <input type="text" id="ul-role-edit-name" placeholder="如：聯隊長、副聯隊長…"
+                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+            </div>
+            <div class="mb-3">
+              <label class="block text-xs font-medium text-gray-700 mb-1">職責說明（選填）</label>
+              <input type="text" id="ul-role-edit-desc" placeholder="如：負責聯隊日常運作"
+                class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+            </div>
+            <div class="flex gap-2">
+              <button onclick="saveULRoleItem()" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-medium">💾 確認</button>
+              <button onclick="cancelULRoleEdit()" class="px-4 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 border-t flex-shrink-0 flex gap-3">
+          <button id="save-ul-btn" onclick="saveOrgULRoles()"
+            class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg text-sm font-bold">
+            💾 儲存所有變更
+          </button>
+          <button onclick="closeManageULRoles()" class="px-5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">關閉</button>
+        </div>
+      </div>
+    </div>
 
     <!-- ===== 管理小隊 Modal ===== -->
     <div id="manage-patrols-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
