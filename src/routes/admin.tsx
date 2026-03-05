@@ -1401,6 +1401,9 @@ function adminLayout(title: string, content: string) {
         <a href="/admin/coaches" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('教練') ? 'bg-green-700' : ''}">
           <span>🧢</span> 教練團
         </a>
+        <a href="/admin/leaders" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('服務員管理') || title.includes('服務員名冊') || title.includes('服務員獎章') || title.includes('訓練設定') ? 'bg-green-700' : ''}">
+          <span>👮</span> 服務員管理
+        </a>
         <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-1 mt-2">系統</div>
         <a href="/admin/stats" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('統計') ? 'bg-green-700' : ''}">
           <span>📊</span> 統計報表
@@ -1557,13 +1560,13 @@ adminRoutes.get('/advancement/badges', authMiddleware, async (c) => {
 // ===================== 成員管理 =====================
 adminRoutes.get('/members', authMiddleware, async (c) => {
   const db = c.env.DB
-  const yearLabel = c.req.query('year') || '114'
+  const yearParam = c.req.query('year')   // 若有帶 ?year= 則使用，否則為 undefined
   const section = c.req.query('section') || ''
   const search = c.req.query('search') || ''
 
-  // 取得目前年度設定
+  // 取得目前年度設定（優先使用 URL 參數，其次 DB 設定，最後 fallback '114'）
   const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
-  const currentYear = yearLabel || yearSetting?.value || '114'
+  const currentYear = yearParam || yearSetting?.value || '114'
 
   // 取得此年度在籍成員（含歷史參與年度統計）
   let enrollQuery = `
@@ -1596,6 +1599,27 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
   const sectionList = ['童軍','行義童軍','羅浮童軍','服務員']
   // 行義童軍與童軍共用相同階級名稱（見習童軍、初級童軍...）
   const ranks = ['','見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮']
+
+  // 從資料庫讀取職位定義
+  const memberRolesRes = await db.prepare(`SELECT * FROM member_roles ORDER BY display_order, name`).all()
+  const memberRolesAll = memberRolesRes.results as any[]
+  // 建立 section -> roles 的對應 JS 物件字串
+  const rolesDataJs = JSON.stringify(memberRolesAll.reduce((acc: any, r: any) => {
+    const scopes = (r.scopes && r.scopes !== 'null') ? r.scopes.split(',') : null
+    if (!scopes) {
+      // 通用職位：加入所有 section
+      sectionList.forEach(s => {
+        if (!acc[s]) acc[s] = []
+        acc[s].push(r.name)
+      })
+    } else {
+      scopes.forEach((s: string) => {
+        if (!acc[s]) acc[s] = []
+        acc[s].push(r.name)
+      })
+    }
+    return acc
+  }, {}))
 
   // 停團/未續成員（有歷史在籍記錄但本年度不在籍）
   const inactiveRes = await db.prepare(`
@@ -1686,6 +1710,10 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
           class="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium">📥 沿用舊資料</button>
         <button onclick="document.getElementById('csv-import-modal').classList.remove('hidden')"
           class="bg-orange-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium">📊 CSV 匯入</button>
+        <a href="/admin/members/roles"
+          class="bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1">
+          <i class="fas fa-user-tag text-xs"></i> 職位管理
+        </a>
       </div>
     </div>
 
@@ -1852,7 +1880,7 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
             <div>
               <label class="block text-xs font-medium text-gray-700 mb-1">職位</label>
               <select id="add-role_name" class="w-full border rounded-lg px-3 py-2 text-sm">
-                ${['隊員','小隊長','副小隊長','群長','副群長','器材長','行政長','輔導長'].map(r => `<option value="${r}">${r}</option>`).join('')}
+                <option value="">請選擇...</option>
               </select>
             </div>
           </div>
@@ -1900,7 +1928,7 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
             <div>
               <label class="block text-xs font-medium text-gray-700 mb-1">職位</label>
               <select id="edit-role_name" class="w-full border rounded-lg px-3 py-2 text-sm">
-                ${['隊員','小隊長','副小隊長','群長','副群長','器材長','行政長','輔導長'].map(r => `<option value="${r}">${r}</option>`).join('')}
+                <option value="">請選擇...</option>
               </select>
             </div>
             <div>
@@ -1982,6 +2010,32 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
       let existingMembers = [];
       let existingSelected = new Set();
       let csvData = [];
+
+      // ===== 職位動態篩選資料 =====
+      const ROLES_BY_SECTION = ${rolesDataJs};
+
+      function updateRolesBySection(sectionId, roleSelectId, currentVal) {
+        const section = document.getElementById(sectionId)?.value || '';
+        const sel = document.getElementById(roleSelectId);
+        if (!sel) return;
+        const roles = ROLES_BY_SECTION[section] || [];
+        const prev = currentVal || sel.value;
+        sel.innerHTML = '<option value="">請選擇...</option>' +
+          roles.map(r => \`<option value="\${r}" \${r===prev?'selected':''}>\${r}</option>\`).join('');
+      }
+
+      // 監聽新增表單的 section 變更
+      document.addEventListener('DOMContentLoaded', () => {
+        const addSection = document.getElementById('add-section');
+        if (addSection) {
+          addSection.addEventListener('change', () => updateRolesBySection('add-section', 'add-role_name', ''));
+          updateRolesBySection('add-section', 'add-role_name', '');
+        }
+        const editSection = document.getElementById('edit-section');
+        if (editSection) {
+          editSection.addEventListener('change', () => updateRolesBySection('edit-section', 'edit-role_name', ''));
+        }
+      });
 
       function changeYear(y) {
         window.location.href = '/admin/members?year=' + y;
@@ -2122,7 +2176,8 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
         document.getElementById('edit-enroll-name').textContent = m.chinese_name + (m.english_name ? ' / ' + m.english_name : '');
         document.getElementById('edit-section').value = m.section || '童軍';
         document.getElementById('edit-unit_name').value = m.unit_name || '';
-        document.getElementById('edit-role_name').value = m.role_name || '隊員';
+        // 先更新職位選單再設定值
+        updateRolesBySection('edit-section', 'edit-role_name', m.role_name || '');
         document.getElementById('edit-rank_level').value = m.rank_level || '';
         document.getElementById('edit-enroll-modal').classList.remove('hidden');
       }
@@ -3529,6 +3584,27 @@ adminRoutes.get('/coaches', authMiddleware, async (c) => {
   `).join('')
 
   return c.html(adminLayout('教練團管理', `
+    <!-- 教練團管理 Dashboard -->
+    <div class="mb-6">
+      <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2 mb-1">
+        🧢 教練團管理
+      </h1>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <a href="/admin/coaches" class="block p-5 bg-white rounded-xl shadow-sm hover:shadow-md transition border-t-4 border-emerald-500 hover:border-emerald-600">
+          <h2 class="text-base font-bold mb-1 text-gray-800">教練團組織</h2>
+          <p class="text-gray-500 text-sm">管理教練成員列表、等級、負責組別</p>
+        </a>
+        <a href="/admin/coaches/advancement" class="block p-5 bg-white rounded-xl shadow-sm hover:shadow-md transition border-t-4 border-blue-500 hover:border-blue-600">
+          <h2 class="text-base font-bold mb-1 text-gray-800">教練團進程管理</h2>
+          <p class="text-gray-500 text-sm">見習教練、助理教練、指導教練檢核</p>
+        </a>
+        <a href="/admin/coaches/settings" class="block p-5 bg-white rounded-xl shadow-sm hover:shadow-md transition border-t-4 border-purple-500 hover:border-purple-600">
+          <h2 class="text-base font-bold mb-1 text-gray-800">教練團檢核設定</h2>
+          <p class="text-gray-500 text-sm">設定各階段檢核項目（課程、活動經驗等）</p>
+        </a>
+      </div>
+    </div>
+
     <div class="grid grid-cols-4 gap-4 mb-6">${levelSummary}</div>
 
     <div class="flex items-center justify-between mb-4">
@@ -3636,6 +3712,454 @@ adminRoutes.get('/coaches', authMiddleware, async (c) => {
   `))
 })
 
+// ===================== 教練團：進程管理 =====================
+adminRoutes.get('/coaches/advancement', authMiddleware, async (c) => {
+  const db = c.env.DB
+
+  // 取得所有成員（用於新增教練成員）
+  const allMembers = await db.prepare(`
+    SELECT id, chinese_name, section FROM members WHERE membership_status='active' ORDER BY section, chinese_name
+  `).all()
+
+  // 取得教練團成員狀態
+  const coachStatuses = await db.prepare(`
+    SELECT cms.*, m.chinese_name, m.section, m.rank_level
+    FROM coach_member_status cms
+    JOIN members m ON m.id = cms.member_id
+    ORDER BY CASE cms.current_stage WHEN '指導教練' THEN 1 WHEN '助理教練' THEN 2 WHEN '見習教練' THEN 3 ELSE 4 END, m.chinese_name
+  `).all()
+
+  // 取得所有完成記錄
+  const completions = await db.prepare(`SELECT * FROM coach_checklist_completions`).all()
+  const completionMap: Record<string, Set<string>> = {}
+  completions.results.forEach((comp: any) => {
+    if (!completionMap[comp.member_id]) completionMap[comp.member_id] = new Set()
+    completionMap[comp.member_id].add(comp.item_id)
+  })
+
+  // 取得所有檢核項目（按階段分組）
+  const checklistItems = await db.prepare(`SELECT * FROM coach_checklist_items ORDER BY stage, display_order`).all()
+  const itemsByStage: Record<string, any[]> = {}
+  checklistItems.results.forEach((item: any) => {
+    if (!itemsByStage[item.stage]) itemsByStage[item.stage] = []
+    itemsByStage[item.stage].push(item)
+  })
+
+  const stageOrder = ['預備教練', '見習教練', '助理教練', '指導教練']
+  const stageColor: Record<string, string> = {
+    '預備教練': 'border-t-gray-400',
+    '見習教練': 'border-t-teal-500',
+    '助理教練': 'border-t-blue-500',
+    '指導教練': 'border-t-purple-600',
+  }
+  const stageBadge: Record<string, string> = {
+    '預備教練': 'bg-gray-100 text-gray-700',
+    '見習教練': 'bg-teal-100 text-teal-800',
+    '助理教練': 'bg-blue-100 text-blue-800',
+    '指導教練': 'bg-purple-100 text-purple-800',
+  }
+
+  // 按階段分組教練成員
+  const membersByStage: Record<string, any[]> = {}
+  coachStatuses.results.forEach((ms: any) => {
+    const stage = ms.current_stage || '預備教練'
+    if (!membersByStage[stage]) membersByStage[stage] = []
+    membersByStage[stage].push(ms)
+  })
+
+  // 生成看板欄
+  const columns = stageOrder.map(stage => {
+    const members = membersByStage[stage] || []
+    const stageItems = itemsByStage[stage] || []
+    const cards = members.map((ms: any) => {
+      const doneItems = completionMap[ms.member_id] || new Set()
+      const doneCount = stageItems.filter((it: any) => doneItems.has(it.id)).length
+      const totalItems = stageItems.length
+      const pct = totalItems > 0 ? Math.round(doneCount / totalItems * 100) : 0
+      return `
+      <div class="bg-white border border-gray-200 rounded-xl p-3 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+           onclick="openMemberProgress('${ms.member_id}', '${ms.chinese_name.replace(/'/g,"\\'")}', '${stage}')">
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-semibold text-gray-800 text-sm">${ms.chinese_name}</div>
+          <span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">${ms.section}</span>
+        </div>
+        <div class="text-xs text-gray-400 mb-2">📅 ${ms.added_at?.substring(0,10) || ''}</div>
+        ${totalItems > 0 ? `
+        <div class="flex items-center gap-2">
+          <div class="flex-1 bg-gray-200 rounded-full h-1.5">
+            <div class="h-1.5 rounded-full ${pct >= 100 ? 'bg-green-500' : 'bg-blue-400'}" style="width:${pct}%"></div>
+          </div>
+          <span class="text-[10px] text-gray-500">${doneCount}/${totalItems}</span>
+        </div>` : ''}
+      </div>`
+    }).join('')
+
+    return `
+    <div class="flex flex-col min-w-[220px]">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-sm text-gray-700">${stage}</h3>
+        <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">${members.length}</span>
+      </div>
+      <div class="space-y-2 flex-1">${cards || `<div class="text-xs text-gray-400 text-center py-4 border-2 border-dashed border-gray-200 rounded-xl">暫無成員</div>`}</div>
+    </div>`
+  }).join('<div class="w-px bg-gray-200 mx-2 self-stretch"></div>')
+
+  const memberOptions = allMembers.results
+    .filter((m: any) => !coachStatuses.results.some((cs: any) => cs.member_id === m.id))
+    .map((m: any) => `<option value="${m.id}">${m.chinese_name} (${m.section})</option>`).join('')
+
+  return c.html(adminLayout('教練團進程管理', `
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-xl font-bold text-gray-800">教練團進程管理</h1>
+        <p class="text-sm text-gray-400">管理預備、見習、助理與指導教練之檢核進度</p>
+      </div>
+      <div class="flex gap-2">
+        <a href="/admin/coaches/settings" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+          <i class="fas fa-cog"></i>檢核設定
+        </a>
+        <button onclick="document.getElementById('add-coach-member-modal').classList.remove('hidden')"
+          class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+          <i class="fas fa-plus"></i>新增教練成員
+        </button>
+        <a href="/admin/coaches" class="text-gray-400 hover:text-gray-600 text-sm flex items-center gap-1 ml-2">← 返回</a>
+      </div>
+    </div>
+
+    <!-- 看板 -->
+    <div class="flex gap-4 overflow-x-auto pb-4">
+      ${columns}
+    </div>
+
+    <!-- 新增教練成員 Modal -->
+    <div id="add-coach-member-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6">
+        <h3 class="text-lg font-bold mb-4">新增教練團成員</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">選擇現有服務員</label>
+            <select id="new-coach-member-id" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="">選擇現有服務員...</option>
+              ${memberOptions}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">初始階段</label>
+            <select id="new-coach-stage" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="預備教練">預備教練</option>
+              <option value="見習教練">見習教練</option>
+              <option value="助理教練">助理教練</option>
+              <option value="指導教練">指導教練</option>
+            </select>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button onclick="addCoachMember()" class="flex-1 bg-green-700 text-white py-2 rounded-lg text-sm font-medium">加入預備行列</button>
+          <button onclick="document.getElementById('add-coach-member-modal').classList.add('hidden')" class="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 成員進度 Modal -->
+    <div id="member-progress-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-y-auto max-h-[90vh]">
+        <div class="bg-gradient-to-r from-green-700 to-emerald-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
+          <div>
+            <h3 class="font-bold text-lg" id="progress-modal-name">成員姓名</h3>
+            <p class="text-green-200 text-xs" id="progress-modal-stage"></p>
+          </div>
+          <button onclick="document.getElementById('member-progress-modal').classList.add('hidden')" class="text-white/70 hover:text-white text-2xl leading-none">&times;</button>
+        </div>
+        <div id="progress-modal-body" class="p-5">載入中...</div>
+        <div class="px-5 pb-5 flex gap-3">
+          <button onclick="promoteCoachMember()" id="promote-btn"
+            class="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 rounded-xl text-sm font-medium">
+            <i class="fas fa-arrow-up mr-1"></i>晉升至下一階段
+          </button>
+          <button onclick="removeCoachMember()" id="remove-btn"
+            class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-sm">
+            移除
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    let currentCoachMemberId = null
+    let currentCoachStage = null
+
+    const stageOrder = ['預備教練','見習教練','助理教練','指導教練']
+    const checklistData = ${JSON.stringify(
+      Object.fromEntries(
+        Object.entries(itemsByStage).map(([stage, items]) => [stage, items])
+      )
+    )}
+
+    async function openMemberProgress(memberId, name, stage) {
+      currentCoachMemberId = memberId
+      currentCoachStage = stage
+      document.getElementById('progress-modal-name').textContent = name
+      document.getElementById('progress-modal-stage').textContent = '目前階段：' + stage
+      document.getElementById('member-progress-modal').classList.remove('hidden')
+
+      const nextStageIdx = stageOrder.indexOf(stage) + 1
+      const promoteBtn = document.getElementById('promote-btn')
+      if (nextStageIdx < stageOrder.length) {
+        promoteBtn.textContent = '↑ 晉升至' + stageOrder[nextStageIdx]
+        promoteBtn.style.display = ''
+      } else {
+        promoteBtn.style.display = 'none'
+      }
+
+      await loadMemberChecklist(memberId, stage)
+    }
+
+    async function loadMemberChecklist(memberId, stage) {
+      const body = document.getElementById('progress-modal-body')
+      const res = await fetch('/api/coach/member-completions?member_id=' + memberId)
+      const data = await res.json()
+      const doneSet = new Set(data.completions || [])
+
+      const items = checklistData[stage] || []
+      if (items.length === 0) {
+        body.innerHTML = '<p class="text-gray-400 text-sm text-center py-8">此階段尚無檢核項目，請至「檢核設定」新增。</p>'
+        return
+      }
+
+      const doneCount = items.filter(it => doneSet.has(it.id)).length
+      const pct = Math.round(doneCount / items.length * 100)
+
+      body.innerHTML = \`
+        <div class="mb-4">
+          <div class="flex justify-between text-sm text-gray-500 mb-1">
+            <span>晉升條件進度</span><span>\${doneCount}/\${items.length}</span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-2">
+            <div class="h-2 rounded-full \${pct>=100?'bg-green-500':'bg-blue-400'} transition-all" style="width:\${pct}%"></div>
+          </div>
+        </div>
+        <div class="space-y-2">
+          \${items.map(item => \`
+            <label class="flex items-start gap-3 p-3 rounded-xl border cursor-pointer hover:bg-gray-50 transition-colors
+              \${doneSet.has(item.id)?'border-green-300 bg-green-50':'border-gray-200 bg-white'}">
+              <input type="checkbox" value="\${item.id}" class="coach-checklist-cb mt-0.5 w-4 h-4 accent-green-600"
+                \${doneSet.has(item.id)?'checked':''} onchange="toggleChecklist(this, '\${memberId}')">
+              <div class="flex-1">
+                <div class="text-sm font-medium \${doneSet.has(item.id)?'text-green-800':'text-gray-800'}">\${item.description}</div>
+                \${item.required_count > 1 ? \`<div class="text-xs text-gray-400">需完成 \${item.required_count} 次</div>\` : ''}
+              </div>
+              \${doneSet.has(item.id)?'<i class="fas fa-check-circle text-green-500 mt-0.5"></i>':''}
+            </label>
+          \`).join('')}
+        </div>\`
+    }
+
+    async function toggleChecklist(checkbox, memberId) {
+      const itemId = checkbox.value
+      const isChecked = checkbox.checked
+      const res = await fetch('/api/coach/toggle-completion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_id: memberId, item_id: itemId, is_completed: isChecked })
+      })
+      const r = await res.json()
+      if (r.success) {
+        await loadMemberChecklist(memberId, currentCoachStage)
+      } else {
+        checkbox.checked = !isChecked
+        alert('操作失敗：' + (r.error || '未知錯誤'))
+      }
+    }
+
+    async function addCoachMember() {
+      const memberId = document.getElementById('new-coach-member-id').value
+      const stage = document.getElementById('new-coach-stage').value
+      if (!memberId) { alert('請選擇成員'); return }
+      const res = await fetch('/api/coach/member-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_id: memberId, stage })
+      })
+      const r = await res.json()
+      if (r.success) { location.reload() }
+      else { alert('新增失敗：' + (r.error || '')) }
+    }
+
+    async function promoteCoachMember() {
+      const nextIdx = stageOrder.indexOf(currentCoachStage) + 1
+      if (nextIdx >= stageOrder.length) return
+      const nextStage = stageOrder[nextIdx]
+      if (!confirm('確定將此成員晉升至「' + nextStage + '」？')) return
+      const res = await fetch('/api/coach/member-status', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_id: currentCoachMemberId, stage: nextStage })
+      })
+      const r = await res.json()
+      if (r.success) { location.reload() }
+      else { alert('晉升失敗：' + (r.error || '')) }
+    }
+
+    async function removeCoachMember() {
+      if (!confirm('確定將此成員從教練團進程中移除？此操作不會刪除完成記錄。')) return
+      const res = await fetch('/api/coach/member-status?member_id=' + currentCoachMemberId, { method: 'DELETE' })
+      const r = await res.json()
+      if (r.success) { location.reload() }
+      else { alert('移除失敗：' + (r.error || '')) }
+    }
+    </script>
+  `))
+})
+
+// ===================== 教練團：檢核設定 =====================
+adminRoutes.get('/coaches/settings', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const checklistItems = await db.prepare(`SELECT * FROM coach_checklist_items ORDER BY stage, display_order`).all()
+  const stages = ['見習教練', '助理教練', '指導教練']
+  const stageColor: Record<string, string> = {
+    '見習教練': 'bg-teal-50 border-teal-300',
+    '助理教練': 'bg-blue-50 border-blue-300',
+    '指導教練': 'bg-purple-50 border-purple-300',
+  }
+  const stageHeaderColor: Record<string, string> = {
+    '見習教練': 'bg-teal-600',
+    '助理教練': 'bg-blue-600',
+    '指導教練': 'bg-purple-700',
+  }
+
+  const columns = stages.map(stage => {
+    const items = checklistItems.results.filter((it: any) => it.stage === stage)
+    const rows = items.map((it: any) => `
+      <div class="flex items-start gap-2 p-3 bg-white rounded-xl border border-gray-200 shadow-sm group">
+        <div class="flex-1">
+          <div class="text-sm font-medium text-gray-800">${it.description}</div>
+          ${it.required_count > 1 ? `<div class="text-xs text-gray-400 mt-0.5">需完成 ${it.required_count} 次</div>` : ''}
+        </div>
+        <button onclick="deleteChecklistItem('${it.id}', '${it.description.replace(/'/g,"\\'")}', '${stage}')"
+          class="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all text-xs px-1.5 py-1 rounded">
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
+    `).join('')
+
+    return `
+    <div class="flex-1 min-w-[240px]">
+      <div class="${stageHeaderColor[stage]} text-white px-4 py-2.5 rounded-t-xl font-semibold text-sm">
+        ${stage}
+        <span class="ml-2 text-white/70 text-xs">(${items.length} 項)</span>
+      </div>
+      <div class="border border-t-0 border-gray-200 rounded-b-xl p-3 space-y-2 min-h-[200px] bg-gray-50/50">
+        ${rows || '<div class="text-xs text-gray-400 text-center py-6">尚無項目</div>'}
+      </div>
+    </div>`
+  }).join('')
+
+  return c.html(adminLayout('教練團檢核設定', `
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-xl font-bold text-gray-800">教練團檢核設定</h1>
+        <p class="text-sm text-gray-400">設定各階段教練必須完成的項目</p>
+      </div>
+      <a href="/admin/coaches/advancement" class="text-gray-400 hover:text-gray-600 text-sm flex items-center gap-1">← 返回</a>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+      <!-- 新增表單 -->
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+        <h2 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          <i class="fas fa-plus-circle text-green-600"></i>新增檢核項目
+        </h2>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">階段</label>
+            <select id="new-item-stage" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="見習教練">見習教練</option>
+              <option value="助理教練">助理教練</option>
+              <option value="指導教練">指導教練</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">項目描述</label>
+            <input id="new-item-desc" type="text" class="w-full border rounded-lg px-3 py-2 text-sm"
+              placeholder="例如：參加園內幹部訓練...">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">需完成次數</label>
+            <input id="new-item-count" type="number" min="1" value="1" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+        </div>
+        <button onclick="addChecklistItem()" class="w-full mt-4 bg-teal-600 hover:bg-teal-500 text-white py-2.5 rounded-xl text-sm font-medium transition-colors">
+          新增項目
+        </button>
+        <div id="add-item-msg" class="mt-2"></div>
+      </div>
+
+      <!-- 說明 -->
+      <div class="bg-blue-50 rounded-2xl border border-blue-100 p-5 flex flex-col justify-between">
+        <div>
+          <h3 class="font-semibold text-blue-800 mb-3 flex items-center gap-2">
+            <i class="fas fa-info-circle text-blue-500"></i>晉級條件說明
+          </h3>
+          <div class="space-y-3 text-sm text-blue-800">
+            <div class="flex items-start gap-2">
+              <span class="bg-teal-100 text-teal-800 px-2 py-0.5 rounded text-xs font-medium mt-0.5">見習教練</span>
+              <span>完成所有見習教練項目後，可晉升至助理教練</span>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs font-medium mt-0.5">助理教練</span>
+              <span>完成所有助理教練項目後，可晉升至指導教練</span>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded text-xs font-medium mt-0.5">指導教練</span>
+              <span>完成所有指導教練項目，具備指導及考核助理教練能力</span>
+            </div>
+          </div>
+        </div>
+        <p class="text-xs text-blue-600 mt-4 bg-white/60 px-3 py-2 rounded-lg">
+          💡 刪除項目後，已勾選的完成記錄不會被影響，僅移除顯示。
+        </p>
+      </div>
+    </div>
+
+    <!-- 各階段項目列表 -->
+    <div class="flex gap-4 overflow-x-auto pb-2">
+      ${columns}
+    </div>
+
+    <script>
+    async function addChecklistItem() {
+      const stage = document.getElementById('new-item-stage').value
+      const desc = document.getElementById('new-item-desc').value.trim()
+      const count = parseInt(document.getElementById('new-item-count').value) || 1
+      const msg = document.getElementById('add-item-msg')
+      if (!desc) { msg.innerHTML = '<p class="text-red-500 text-sm">請輸入項目描述</p>'; return }
+      msg.innerHTML = '<p class="text-gray-400 text-sm">新增中...</p>'
+      const res = await fetch('/api/coach/checklist-items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage, description: desc, required_count: count })
+      })
+      const r = await res.json()
+      if (r.success) {
+        msg.innerHTML = '<p class="text-green-600 text-sm">✅ 已新增</p>'
+        document.getElementById('new-item-desc').value = ''
+        setTimeout(() => location.reload(), 800)
+      } else {
+        msg.innerHTML = '<p class="text-red-500 text-sm">失敗：' + (r.error||'') + '</p>'
+      }
+    }
+
+    async function deleteChecklistItem(id, desc, stage) {
+      if (!confirm(\`確定刪除「\${stage}」階段的項目：\n「\${desc}」？\`)) return
+      const res = await fetch('/api/coach/checklist-items/' + id, { method: 'DELETE' })
+      const r = await res.json()
+      if (r.success) { location.reload() }
+      else { alert('刪除失敗：' + (r.error||'')) }
+    }
+    </script>
+  `))
+})
+
 // ===================== 輔助函式：成員表單 =====================
 function memberFormFields(prefix: string) {
   const sections = ['童軍','行義童軍','羅浮童軍','服務員','幼童軍','稚齡童軍']
@@ -3681,7 +4205,7 @@ function memberFormFields(prefix: string) {
         <div>
           <label class="block text-xs font-medium text-gray-700 mb-1">職位</label>
           <select id="${prefix}-role_name" class="w-full border rounded-lg px-3 py-2 text-sm">
-            ${roles.map(r => `<option value="${r}">${r}</option>`).join('')}
+            <option value="">請選擇...</option>
           </select>
         </div>
       </div>
@@ -4531,6 +5055,397 @@ adminRoutes.get('/members/import', authMiddleware, async (c) => {
   `))
 })
 
+// ===================== 職位管理設定頁面 =====================
+adminRoutes.get('/members/roles', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const rolesRes = await db.prepare(`SELECT * FROM member_roles ORDER BY display_order, name`).all()
+  const allRoles = rolesRes.results as any[]
+  const SECTIONS = ['童軍','行義童軍','羅浮童軍','服務員']
+
+  // 按組別分組角色
+  const rolesBySection: Record<string, any[]> = { '通用': [], '童軍': [], '行義童軍': [], '羅浮童軍': [], '服務員': [] }
+  allRoles.forEach((r: any) => {
+    const scopesArr = (r.scopes && r.scopes !== 'null') ? r.scopes.split(',') : []
+    if (scopesArr.length === 0) {
+      rolesBySection['通用'].push(r)
+    } else {
+      scopesArr.forEach((s: string) => {
+        if (rolesBySection[s]) rolesBySection[s].push(r)
+        else rolesBySection[s] = [r]
+      })
+    }
+  })
+
+  const sectionConfig: Record<string, {color: string, bg: string, border: string, icon: string}> = {
+    '通用':   { color: 'text-gray-700',   bg: 'bg-gray-50',   border: 'border-gray-200',  icon: '🔗' },
+    '童軍':   { color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-200', icon: '🦁' },
+    '行義童軍':{ color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200',  icon: '🦅' },
+    '羅浮童軍':{ color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-200',icon: '🌟' },
+    '服務員': { color: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-200', icon: '🎗️' },
+  }
+
+  const scopeCheckboxes = (prefix: string) => SECTIONS.map(s => {
+    const cfg = sectionConfig[s] || { border: 'border-gray-200', color: 'text-gray-700' }
+    return `<label class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${cfg.border} bg-white cursor-pointer hover:opacity-80 text-sm ${cfg.color} select-none">
+      <input type="checkbox" name="${prefix}-scope" value="${s}" class="w-4 h-4 rounded"> ${s}
+    </label>`
+  }).join('')
+
+  // 預設職位清單（供快速填入）
+  const DEFAULT_PRESETS: Record<string, string[]> = {
+    '通用':    ['隊員','小隊長','副小隊長','群長','副群長','群顧問','服務員'],
+    '童軍':    ['童軍團器材長','副器材長','行政長','副行政長','考驗營總協','器材組員','行政組員','公關組長','副公關組長','公關組員','展演組長','副展演組長','活動組長','副活動組長'],
+    '行義童軍':['聯隊長','副聯隊長','團長','副團長','教練團主席','總團長'],
+    '羅浮童軍':['羅浮團長','羅浮副團長'],
+    '服務員':  ['群長','副群長','群顧問'],
+  }
+
+  // 計算各分組目前已有的職位名稱
+  const existingNames = new Set(allRoles.map((r: any) => r.name))
+
+  const renderSectionCard = (section: string, roles: any[]) => {
+    const cfg = sectionConfig[section] || sectionConfig['通用']
+    const roleItems = roles.map((r: any) => {
+      const scopesArr = (r.scopes && r.scopes !== 'null') ? r.scopes.split(',') : []
+      return `
+      <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/70 group" id="role-item-${r.id}">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="w-1.5 h-1.5 rounded-full ${cfg.bg.replace('bg-','bg-')} border ${cfg.border} flex-shrink-0"></span>
+          <span class="text-sm font-medium text-gray-800 truncate">${r.name}</span>
+          ${scopesArr.length > 1 ? `<span class="text-xs text-gray-400">(${scopesArr.join('+')})</span>` : ''}
+        </div>
+        <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          <button data-action="edit" data-id="${r.id}" data-name="${r.name.replace(/"/g,'&quot;')}" data-scopes="${scopesArr.join(',')}"
+            class="text-blue-500 hover:text-blue-700 text-xs px-1.5 py-0.5 rounded hover:bg-blue-50">編輯</button>
+          <button data-action="delete" data-id="${r.id}" data-name="${r.name.replace(/"/g,'&quot;')}"
+            class="text-red-400 hover:text-red-600 text-xs px-1.5 py-0.5 rounded hover:bg-red-50">刪除</button>
+        </div>
+      </div>`
+    }).join('')
+
+    // 預設職位中尚未新增的（排除已存在於通用或本分組的職位）
+    const presets = DEFAULT_PRESETS[section] || []
+    const universalNames = new Set((rolesBySection['通用'] || []).map((r: any) => r.name))
+    const missingPresets = presets.filter(p => {
+      // 若通用職位中已有，不建議再針對此 section 新增
+      if (section !== '通用' && universalNames.has(p)) return false
+      // 檢查本分組是否已存在
+      return !roles.some((r: any) => r.name === p)
+    })
+    const presetChips = missingPresets.length > 0
+      ? `<div class="mt-2 pt-2 border-t border-dashed ${cfg.border}">
+          <p class="text-xs text-gray-400 mb-1.5">建議新增：</p>
+          <div class="flex flex-wrap gap-1">
+            ${missingPresets.map(p => {
+              const scopeVal = section === '通用' ? '' : section
+              return `<button data-action="quick-add" data-name="${p.replace(/"/g,'&quot;')}" data-scope="${scopeVal}"
+                class="text-xs px-2 py-0.5 rounded-full border ${cfg.border} ${cfg.color} ${cfg.bg} hover:opacity-80 transition">
+                + ${p}
+              </button>`
+            }).join('')}
+          </div>
+        </div>`
+      : ''
+
+    return `
+    <div class="${cfg.bg} border ${cfg.border} rounded-2xl p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold ${cfg.color} flex items-center gap-1.5 text-sm">
+          <span>${cfg.icon}</span> ${section === '通用' ? '通用職位（適用所有階段）' : section}
+          <span class="font-normal text-xs opacity-60">(${roles.length} 個)</span>
+        </h3>
+        <button data-action="open-add" data-section="${section}"
+          class="text-xs px-2 py-1 rounded-lg border ${cfg.border} ${cfg.color} bg-white hover:opacity-80 transition flex items-center gap-1">
+          <span>＋</span> 新增
+        </button>
+      </div>
+      <div class="space-y-0.5">
+        ${roles.length > 0 ? roleItems : `<p class="text-xs text-gray-400 py-2 text-center">尚無職位</p>`}
+      </div>
+      ${presetChips}
+    </div>`
+  }
+
+  const sectionCards = ['通用', ...SECTIONS].map(s => renderSectionCard(s, rolesBySection[s] || [])).join('')
+
+  return c.html(adminLayout('職位管理', `
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+          <i class="fas fa-user-tag text-green-600"></i> 職位管理
+        </h1>
+        <p class="text-sm text-gray-400 mt-1">管理成員名冊中的職位選項；可按階段分類，新增/編輯成員時依組別動態篩選</p>
+      </div>
+      <a href="/admin/members" class="text-gray-400 hover:text-gray-600 text-sm flex items-center gap-1">
+        <i class="fas fa-arrow-left text-xs"></i> 返回成員名冊
+      </a>
+    </div>
+
+    <!-- 說明提示 -->
+    <div class="mb-5 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800 flex gap-3">
+      <i class="fas fa-info-circle mt-0.5 flex-shrink-0"></i>
+      <div>
+        <strong>使用說明：</strong>「通用」職位適用所有階段；若設定了特定階段，則新增/編輯成員時，選擇該組別才會出現此職位。
+        「建議新增」快捷按鈕可一鍵加入預設職位。
+      </div>
+    </div>
+
+    <!-- 按階段分組的職位卡片 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
+      ${sectionCards}
+    </div>
+
+    <!-- 完整列表（可搜尋） -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-bold text-gray-800 flex items-center gap-2">
+          <i class="fas fa-list text-gray-400"></i> 完整職位列表
+          <span class="text-xs text-gray-400 font-normal">(共 ${allRoles.length} 個)</span>
+        </h2>
+        <div class="flex items-center gap-2">
+          <input id="role-search" type="search" placeholder="搜尋職位..."
+            oninput="filterRoleList(this.value)"
+            class="border rounded-lg px-3 py-1.5 text-sm w-32 focus:outline-none focus:border-green-500">
+          <div class="flex gap-1">
+            <button onclick="filterRoleSection('')" class="filter-section-btn px-2 py-1 text-xs border rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition" data-s="">全部</button>
+            ${SECTIONS.map(s => {
+              const cfg = sectionConfig[s]
+              return `<button onclick="filterRoleSection('${s}')" class="filter-section-btn px-2 py-1 text-xs border rounded-lg ${cfg.bg} ${cfg.color} ${cfg.border} hover:opacity-80 transition" data-s="${s}">${s}</button>`
+            }).join('')}
+          </div>
+        </div>
+      </div>
+      <div id="roles-full-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        ${allRoles.map((r: any) => {
+          const scopesArr = (r.scopes && r.scopes !== 'null') ? r.scopes.split(',') : []
+          const scopeBadges = scopesArr.length === 0
+            ? `<span class="px-1.5 py-0.5 bg-gray-100 text-gray-500 text-xs rounded">通用</span>`
+            : scopesArr.map((s: string) => {
+                const cfg = sectionConfig[s] || { bg: 'bg-gray-100', color: 'text-gray-600' }
+                return `<span class="px-1.5 py-0.5 text-xs rounded ${cfg.bg} ${cfg.color} section-tag" data-s="${s}">${s}</span>`
+              }).join('')
+          return `
+          <div class="flex items-center justify-between p-2.5 rounded-xl border border-gray-100 hover:border-gray-300 hover:bg-gray-50 transition group role-list-item" data-scopes="${scopesArr.join(',')}" data-name="${r.name}" id="role-item-${r.id}">
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-gray-800 truncate">${r.name}</div>
+              <div class="flex gap-1 mt-0.5">${scopeBadges}</div>
+            </div>
+            <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition flex-shrink-0 ml-2">
+              <button data-action="edit" data-id="${r.id}" data-name="${r.name.replace(/"/g,'&quot;')}" data-scopes="${scopesArr.join(',')}"
+                class="text-blue-500 hover:text-blue-700 text-xs p-1 rounded hover:bg-blue-50">✏️</button>
+              <button data-action="delete" data-id="${r.id}" data-name="${r.name.replace(/"/g,'&quot;')}"
+                class="text-red-400 hover:text-red-600 text-xs p-1 rounded hover:bg-red-50">🗑</button>
+            </div>
+          </div>`
+        }).join('')}
+      </div>
+    </div>
+
+    <!-- 新增職位 Modal -->
+    <div id="add-role-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-bold mb-1">新增職位</h3>
+        <p class="text-sm text-gray-400 mb-4">填入職位名稱並選擇適用階段</p>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">職位名稱 *</label>
+            <input id="new-role-name" type="text" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-green-500 focus:outline-none"
+              placeholder="例如: 小隊長" autocomplete="off"
+              onkeydown="if(event.key==='Enter'){ event.preventDefault(); addRole(document.querySelector('[data-action=add-role]')); }">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">
+              適用階段 <span class="text-gray-400 normal-case font-normal">（不選 = 通用，適用所有階段）</span>
+            </label>
+            <div class="flex flex-wrap gap-2">
+              ${scopeCheckboxes('new')}
+            </div>
+          </div>
+          <div id="add-role-msg" class="hidden text-sm text-center py-1 rounded-lg"></div>
+          <div class="flex gap-3">
+            <button data-action="add-role"
+              class="flex-1 bg-green-700 hover:bg-green-600 text-white py-2.5 rounded-xl text-sm font-medium transition-colors">
+              ＋ 新增職位
+            </button>
+            <button data-action="close-modal"
+              class="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl text-sm transition-colors">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 編輯職位 Modal -->
+    <div id="edit-role-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-bold mb-4">編輯職位</h3>
+        <input type="hidden" id="edit-role-id">
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">職位名稱 *</label>
+            <input id="edit-role-name" type="text" class="w-full border-2 border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+              onkeydown="if(event.key==='Enter') saveRoleEdit()" autocomplete="off">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">
+              適用階段 <span class="text-gray-400 normal-case font-normal">（不選 = 通用）</span>
+            </label>
+            <div class="flex flex-wrap gap-2">
+              ${scopeCheckboxes('edit')}
+            </div>
+          </div>
+          <div id="edit-role-msg" class="hidden text-sm text-center rounded-lg py-1"></div>
+          <div class="flex gap-3">
+            <button data-action="save-edit"
+              class="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-xl text-sm font-medium transition-colors">儲存變更</button>
+            <button data-action="close-modal"
+              class="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl text-sm transition-colors">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    function getCheckedScopes(prefix) {
+      return Array.from(document.querySelectorAll('input[name="' + prefix + '-scope"]:checked')).map(el => el.value);
+    }
+    function setCheckedScopes(prefix, scopes) {
+      document.querySelectorAll('input[name="' + prefix + '-scope"]').forEach(el => {
+        el.checked = scopes.includes(el.value);
+      });
+    }
+
+    function openAddForSection(section) {
+      document.getElementById('new-role-name').value = '';
+      const scopesToCheck = (section === '通用') ? [] : [section];
+      setCheckedScopes('new', scopesToCheck);
+      document.getElementById('add-role-msg').classList.add('hidden');
+      document.getElementById('add-role-modal').classList.remove('hidden');
+      setTimeout(() => document.getElementById('new-role-name').focus(), 100);
+    }
+
+    async function quickAddRole(name, scope) {
+      const scopes = scope ? [scope] : [];
+      const res = await fetch('/api/member-roles', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ name, scopes })
+      });
+      const r = await res.json();
+      if (r.success) { location.reload(); }
+      else { alert('新增失敗：' + (r.error||'')); }
+    }
+
+    async function addRole(btn) {
+      const name = document.getElementById('new-role-name').value.trim();
+      const scopes = getCheckedScopes('new');
+      if (!name) { alert('請輸入職位名稱'); return; }
+      if (btn) { btn.disabled = true; btn.textContent = '新增中...'; }
+      const res = await fetch('/api/member-roles', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ name, scopes })
+      });
+      const r = await res.json();
+      if (btn) { btn.disabled = false; btn.textContent = '＋ 新增職位'; }
+      const msg = document.getElementById('add-role-msg');
+      if (r.success) {
+        msg.textContent = '✅ 新增成功！'; msg.className = 'text-sm text-center py-1 rounded-lg text-green-700 bg-green-50'; msg.classList.remove('hidden');
+        setTimeout(() => location.reload(), 600);
+      } else {
+        msg.textContent = '❌ 失敗：' + (r.error||''); msg.className = 'text-sm text-center py-1 rounded-lg text-red-700 bg-red-50'; msg.classList.remove('hidden');
+      }
+    }
+
+    function openRoleEdit(id, name, scopesStr) {
+      const scopes = scopesStr ? scopesStr.split(',').filter(Boolean) : [];
+      document.getElementById('edit-role-id').value = id;
+      document.getElementById('edit-role-name').value = name;
+      setCheckedScopes('edit', scopes);
+      document.getElementById('edit-role-msg').classList.add('hidden');
+      document.getElementById('edit-role-modal').classList.remove('hidden');
+      setTimeout(() => document.getElementById('edit-role-name').focus(), 100);
+    }
+
+    async function saveRoleEdit() {
+      const id = document.getElementById('edit-role-id').value;
+      const name = document.getElementById('edit-role-name').value.trim();
+      const scopes = getCheckedScopes('edit');
+      if (!name) { alert('請輸入職位名稱'); return; }
+      const res = await fetch('/api/member-roles/' + id, {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ name, scopes })
+      });
+      const r = await res.json();
+      const msg = document.getElementById('edit-role-msg');
+      if (r.success) {
+        msg.textContent = '✅ 已儲存'; msg.className = 'text-sm text-center py-1 rounded-lg text-green-700 bg-green-50'; msg.classList.remove('hidden');
+        setTimeout(() => location.reload(), 500);
+      } else {
+        msg.textContent = '❌ 更新失敗：' + (r.error||''); msg.className = 'text-sm text-center py-1 rounded-lg text-red-700 bg-red-50'; msg.classList.remove('hidden');
+      }
+    }
+
+    async function deleteRole(id, name) {
+      if (!confirm('確定刪除職位「' + name + '」？此操作無法復原，且不影響已設定此職位的成員資料。')) return;
+      const res = await fetch('/api/member-roles/' + id, { method: 'DELETE' });
+      const r = await res.json();
+      if (r.success) {
+        document.querySelectorAll('[id="role-item-' + id + '"]').forEach(el => el.remove());
+      } else { alert('刪除失敗：' + (r.error||'')); }
+    }
+
+    function filterRoleList(q) {
+      const query = q.toLowerCase().trim();
+      document.querySelectorAll('.role-list-item').forEach(el => {
+        const name = el.dataset.name?.toLowerCase() || '';
+        el.style.display = (!query || name.includes(query)) ? '' : 'none';
+      });
+    }
+
+    function filterRoleSection(section) {
+      document.querySelectorAll('.filter-section-btn').forEach(btn => {
+        btn.classList.toggle('ring-2', btn.dataset.s === section);
+        btn.classList.toggle('ring-offset-1', btn.dataset.s === section);
+      });
+      document.querySelectorAll('.role-list-item').forEach(el => {
+        if (!section) { el.style.display = ''; return; }
+        const scopes = el.dataset.scopes || '';
+        const isUniversal = !scopes;
+        const matches = scopes.split(',').includes(section);
+        el.style.display = (isUniversal || matches) ? '' : 'none';
+      });
+    }
+
+    // 事件委派：統一處理所有 data-action 按鈕
+    document.addEventListener('click', function(e) {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      if (action === 'edit') {
+        openRoleEdit(btn.dataset.id, btn.dataset.name, btn.dataset.scopes || '');
+      } else if (action === 'delete') {
+        deleteRole(btn.dataset.id, btn.dataset.name);
+      } else if (action === 'open-add') {
+        openAddForSection(btn.dataset.section);
+      } else if (action === 'quick-add') {
+        quickAddRole(btn.dataset.name, btn.dataset.scope || '');
+      } else if (action === 'add-role') {
+        addRole(btn);
+      } else if (action === 'save-edit') {
+        saveRoleEdit();
+      } else if (action === 'close-modal') {
+        btn.closest('.fixed')?.classList.add('hidden');
+      }
+    });
+
+    // 關閉 modal 點擊背景
+    document.querySelectorAll('#add-role-modal, #edit-role-modal').forEach(modal => {
+      modal.addEventListener('click', function(e) {
+        if (e.target === modal) modal.classList.add('hidden');
+      });
+    });
+    </script>
+  `))
+})
+
 // ===================== 成員詳細頁面 (整合進程管理) =====================
 adminRoutes.get('/members/:id', authMiddleware, async (c) => {
   const db = c.env.DB
@@ -4965,7 +5880,10 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
       </div>
       <div class="bg-white rounded-xl shadow-sm p-5">
         <h3 class="font-bold text-gray-700 mb-4">系統操作</h3>
-        <a href="/admin/members/${id}?tab=advancement" class="block w-full text-center bg-green-600 text-white py-2 rounded-lg hover:bg-green-500 mb-2">管理進程與專科章</a>
+        ${member.section === '服務員'
+          ? `<a href="/admin/leaders/member/${id}" class="block w-full text-center bg-amber-600 text-white py-2 rounded-lg hover:bg-amber-500 mb-2">🏅 服務員進程與獎章管理</a>`
+          : `<a href="/admin/members/${id}?tab=advancement" class="block w-full text-center bg-green-600 text-white py-2 rounded-lg hover:bg-green-500 mb-2">管理進程與專科章</a>`
+        }
         <a href="/admin/members-legacy/${id}" class="block w-full text-center bg-gray-100 text-gray-600 py-2 rounded-lg hover:bg-gray-200 text-sm">完整資料與出席記錄</a>
       </div>
     </div>
@@ -5107,7 +6025,10 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
       <a href="/admin/members" class="text-sm text-gray-500 hover:text-gray-700">← 返回列表</a>
       <div class="flex gap-2 bg-white rounded-lg p-1 shadow-sm border">
         <a href="?tab=info" class="px-4 py-1.5 rounded-md text-sm font-medium ${tab==='info'?'bg-green-100 text-green-700':'text-gray-500 hover:bg-gray-50'}">基本資料</a>
-        <a href="?tab=advancement" class="px-4 py-1.5 rounded-md text-sm font-medium ${tab==='advancement'?'bg-green-100 text-green-700':'text-gray-500 hover:bg-gray-50'}">進程與專科章</a>
+        ${member.section === '服務員'
+          ? `<a href="/admin/leaders/member/${id}" class="px-4 py-1.5 rounded-md text-sm font-medium bg-amber-100 text-amber-700">🏅 進程與獎章</a>`
+          : `<a href="?tab=advancement" class="px-4 py-1.5 rounded-md text-sm font-medium ${tab==='advancement'?'bg-green-100 text-green-700':'text-gray-500 hover:bg-gray-50'}">進程與專科章</a>`
+        }
       </div>
     </div>
     ${tab === 'advancement' ? contentAdv : contentInfo}
@@ -5155,6 +6076,13 @@ adminRoutes.get('/members-legacy/:id', authMiddleware, async (c) => {
     ORDER BY la.level ASC
   `).bind(id).all()
 
+  // 教練團進程資料
+  const coachStatus = await db.prepare(`SELECT * FROM coach_member_status WHERE member_id = ?`).bind(id).first() as any
+  const coachCompletions = coachStatus ? await db.prepare(`SELECT item_id FROM coach_checklist_completions WHERE member_id = ?`).bind(id).all() : { results: [] }
+  const coachDoneSet = new Set((coachCompletions.results as any[]).map((r: any) => r.item_id))
+  const coachChecklistAll = coachStatus ? await db.prepare(`SELECT * FROM coach_checklist_items ORDER BY stage, display_order`).all() : { results: [] }
+  const coachStageOrder = ['預備教練','見習教練','助理教練','指導教練']
+
   // 出席統計
   const totalSessions = attendance.results.length
   const presentCount = attendance.results.filter((r: any) => r.status === 'present').length
@@ -5200,6 +6128,26 @@ adminRoutes.get('/members-legacy/:id', authMiddleware, async (c) => {
     // 行義童軍與童軍共用相同階級名稱
     '見習羅浮','授銜羅浮','服務羅浮'
   ]
+
+  // 從資料庫讀取職位定義
+  const memberRolesResDetail = await db.prepare(`SELECT * FROM member_roles ORDER BY display_order, name`).all()
+  const memberRolesAllDetail = memberRolesResDetail.results as any[]
+  const sectionListDetail = ['童軍','行義童軍','羅浮童軍','服務員']
+  const rolesDataJsDetail = JSON.stringify(memberRolesAllDetail.reduce((acc: any, r: any) => {
+    const scopesVal = (r.scopes && r.scopes !== 'null') ? r.scopes.split(',') : null
+    if (!scopesVal) {
+      sectionListDetail.forEach(s => {
+        if (!acc[s]) acc[s] = []
+        acc[s].push(r.name)
+      })
+    } else {
+      scopesVal.forEach((s: string) => {
+        if (!acc[s]) acc[s] = []
+        acc[s].push(r.name)
+      })
+    }
+    return acc
+  }, {}))
 
   return c.html(adminLayout(`成員：${member.chinese_name}`, `
     <div class="mb-4">
@@ -5266,6 +6214,48 @@ adminRoutes.get('/members-legacy/:id', authMiddleware, async (c) => {
             <button onclick="document.getElementById('add-prog-modal').classList.remove('hidden')" class="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1 rounded-lg">+ 新增</button>
           </div>
           <div>${progressRows || '<div class="text-sm text-gray-400 py-4 text-center">尚無進程記錄</div>'}</div>
+        </div>
+
+        <!-- 教練團進程 -->
+        <div class="bg-white rounded-xl shadow-sm p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-semibold text-gray-700">🧢 教練團進程</div>
+            ${coachStatus ? `<a href="/admin/coaches/advancement" class="text-xs text-blue-600 hover:underline">管理進程 →</a>` : ''}
+          </div>
+          ${!coachStatus ? `
+          <div class="text-sm text-gray-400 py-3 text-center">
+            <p>尚未加入教練團進程</p>
+            <a href="/admin/coaches/advancement" class="text-xs text-blue-600 hover:underline mt-1 block">前往教練團進程管理 →</a>
+          </div>` : `
+          <div class="mb-3 flex items-center gap-2">
+            <span class="px-3 py-1 rounded-full text-xs font-semibold ${coachStatus.current_stage === '指導教練' ? 'bg-purple-100 text-purple-800' : coachStatus.current_stage === '助理教練' ? 'bg-blue-100 text-blue-800' : coachStatus.current_stage === '見習教練' ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-700'}">
+              ${coachStatus.current_stage}
+            </span>
+            ${coachStatus.promoted_at ? `<span class="text-xs text-gray-400">晉升於 ${coachStatus.promoted_at.substring(0,10)}</span>` : ''}
+          </div>
+          <div class="space-y-1.5">
+            ${(() => {
+              const stageItems = coachChecklistAll.results.filter((it: any) => it.stage === coachStatus.current_stage)
+              if (stageItems.length === 0) return '<p class="text-xs text-gray-400">此階段尚無檢核項目</p>'
+              const doneCount = stageItems.filter((it: any) => coachDoneSet.has(it.id)).length
+              const pct = Math.round(doneCount / stageItems.length * 100)
+              return `
+              <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
+                <span>晉升條件 ${doneCount}/${stageItems.length}</span>
+                <span class="${pct>=100?'text-green-600 font-semibold':'text-gray-400'}">${pct}%</span>
+              </div>
+              <div class="w-full bg-gray-200 rounded-full h-1.5 mb-2">
+                <div class="h-1.5 rounded-full ${pct>=100?'bg-green-500':'bg-blue-400'}" style="width:${pct}%"></div>
+              </div>
+              ${stageItems.map((it: any) => {
+                const done = coachDoneSet.has(it.id)
+                return `<div class="flex items-center gap-2 text-xs ${done?'text-green-700':'text-gray-500'}">
+                  <i class="fas ${done?'fa-check-circle text-green-500':'fa-circle text-gray-300'} text-xs"></i>
+                  <span class="${done?'line-through opacity-60':''}">${it.description}</span>
+                </div>`
+              }).join('')}`
+            })()}
+          </div>`}
         </div>
 
         <!-- 領袖獎項 -->
@@ -5393,12 +6383,32 @@ adminRoutes.get('/members-legacy/:id', authMiddleware, async (c) => {
       notes: member.notes
     })}
 
+    // 職位動態篩選資料
+    const ROLES_BY_SECTION_DETAIL = ${rolesDataJsDetail};
+
+    function updateRolesBySectionDetail(sectionId, roleSelectId, currentVal) {
+      const section = document.getElementById(sectionId)?.value || '';
+      const sel = document.getElementById(roleSelectId);
+      if (!sel) return;
+      const roles = ROLES_BY_SECTION_DETAIL[section] || [];
+      const prev = currentVal !== undefined ? currentVal : sel.value;
+      sel.innerHTML = '<option value="">請選擇...</option>' +
+        roles.map(r => \`<option value="\${r}" \${r===prev?'selected':''}>\${r}</option>\`).join('');
+    }
+
     // 填入編輯表單
     document.addEventListener('DOMContentLoaded', () => {
       Object.keys(MEMBER_DATA).forEach(k => {
         const el = document.getElementById('edit-' + k)
-        if (el) el.value = MEMBER_DATA[k] || ''
+        if (el && k !== 'role_name') el.value = MEMBER_DATA[k] || ''
       })
+      // 先設 section，再動態填入職位
+      const sectionEl = document.getElementById('edit-section')
+      if (sectionEl) {
+        sectionEl.value = MEMBER_DATA.section || '童軍'
+        sectionEl.addEventListener('change', () => updateRolesBySectionDetail('edit-section', 'edit-role_name', ''))
+      }
+      updateRolesBySectionDetail('edit-section', 'edit-role_name', MEMBER_DATA.role_name || '')
     })
 
     async function saveMemberEdit() {
@@ -7078,6 +8088,877 @@ adminRoutes.get('/official-leave', authMiddleware, async (c) => {
     function showSettingsMsg(msg, color) {
       const c = { red:'text-red-500', green:'text-green-600', gray:'text-gray-400' }
       document.getElementById('settingsMsg').innerHTML = '<p class="text-sm '+(c[color]||'text-gray-500')+'">'+msg+'</p>'
+    }
+    </script>
+  `))
+})
+
+// ===================== 服務員管理 Dashboard =====================
+adminRoutes.get('/leaders', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const leaderMembers = await db.prepare(`
+    SELECT m.id, m.chinese_name, m.section, m.rank_level, m.role_name
+    FROM members m
+    WHERE m.section = '服務員' AND UPPER(m.membership_status) = 'ACTIVE'
+    ORDER BY m.chinese_name
+  `).all()
+  const total = leaderMembers.results.length
+
+  return c.html(adminLayout('服務員管理', `
+    <div class="mb-6">
+      <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">👮 服務員管理</h1>
+      <p class="text-sm text-gray-400 mt-1">管理服務員資料、木章訓練記錄與獎章</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+      <a href="/admin/leaders/roster" class="block bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow border-t-4 border-amber-500">
+        <div class="text-3xl mb-3">👥</div>
+        <h2 class="text-lg font-bold text-gray-800 mb-1">服務員名冊</h2>
+        <p class="text-sm text-gray-500">管理服務員基本資料與經歷</p>
+        <div class="mt-3 text-2xl font-bold text-amber-600">${total}</div>
+        <div class="text-xs text-gray-400">位服務員</div>
+      </a>
+      <a href="/admin/leaders/advancement" class="block bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow border-t-4 border-amber-500">
+        <div class="text-3xl mb-3">🏅</div>
+        <h2 class="text-lg font-bold text-gray-800 mb-1">進程與獎章管理</h2>
+        <p class="text-sm text-gray-500">核定木章訓練、服務獎章與年資獎章</p>
+      </a>
+      <a href="/admin/leaders/settings" class="block bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow border-t-4 border-amber-500">
+        <div class="text-3xl mb-3">⚙️</div>
+        <h2 class="text-lg font-bold text-gray-800 mb-1">獎章標準設定</h2>
+        <p class="text-sm text-gray-500">設定訓練項目與獎章頒發標準</p>
+      </a>
+    </div>
+
+    <a href="/admin" class="text-sm text-green-700 hover:underline">← 返回首頁</a>
+  `))
+})
+
+// ===================== 服務員名冊 =====================
+adminRoutes.get('/leaders/roster', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const q = c.req.query('q') || ''
+
+  const leaders = await db.prepare(`
+    SELECT m.id, m.chinese_name, m.english_name, m.section, m.rank_level, m.role_name, m.unit_name, m.troop
+    FROM members m
+    WHERE m.section = '服務員' AND UPPER(m.membership_status) = 'ACTIVE'
+      ${q ? `AND (m.chinese_name LIKE '%${q}%' OR m.role_name LIKE '%${q}%')` : ''}
+    ORDER BY m.chinese_name
+  `).all()
+
+  const rows = leaders.results.map((m: any) => `
+    <tr class="hover:bg-gray-50 border-b">
+      <td class="px-4 py-3">
+        <div class="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-bold text-sm">${m.chinese_name.charAt(0)}</div>
+      </td>
+      <td class="px-4 py-3">
+        <div class="font-medium text-gray-800">${m.chinese_name}</div>
+        ${m.english_name ? `<div class="text-xs text-gray-400">${m.english_name}</div>` : ''}
+      </td>
+      <td class="px-4 py-3 text-sm text-gray-600">${m.unit_name || m.troop || '-'}</td>
+      <td class="px-4 py-3">
+        <span class="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800 font-medium">${m.role_name || '-'}</span>
+      </td>
+      <td class="px-4 py-3 text-sm text-gray-500">${m.rank_level || '-'}</td>
+      <td class="px-4 py-3">
+        <a href="/admin/leaders/member/${m.id}" class="text-sm text-blue-600 hover:underline font-medium">管理資料</a>
+      </td>
+    </tr>
+  `).join('')
+
+  return c.html(adminLayout('服務員名冊', `
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-xl font-bold text-gray-800">服務員名冊</h1>
+        <p class="text-sm text-gray-400">管理服務員資料、經歷與專長</p>
+        <p class="text-xs text-gray-400 mt-1">預設顯示「服務員」階段成員。如需編輯其他成員，請搜尋其姓名。</p>
+      </div>
+      <a href="/admin/leaders" class="text-gray-400 hover:text-gray-600 text-sm">← 返回</a>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-5">
+      <input type="text" id="search-q" value="${q}" placeholder="搜尋姓名、職稱或經歷..."
+        class="w-full border rounded-lg px-4 py-2 text-sm"
+        onkeydown="if(event.key==='Enter')location.href='/admin/leaders/roster?q='+encodeURIComponent(this.value)">
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs text-gray-500">照片</th>
+            <th class="px-4 py-3 text-left text-xs text-gray-500">姓名</th>
+            <th class="px-4 py-3 text-left text-xs text-gray-500">服務單位</th>
+            <th class="px-4 py-3 text-left text-xs text-gray-500">職稱</th>
+            <th class="px-4 py-3 text-left text-xs text-gray-500">童軍經歷</th>
+            <th class="px-4 py-3 text-left text-xs text-gray-500">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">尚無服務員資料</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `))
+})
+
+// ===================== 服務員個人資料（勾選式進程與獎章） =====================
+adminRoutes.get('/leaders/member/:id', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+
+  const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(id).first() as any
+  if (!member) return c.redirect('/admin/leaders/roster')
+
+  // 所有訓練定義
+  const allTrainings = await db.prepare(`SELECT * FROM leader_trainings ORDER BY category, display_order`).all()
+  // 所有獎章定義（只取 Association & Service）
+  const allAwards = await db.prepare(`SELECT * FROM leader_awards WHERE category IN ('Association','Service') ORDER BY category, level`).all()
+
+  // 該成員已有的訓練記錄（id -> record）
+  const trainings = await db.prepare(`
+    SELECT mlt.id as record_id, mlt.training_id, mlt.completed_at, mlt.certificate_number, mlt.notes, lt.name, lt.category
+    FROM member_leader_trainings mlt
+    JOIN leader_trainings lt ON lt.id = mlt.training_id
+    WHERE mlt.member_id = ?
+    ORDER BY lt.category, mlt.completed_at DESC
+  `).bind(id).all()
+
+  // 該成員已有的獎章記錄（award_id -> record）
+  const awards = await db.prepare(`
+    SELECT mla.id as record_id, mla.award_id, mla.year_label, mla.awarded_at, mla.notes, la.name, la.category, la.level, la.description
+    FROM member_leader_awards mla
+    JOIN leader_awards la ON la.id = mla.award_id
+    WHERE mla.member_id = ?
+    ORDER BY la.category, la.level
+  `).bind(id).all()
+
+  // 服務年資
+  const serviceYears = await db.prepare(`SELECT * FROM member_service_years WHERE member_id = ?`).bind(id).first() as any
+
+  // 建立已有訓練 training_id -> record_id Map
+  const doneTraining: Record<string, string> = {}
+  ;(trainings.results as any[]).forEach((t: any) => { doneTraining[t.training_id] = t.record_id })
+
+  // 建立已有獎章 award_id -> record_id Map
+  const doneAward: Record<string, {record_id: string; year_label?: string; awarded_at?: string; notes?: string}> = {}
+  ;(awards.results as any[]).forEach((a: any) => {
+    doneAward[a.award_id] = { record_id: a.record_id, year_label: a.year_label, awarded_at: a.awarded_at, notes: a.notes }
+  })
+
+  // 年資計算
+  let totalYears = 0
+  if (serviceYears) {
+    const prior = serviceYears.prior_years || 0
+    let current = 0
+    if (serviceYears.service_start_date) {
+      const start = new Date(serviceYears.service_start_date)
+      const now = new Date()
+      current = (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 365.25)
+    }
+    totalYears = Math.round((prior + current) * 10) / 10
+  }
+
+  // 分類訓練
+  const basicTrainings = (allTrainings.results as any[]).filter((t: any) => t.category === 'Basic')
+  const wbTrainings = (allTrainings.results as any[]).filter((t: any) => t.category === 'WoodBadge')
+  // 分類獎章
+  const assocAwards = (allAwards.results as any[]).filter((a: any) => a.category === 'Association')
+  const svcAwards = (allAwards.results as any[]).filter((a: any) => a.category === 'Service')
+
+  // 渲染訓練 checkbox 列
+  const renderTrainingCheckbox = (t: any) => {
+    const done = !!doneTraining[t.id]
+    const recordId = doneTraining[t.id] || ''
+    return `
+    <label class="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer group hover:bg-amber-50 transition ${done ? 'bg-amber-50' : 'bg-gray-50'} border ${done ? 'border-amber-200' : 'border-gray-200'}">
+      <input type="checkbox" class="training-checkbox w-5 h-5 accent-amber-600 cursor-pointer"
+        data-training-id="${t.id}"
+        data-record-id="${recordId}"
+        data-name="${t.name.replace(/"/g, '&quot;')}"
+        ${done ? 'checked' : ''}
+        onchange="handleTrainingToggle(this)">
+      <div class="flex-1 min-w-0">
+        <span class="text-sm font-medium ${done ? 'text-amber-800' : 'text-gray-700'}">${t.name}</span>
+      </div>
+      ${done ? `<span class="text-xs text-green-600 font-semibold">✓ 完成</span>` : `<span class="text-xs text-gray-400">未完成</span>`}
+    </label>`
+  }
+
+  // 渲染獎章 checkbox 列（附說明）
+  const renderAwardCheckbox = (a: any) => {
+    const done = !!doneAward[a.id]
+    const rec = doneAward[a.id]
+    const canAward = a.category === 'Service' ? totalYears >= (a.level * 2) : true
+    const yearLabel = rec?.year_label || ''
+    const awardedAt = rec?.awarded_at || ''
+    return `
+    <label class="flex items-start gap-3 px-3 py-2.5 rounded-xl cursor-pointer group hover:bg-amber-50 transition ${done ? 'bg-amber-50' : 'bg-gray-50'} border ${done ? 'border-amber-200' : 'border-gray-200'}">
+      <input type="checkbox" class="award-checkbox w-5 h-5 accent-amber-600 cursor-pointer mt-0.5"
+        data-award-id="${a.id}"
+        data-record-id="${rec?.record_id || ''}"
+        data-name="${a.name.replace(/"/g, '&quot;')}"
+        data-category="${a.category}"
+        ${done ? 'checked' : ''}
+        onchange="handleAwardToggle(this)">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium ${done ? 'text-amber-800' : 'text-gray-700'}">${a.name}</span>
+          ${done ? `<span class="text-xs text-green-600 font-semibold">✓ 已頒發</span>` : (canAward ? `<span class="text-xs text-yellow-600">可頒發</span>` : `<span class="text-xs text-gray-400">未達標準</span>`)}
+        </div>
+        ${a.description ? `<div class="text-xs text-gray-400 mt-0.5 leading-relaxed">${a.description}</div>` : ''}
+        ${done && (yearLabel || awardedAt) ? `<div class="text-xs text-amber-600 mt-0.5">${yearLabel ? yearLabel + '學年' : ''}${awardedAt ? ' · ' + awardedAt.substring(0,10) : ''}</div>` : ''}
+      </div>
+    </label>`
+  }
+
+  const doneTrainingCount = Object.keys(doneTraining).length
+  const doneAwardCount = Object.keys(doneAward).length
+
+  return c.html(adminLayout('服務員名冊', `
+    <div class="flex items-center justify-between mb-5">
+      <div class="flex items-center gap-3">
+        <div class="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 text-xl font-bold">${member.chinese_name.charAt(0)}</div>
+        <div>
+          <h1 class="text-xl font-bold text-gray-800">${member.chinese_name} — 進程與獎章管理</h1>
+          <p class="text-sm text-gray-400">${member.role_name || '服務員'} · ${member.unit_name || member.troop || ''}</p>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <a href="/admin/members/${member.id}" class="text-xs text-blue-600 hover:underline px-3 py-1.5 border border-blue-200 rounded-lg">← 基本資料</a>
+        <a href="/admin/leaders/roster" class="text-gray-400 hover:text-gray-600 text-sm px-3 py-1.5 border border-gray-200 rounded-lg">← 返回名冊</a>
+      </div>
+    </div>
+
+    <!-- 頂部摘要 -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center">
+        <div class="text-2xl font-bold text-amber-700">${doneTrainingCount}</div>
+        <div class="text-xs text-gray-500 mt-1">已完成訓練</div>
+      </div>
+      <div class="bg-green-50 border border-green-200 rounded-2xl p-4 text-center">
+        <div class="text-2xl font-bold text-green-700">${doneAwardCount}</div>
+        <div class="text-xs text-gray-500 mt-1">已獲得獎章</div>
+      </div>
+      <div class="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-center">
+        <div class="text-2xl font-bold text-blue-700">${totalYears > 0 ? totalYears : '—'}</div>
+        <div class="text-xs text-gray-500 mt-1">服務年資（年）</div>
+      </div>
+      <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-center cursor-pointer hover:bg-gray-100 transition" onclick="document.getElementById('edit-service-years-modal').classList.remove('hidden')">
+        <div class="text-2xl font-bold text-gray-600">⚙️</div>
+        <div class="text-xs text-gray-500 mt-1">設定年資</div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+      <!-- 左：訓練記錄 -->
+      <div class="space-y-5">
+
+        <!-- 木章基本訓練 -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-bold text-gray-800 flex items-center gap-2">
+              <span class="w-6 h-6 rounded-full bg-amber-100 text-amber-700 text-xs flex items-center justify-center">📖</span>
+              木章基本訓練
+            </h3>
+            <span class="text-xs text-gray-400">${(allTrainings.results as any[]).filter((t:any)=>t.category==='Basic').filter((t:any)=>!!doneTraining[t.id]).length}/${basicTrainings.length} 完成</span>
+          </div>
+          <div class="space-y-2">
+            ${basicTrainings.map(renderTrainingCheckbox).join('')}
+          </div>
+        </div>
+
+        <!-- 木章訓練 WoodBadge -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-bold text-gray-800 flex items-center gap-2">
+              <span class="w-6 h-6 rounded-full bg-amber-100 text-amber-700 text-xs flex items-center justify-center">🪵</span>
+              木章訓練（WoodBadge）
+            </h3>
+            <span class="text-xs text-gray-400">${(allTrainings.results as any[]).filter((t:any)=>t.category==='WoodBadge').filter((t:any)=>!!doneTraining[t.id]).length}/${wbTrainings.length} 完成</span>
+          </div>
+          <div class="space-y-2">
+            ${wbTrainings.map(renderTrainingCheckbox).join('')}
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 右：獎章記錄 -->
+      <div class="space-y-5">
+
+        <!-- 總會頒發獎章 -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-bold text-gray-800 flex items-center gap-2">
+              <span class="w-6 h-6 rounded-full bg-amber-100 text-amber-700 text-xs flex items-center justify-center">🏅</span>
+              總會頒發獎章
+            </h3>
+            <span class="text-xs text-gray-400">${assocAwards.filter((a:any)=>!!doneAward[a.id]).length}/${assocAwards.length} 已獲</span>
+          </div>
+          <div class="space-y-2">
+            ${assocAwards.map(renderAwardCheckbox).join('')}
+          </div>
+        </div>
+
+        <!-- 服務年資獎章 -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-bold text-gray-800 flex items-center gap-2">
+              <span class="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs flex items-center justify-center">🏆</span>
+              服務年資獎章
+            </h3>
+            <span class="text-xs text-gray-400">${svcAwards.filter((a:any)=>!!doneAward[a.id]).length}/${svcAwards.length} 已獲</span>
+          </div>
+          ${totalYears > 0 ? `<div class="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2 mb-3">目前服務年資 <strong>${totalYears} 年</strong>，可頒發標準以黃色標示</div>` : `<div class="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2 mb-3">請先設定服務年資，以判斷可頒發項目</div>`}
+          <div class="space-y-2">
+            ${svcAwards.map(renderAwardCheckbox).join('')}
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 勾選獎章時的補充資料 Modal -->
+    <div id="award-detail-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6">
+        <h3 class="text-lg font-bold mb-1" id="award-detail-title">新增獎章記錄</h3>
+        <p class="text-sm text-gray-500 mb-4" id="award-detail-name"></p>
+        <input type="hidden" id="award-detail-id">
+        <input type="hidden" id="award-detail-checkbox-ref">
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">學年度 <span class="text-gray-400">（選填）</span></label>
+            <input id="award-detail-year" type="text" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：114">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">頒發日期 <span class="text-gray-400">（選填）</span></label>
+            <input id="award-detail-date" type="date" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">備注 <span class="text-gray-400">（選填）</span></label>
+            <input id="award-detail-notes" type="text" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="選填">
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button onclick="confirmAddAward()" class="flex-1 bg-amber-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-amber-500">確認新增</button>
+          <button onclick="cancelAwardModal()" class="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-200">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 服務年資 Modal -->
+    <div id="edit-service-years-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6">
+        <h3 class="text-lg font-bold mb-4">設定服務年資</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">外團年資（年）</label>
+            <input id="prior-years" type="number" step="0.5" min="0" value="${serviceYears?.prior_years || 0}"
+              class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：7">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">本團開始日期</label>
+            <input id="service-start-date" type="date" value="${serviceYears?.service_start_date ? serviceYears.service_start_date.substring(0,10) : ''}"
+              class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button onclick="saveServiceYears()" class="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-500">儲存</button>
+          <button onclick="document.getElementById('edit-service-years-modal').classList.add('hidden')" class="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 儲存狀態提示 -->
+    <div id="save-toast" class="hidden fixed bottom-6 right-6 bg-gray-800 text-white text-sm px-4 py-2 rounded-xl shadow-lg z-50 flex items-center gap-2">
+      <span id="save-toast-msg">已儲存</span>
+    </div>
+
+    <script>
+    const MEMBER_ID = '${id}'
+
+    // ---- Toast 通知 ----
+    function showToast(msg, isError = false) {
+      const el = document.getElementById('save-toast')
+      document.getElementById('save-toast-msg').textContent = msg
+      el.className = 'fixed bottom-6 right-6 text-white text-sm px-4 py-2 rounded-xl shadow-lg z-50 flex items-center gap-2 ' + (isError ? 'bg-red-600' : 'bg-gray-800')
+      el.classList.remove('hidden')
+      setTimeout(() => el.classList.add('hidden'), 2500)
+    }
+
+    // ---- 訓練 Toggle ----
+    async function handleTrainingToggle(cb) {
+      const trainingId = cb.dataset.trainingId
+      const recordId = cb.dataset.recordId
+      const name = cb.dataset.name
+      const isChecked = cb.checked
+
+      cb.disabled = true
+      try {
+        if (isChecked) {
+          // 新增
+          const res = await fetch('/api/leader-trainings/record', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ member_id: MEMBER_ID, training_id: trainingId, completed_at: null, certificate_number: null })
+          })
+          const r = await res.json()
+          if (r.success) {
+            cb.dataset.recordId = r.id || ''
+            updateCheckboxStyle(cb, true)
+            showToast('✓ 已新增：' + name)
+          } else {
+            cb.checked = false
+            showToast('新增失敗', true)
+          }
+        } else {
+          // 刪除
+          if (!recordId) { cb.checked = false; cb.disabled = false; return }
+          const res = await fetch('/api/leader-trainings/record/' + recordId, { method: 'DELETE' })
+          const r = await res.json()
+          if (r.success) {
+            cb.dataset.recordId = ''
+            updateCheckboxStyle(cb, false)
+            showToast('已移除：' + name)
+          } else {
+            cb.checked = true
+            showToast('移除失敗', true)
+          }
+        }
+      } catch(e) {
+        cb.checked = !isChecked
+        showToast('操作失敗，請重試', true)
+      }
+      cb.disabled = false
+    }
+
+    function updateCheckboxStyle(cb, done) {
+      const label = cb.closest('label')
+      if (!label) return
+      if (done) {
+        label.classList.add('bg-amber-50', 'border-amber-200')
+        label.classList.remove('bg-gray-50', 'border-gray-200')
+      } else {
+        label.classList.remove('bg-amber-50', 'border-amber-200')
+        label.classList.add('bg-gray-50', 'border-gray-200')
+      }
+      // Update status text
+      const statusSpan = label.querySelector('span:last-child')
+      if (statusSpan) {
+        statusSpan.textContent = done ? '✓ 完成' : '未完成'
+        statusSpan.className = done ? 'text-xs text-green-600 font-semibold' : 'text-xs text-gray-400'
+      }
+    }
+
+    // ---- 獎章 Toggle ----
+    let _pendingAwardCb = null
+
+    function handleAwardToggle(cb) {
+      const awardId = cb.dataset.awardId
+      const recordId = cb.dataset.recordId
+      const name = cb.dataset.name
+      const isChecked = cb.checked
+
+      if (isChecked) {
+        // 打勾：顯示補充資料 Modal
+        _pendingAwardCb = cb
+        document.getElementById('award-detail-id').value = awardId
+        document.getElementById('award-detail-name').textContent = name
+        document.getElementById('award-detail-title').textContent = '新增：' + name
+        document.getElementById('award-detail-year').value = ''
+        document.getElementById('award-detail-date').value = ''
+        document.getElementById('award-detail-notes').value = ''
+        document.getElementById('award-detail-modal').classList.remove('hidden')
+      } else {
+        // 取消勾選：直接刪除
+        removeAward(cb, recordId, name)
+      }
+    }
+
+    function cancelAwardModal() {
+      document.getElementById('award-detail-modal').classList.add('hidden')
+      if (_pendingAwardCb) {
+        _pendingAwardCb.checked = false
+        _pendingAwardCb = null
+      }
+    }
+
+    async function confirmAddAward() {
+      const cb = _pendingAwardCb
+      if (!cb) return
+      const awardId = document.getElementById('award-detail-id').value
+      const yearLabel = document.getElementById('award-detail-year').value
+      const awardedAt = document.getElementById('award-detail-date').value
+      const notes = document.getElementById('award-detail-notes').value
+
+      document.getElementById('award-detail-modal').classList.add('hidden')
+      cb.disabled = true
+      try {
+        const res = await fetch('/api/leader-awards/record', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            member_id: MEMBER_ID, award_id: awardId,
+            year_label: yearLabel || null,
+            awarded_at: awardedAt || null,
+            notes: notes || null
+          })
+        })
+        const r = await res.json()
+        if (r.success) {
+          cb.dataset.recordId = r.id || ''
+          updateAwardCheckboxStyle(cb, true, yearLabel, awardedAt)
+          showToast('✓ 已新增：' + cb.dataset.name)
+        } else {
+          cb.checked = false
+          showToast('新增失敗', true)
+        }
+      } catch(e) {
+        cb.checked = false
+        showToast('操作失敗', true)
+      }
+      cb.disabled = false
+      _pendingAwardCb = null
+    }
+
+    async function removeAward(cb, recordId, name) {
+      if (!recordId) { cb.checked = false; return }
+      cb.disabled = true
+      try {
+        const res = await fetch('/api/leader-awards/record/' + recordId, { method: 'DELETE' })
+        const r = await res.json()
+        if (r.success) {
+          cb.dataset.recordId = ''
+          updateAwardCheckboxStyle(cb, false)
+          showToast('已移除：' + name)
+        } else {
+          cb.checked = true
+          showToast('移除失敗', true)
+        }
+      } catch(e) {
+        cb.checked = true
+        showToast('操作失敗', true)
+      }
+      cb.disabled = false
+    }
+
+    function updateAwardCheckboxStyle(cb, done, yearLabel, awardedAt) {
+      const label = cb.closest('label')
+      if (!label) return
+      if (done) {
+        label.classList.add('bg-amber-50', 'border-amber-200')
+        label.classList.remove('bg-gray-50', 'border-gray-200')
+      } else {
+        label.classList.remove('bg-amber-50', 'border-amber-200')
+        label.classList.add('bg-gray-50', 'border-gray-200')
+      }
+    }
+
+    // ---- 服務年資 ----
+    async function saveServiceYears() {
+      const priorYears = parseFloat(document.getElementById('prior-years').value) || 0
+      const serviceStartDate = document.getElementById('service-start-date').value
+      const res = await fetch('/api/leader-service-years', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_id: MEMBER_ID, prior_years: priorYears, service_start_date: serviceStartDate || null })
+      })
+      const r = await res.json()
+      if (r.success) {
+        document.getElementById('edit-service-years-modal').classList.add('hidden')
+        showToast('✓ 年資已儲存，重新載入以更新顯示')
+        setTimeout(() => location.reload(), 1500)
+      } else {
+        showToast('儲存失敗', true)
+      }
+    }
+
+    // 點背景關閉 modal
+    document.getElementById('award-detail-modal').addEventListener('click', function(e) {
+      if (e.target === this) cancelAwardModal()
+    })
+    document.getElementById('edit-service-years-modal').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.add('hidden')
+    })
+    </script>
+  `))
+})
+
+// ===================== 服務員：進程與獎章管理（批次核定） =====================
+adminRoutes.get('/leaders/advancement', authMiddleware, async (c) => {
+  const db = c.env.DB
+
+  // 所有服務員
+  const leaders = await db.prepare(`
+    SELECT m.id, m.chinese_name, m.section, m.role_name
+    FROM members m
+    WHERE m.section = '服務員' AND UPPER(m.membership_status) = 'ACTIVE'
+    ORDER BY m.chinese_name
+  `).all()
+
+  // 所有訓練記錄
+  const allTrainingRecs = await db.prepare(`
+    SELECT mlt.member_id, lt.name, lt.category
+    FROM member_leader_trainings mlt
+    JOIN leader_trainings lt ON lt.id = mlt.training_id
+  `).all()
+
+  // 所有獎章記錄
+  const allAwardRecs = await db.prepare(`
+    SELECT mla.member_id, la.name, la.category, la.level
+    FROM member_leader_awards mla
+    JOIN leader_awards la ON la.id = mla.award_id
+  `).all()
+
+  // 服務年資
+  const allServiceYears = await db.prepare(`SELECT * FROM member_service_years`).all()
+
+  // 建立 map
+  const trainingMap: Record<string, string[]> = {}
+  allTrainingRecs.results.forEach((r: any) => {
+    if (!trainingMap[r.member_id]) trainingMap[r.member_id] = []
+    trainingMap[r.member_id].push(r.name)
+  })
+  const awardMap: Record<string, string[]> = {}
+  allAwardRecs.results.forEach((r: any) => {
+    if (!awardMap[r.member_id]) awardMap[r.member_id] = []
+    awardMap[r.member_id].push(r.name)
+  })
+  const yearsMap: Record<string, number> = {}
+  allServiceYears.results.forEach((sy: any) => {
+    let total = sy.prior_years || 0
+    if (sy.service_start_date) {
+      const start = new Date(sy.service_start_date)
+      const now = new Date()
+      total += (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 365.25)
+    }
+    yearsMap[sy.member_id] = Math.round(total * 10) / 10
+  })
+
+  const rows = leaders.results.map((m: any) => {
+    const trainings = trainingMap[m.id] || []
+    const myAwards = awardMap[m.id] || []
+    const years = yearsMap[m.id] || 0
+    const hasBasic = trainings.some((t: string) => t.includes('基本訓練'))
+    const hasWB = trainings.some((t: string) => !t.includes('基本'))
+    return `
+    <tr class="hover:bg-gray-50 border-b cursor-pointer" onclick="location.href='/admin/leaders/member/${m.id}'">
+      <td class="px-4 py-3">
+        <div class="font-medium text-gray-800 text-sm">${m.chinese_name}</div>
+        <div class="text-xs text-gray-400">${m.role_name || '服務員'}</div>
+      </td>
+      <td class="px-4 py-3 text-center">
+        ${hasBasic ? '<span class="text-green-500 text-lg">✓</span>' : '<span class="text-gray-300 text-lg">—</span>'}
+      </td>
+      <td class="px-4 py-3 text-center">
+        ${hasWB ? '<span class="text-green-500 text-lg">✓</span>' : '<span class="text-gray-300 text-lg">—</span>'}
+      </td>
+      <td class="px-4 py-3 text-center">
+        <span class="${years > 0 ? 'text-blue-600 font-semibold' : 'text-gray-300'}">${years > 0 ? years + ' 年' : '—'}</span>
+      </td>
+      <td class="px-4 py-3 text-center">
+        <span class="${myAwards.length > 0 ? 'text-amber-600 font-semibold' : 'text-gray-300'}">${myAwards.length > 0 ? myAwards.length + ' 枚' : '—'}</span>
+      </td>
+      <td class="px-4 py-3">
+        <a href="/admin/leaders/member/${m.id}" class="text-xs text-blue-600 hover:underline">管理 →</a>
+      </td>
+    </tr>`
+  }).join('')
+
+  return c.html(adminLayout('服務員管理', `
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-xl font-bold text-gray-800">進程與獎章管理</h1>
+        <p class="text-sm text-gray-400">核定木章訓練、服務獎章與年資獎章</p>
+      </div>
+      <a href="/admin/leaders" class="text-gray-400 hover:text-gray-600 text-sm">← 返回</a>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs text-gray-500">姓名</th>
+            <th class="px-4 py-3 text-center text-xs text-gray-500">木章基本訓練</th>
+            <th class="px-4 py-3 text-center text-xs text-gray-500">木章訓練</th>
+            <th class="px-4 py-3 text-center text-xs text-gray-500">服務年資</th>
+            <th class="px-4 py-3 text-center text-xs text-gray-500">獎章數</th>
+            <th class="px-4 py-3 text-left text-xs text-gray-500">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">尚無服務員資料</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `))
+})
+
+// ===================== 服務員：獎章標準設定 =====================
+adminRoutes.get('/leaders/settings', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const trainings = await db.prepare(`SELECT * FROM leader_trainings ORDER BY category, display_order`).all()
+  const awards = await db.prepare(`SELECT * FROM leader_awards ORDER BY category, level`).all()
+
+  const basicTrainings = (trainings.results as any[]).filter((t: any) => t.category === 'Basic')
+  const wbTrainings = (trainings.results as any[]).filter((t: any) => t.category === 'WoodBadge')
+  const associationAwards = (awards.results as any[]).filter((a: any) => a.category === 'Association')
+  const serviceAwards = (awards.results as any[]).filter((a: any) => a.category === 'Service')
+
+  return c.html(adminLayout('訓練設定', `
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-xl font-bold text-gray-800">獎章標準設定</h1>
+        <p class="text-sm text-gray-400">管理童軍訓練項目與服務員獎章標準</p>
+      </div>
+      <a href="/admin/leaders" class="text-gray-400 hover:text-gray-600 text-sm">← 返回</a>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- 訓練項目管理 -->
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+        <h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">📖 童軍訓練項目管理</h2>
+
+        <!-- 新增表單 -->
+        <div class="mb-5 bg-gray-50 p-4 rounded-xl border border-gray-200">
+          <div class="text-xs font-semibold text-gray-600 mb-2">新增訓練項目</div>
+          <input id="new-training-name" type="text" class="w-full border rounded-lg px-3 py-2 text-sm mb-2"
+            placeholder="例如: 童軍及行義木章基本訓練">
+          <div class="flex gap-2">
+            <select id="new-training-cat" class="flex-1 border rounded-lg px-3 py-2 text-sm">
+              <option value="Basic">木章基本訓練</option>
+              <option value="WoodBadge">木章訓練</option>
+            </select>
+            <button onclick="addTrainingDef()" class="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-lg text-sm font-medium">新增</button>
+          </div>
+        </div>
+
+        <!-- 木章基本訓練 -->
+        <div class="mb-4">
+          <div class="text-sm font-bold text-amber-700 border-b border-amber-200 pb-1 mb-2">木章基本訓練 (Basic)</div>
+          <div class="space-y-1.5">
+            ${basicTrainings.map((t: any) => `
+            <div class="flex items-center justify-between bg-gray-50 px-3 py-2 rounded-lg border group">
+              <span class="text-sm text-gray-700">${t.name}</span>
+              <button onclick="deleteTrainingDef('${t.id}', '${t.name.replace(/'/g,"\\'")}') "
+                class="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-xs transition">✕</button>
+            </div>`).join('')}
+          </div>
+        </div>
+
+        <!-- 木章訓練 -->
+        <div>
+          <div class="text-sm font-bold text-amber-700 border-b border-amber-200 pb-1 mb-2">木章訓練 (WoodBadge)</div>
+          <div class="space-y-1.5">
+            ${wbTrainings.map((t: any) => `
+            <div class="flex items-center justify-between bg-gray-50 px-3 py-2 rounded-lg border group">
+              <span class="text-sm text-gray-700">${t.name}</span>
+              <button onclick="deleteTrainingDef('${t.id}', '${t.name.replace(/'/g,"\\'")}') "
+                class="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-xs transition">✕</button>
+            </div>`).join('')}
+          </div>
+        </div>
+      </div>
+
+      <!-- 獎章管理 -->
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+        <h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">🏅 服務員獎章管理</h2>
+
+        <!-- 新增表單 -->
+        <div class="mb-5 bg-gray-50 p-4 rounded-xl border border-gray-200">
+          <div class="text-xs font-semibold text-gray-600 mb-2">新增獎章</div>
+          <input id="new-award-name" type="text" class="w-full border rounded-lg px-3 py-2 text-sm mb-2"
+            placeholder="獎章名稱 (如: 銅豹獎章)">
+          <textarea id="new-award-desc" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm mb-2"
+            placeholder="說明 (選填)"></textarea>
+          <div class="flex justify-end">
+            <button onclick="addAwardDef()" class="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-lg text-sm font-medium">新增獎章</button>
+          </div>
+        </div>
+
+        <!-- 總會核發獎章 -->
+        <div class="mb-4">
+          <div class="text-sm font-bold text-amber-700 border-b border-amber-200 pb-1 mb-2">總會核發獎章</div>
+          <div class="space-y-2">
+            ${associationAwards.map((a: any) => `
+            <div class="bg-white border rounded-xl p-3 group hover:shadow-sm transition">
+              <div class="flex justify-between items-start">
+                <div>
+                  <span class="inline-block px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded text-xs font-bold mb-1">${a.name}</span>
+                  ${a.description ? `<p class="text-xs text-gray-500">${a.description}</p>` : ''}
+                </div>
+                <button onclick="deleteAwardDef('${a.id}', '${a.name.replace(/'/g,"\\'")}') "
+                  class="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-xs transition p-1">✕</button>
+              </div>
+            </div>`).join('')}
+          </div>
+        </div>
+
+        <!-- 年資獎章 -->
+        <div>
+          <div class="text-sm font-bold text-amber-700 border-b border-amber-200 pb-1 mb-2">年資獎章</div>
+          <div class="space-y-1.5">
+            ${serviceAwards.map((a: any) => `
+            <div class="flex items-start justify-between bg-gray-50 px-3 py-2 rounded-lg border-l-4 border-gray-300 group">
+              <div>
+                <div class="font-medium text-sm text-gray-700">${a.name}</div>
+                ${a.description ? `<p class="text-xs text-gray-400 mt-0.5">${a.description}</p>` : ''}
+              </div>
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <span class="text-xs text-gray-400">Level ${a.level}</span>
+                <button onclick="deleteAwardDef('${a.id}', '${a.name.replace(/'/g,"\\'")}') "
+                  class="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-xs transition">✕</button>
+              </div>
+            </div>`).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    async function addTrainingDef() {
+      const name = document.getElementById('new-training-name').value.trim()
+      const category = document.getElementById('new-training-cat').value
+      if (!name) { alert('請輸入訓練名稱'); return }
+      const res = await fetch('/api/leader-trainings/def', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ name, category })
+      })
+      const r = await res.json()
+      if (r.success) location.reload()
+      else alert('新增失敗：' + (r.error || ''))
+    }
+
+    async function deleteTrainingDef(id, name) {
+      if (!confirm('確定刪除「' + name + '」？')) return
+      const res = await fetch('/api/leader-trainings/def/' + id, { method: 'DELETE' })
+      const r = await res.json()
+      if (r.success) location.reload()
+      else alert('刪除失敗：' + (r.error || ''))
+    }
+
+    async function addAwardDef() {
+      const name = document.getElementById('new-award-name').value.trim()
+      const description = document.getElementById('new-award-desc').value.trim()
+      if (!name) { alert('請輸入獎章名稱'); return }
+      const res = await fetch('/api/leader-awards/def', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ name, category: 'Association', description: description || null })
+      })
+      const r = await res.json()
+      if (r.success) location.reload()
+      else alert('新增失敗：' + (r.error || ''))
+    }
+
+    async function deleteAwardDef(id, name) {
+      if (!confirm('確定刪除「' + name + '」獎章？此操作將一併刪除所有人的此獎章記錄。')) return
+      const res = await fetch('/api/leader-awards/def/' + id, { method: 'DELETE' })
+      const r = await res.json()
+      if (r.success) location.reload()
+      else alert('刪除失敗：' + (r.error || ''))
     }
     </script>
   `))

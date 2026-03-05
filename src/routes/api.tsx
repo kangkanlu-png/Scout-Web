@@ -1239,6 +1239,88 @@ apiRoutes.delete('/coaches/:id', async (c) => {
   return c.json({ success: true })
 })
 
+// ==================== 教練團晉級 API ====================
+
+// 取得成員的完成項目清單
+apiRoutes.get('/coach/member-completions', async (c) => {
+  const db = c.env.DB
+  const memberId = c.req.query('member_id')
+  if (!memberId) return c.json({ error: '缺少 member_id' }, 400)
+  const rows = await db.prepare(`SELECT item_id FROM coach_checklist_completions WHERE member_id = ?`).bind(memberId).all()
+  return c.json({ completions: rows.results.map((r: any) => r.item_id) })
+})
+
+// 切換完成狀態
+apiRoutes.post('/coach/toggle-completion', async (c) => {
+  const db = c.env.DB
+  const { member_id, item_id, is_completed } = await c.req.json() as any
+  if (!member_id || !item_id) return c.json({ error: '缺少參數' }, 400)
+  if (is_completed) {
+    await db.prepare(`
+      INSERT OR IGNORE INTO coach_checklist_completions (id, member_id, item_id, completed_at)
+      VALUES (lower(hex(randomblob(8))), ?, ?, datetime('now'))
+    `).bind(member_id, item_id).run()
+  } else {
+    await db.prepare(`DELETE FROM coach_checklist_completions WHERE member_id = ? AND item_id = ?`).bind(member_id, item_id).run()
+  }
+  return c.json({ success: true })
+})
+
+// 新增/更新成員教練狀態
+apiRoutes.post('/coach/member-status', async (c) => {
+  const db = c.env.DB
+  const { member_id, stage } = await c.req.json() as any
+  if (!member_id || !stage) return c.json({ error: '缺少參數' }, 400)
+  const existing = await db.prepare(`SELECT id FROM coach_member_status WHERE member_id = ?`).bind(member_id).first() as any
+  if (existing) {
+    await db.prepare(`UPDATE coach_member_status SET current_stage = ?, promoted_at = datetime('now') WHERE member_id = ?`).bind(stage, member_id).run()
+  } else {
+    await db.prepare(`
+      INSERT INTO coach_member_status (id, member_id, current_stage, added_at)
+      VALUES (lower(hex(randomblob(8))), ?, ?, datetime('now'))
+    `).bind(member_id, stage).run()
+  }
+  return c.json({ success: true })
+})
+
+// 晉升（PUT）
+apiRoutes.put('/coach/member-status', async (c) => {
+  const db = c.env.DB
+  const { member_id, stage } = await c.req.json() as any
+  if (!member_id || !stage) return c.json({ error: '缺少參數' }, 400)
+  await db.prepare(`UPDATE coach_member_status SET current_stage = ?, promoted_at = datetime('now') WHERE member_id = ?`).bind(stage, member_id).run()
+  return c.json({ success: true })
+})
+
+// 移除成員教練狀態
+apiRoutes.delete('/coach/member-status', async (c) => {
+  const db = c.env.DB
+  const memberId = c.req.query('member_id')
+  if (!memberId) return c.json({ error: '缺少 member_id' }, 400)
+  await db.prepare(`DELETE FROM coach_member_status WHERE member_id = ?`).bind(memberId).run()
+  return c.json({ success: true })
+})
+
+// 新增檢核項目
+apiRoutes.post('/coach/checklist-items', async (c) => {
+  const db = c.env.DB
+  const { stage, description, required_count } = await c.req.json() as any
+  if (!stage || !description) return c.json({ error: '缺少參數' }, 400)
+  await db.prepare(`
+    INSERT INTO coach_checklist_items (id, stage, description, required_count, display_order)
+    VALUES (lower(hex(randomblob(8))), ?, ?, ?, 99)
+  `).bind(stage, description, required_count || 1).run()
+  return c.json({ success: true })
+})
+
+// 刪除檢核項目
+apiRoutes.delete('/coach/checklist-items/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  await db.prepare(`DELETE FROM coach_checklist_items WHERE id = ?`).bind(id).run()
+  return c.json({ success: true })
+})
+
 // ==================== 統計 API ====================
 
 apiRoutes.get('/stats', async (c) => {
@@ -2456,5 +2538,193 @@ apiRoutes.put('/admin/official-leave/settings', async (c) => {
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `).bind(u.key, u.value).run()
   }
+  return c.json({ success: true })
+})
+
+// ==================== 服務員訓練 API ====================
+
+// 取得訓練定義清單
+apiRoutes.get('/leader-trainings/def', async (c) => {
+  const db = c.env.DB
+  const trainings = await db.prepare(`SELECT * FROM leader_trainings ORDER BY category, display_order`).all()
+  return c.json({ trainings: trainings.results })
+})
+
+// 新增訓練定義
+apiRoutes.post('/leader-trainings/def', async (c) => {
+  const db = c.env.DB
+  const { name, category } = await c.req.json()
+  if (!name || !category) return c.json({ success: false, error: '缺少必填欄位' })
+  const { nanoid } = await import('nanoid')
+  const id = nanoid()
+  await db.prepare(`INSERT INTO leader_trainings (id, name, category, display_order) VALUES (?, ?, ?, 99)`)
+    .bind(id, name, category).run()
+  return c.json({ success: true, id })
+})
+
+// 刪除訓練定義
+apiRoutes.delete('/leader-trainings/def/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  await db.prepare(`DELETE FROM leader_trainings WHERE id = ?`).bind(id).run()
+  return c.json({ success: true })
+})
+
+// 新增成員訓練記錄
+apiRoutes.post('/leader-trainings/record', async (c) => {
+  const db = c.env.DB
+  const { member_id, training_id, completed_at, certificate_number, notes } = await c.req.json()
+  if (!member_id || !training_id) return c.json({ success: false, error: '缺少必填欄位' })
+  const { nanoid } = await import('nanoid')
+  const id = nanoid()
+  try {
+    await db.prepare(`
+      INSERT OR REPLACE INTO member_leader_trainings (id, member_id, training_id, completed_at, certificate_number, notes)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(id, member_id, training_id, completed_at || null, certificate_number || null, notes || null).run()
+    return c.json({ success: true, id })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message })
+  }
+})
+
+// 刪除成員訓練記錄
+apiRoutes.delete('/leader-trainings/record/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  await db.prepare(`DELETE FROM member_leader_trainings WHERE id = ?`).bind(id).run()
+  return c.json({ success: true })
+})
+
+// ==================== 服務員獎章 API ====================
+
+// 新增獎章定義（總會核發獎章）
+apiRoutes.post('/leader-awards/def', async (c) => {
+  const db = c.env.DB
+  const { name, category, description } = await c.req.json()
+  if (!name) return c.json({ success: false, error: '缺少必填欄位' })
+  const { nanoid } = await import('nanoid')
+  const id = nanoid()
+  await db.prepare(`
+    INSERT INTO leader_awards (id, name, category, level, display_order, description)
+    VALUES (?, ?, ?, 1, 999, ?)
+  `).bind(id, name, category || 'Association', description || null).run()
+  return c.json({ success: true, id })
+})
+
+// 刪除獎章定義
+apiRoutes.delete('/leader-awards/def/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  // 同時刪除相關記錄
+  await db.prepare(`DELETE FROM member_leader_awards WHERE award_id = ?`).bind(id).run()
+  await db.prepare(`DELETE FROM leader_awards WHERE id = ?`).bind(id).run()
+  return c.json({ success: true })
+})
+
+// 新增成員獎章記錄
+apiRoutes.post('/leader-awards/record', async (c) => {
+  const db = c.env.DB
+  const { member_id, award_id, year_label, awarded_at, notes } = await c.req.json()
+  if (!member_id || !award_id) return c.json({ success: false, error: '缺少必填欄位' })
+  const { nanoid } = await import('nanoid')
+  const id = nanoid()
+  try {
+    await db.prepare(`
+      INSERT OR REPLACE INTO member_leader_awards (id, member_id, award_id, year_label, awarded_at, notes)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(id, member_id, award_id, year_label || null, awarded_at || null, notes || null).run()
+    return c.json({ success: true, id })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message })
+  }
+})
+
+// 刪除成員獎章記錄
+apiRoutes.delete('/leader-awards/record/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  await db.prepare(`DELETE FROM member_leader_awards WHERE id = ?`).bind(id).run()
+  return c.json({ success: true })
+})
+
+// ==================== 服務年資 API ====================
+
+apiRoutes.post('/leader-service-years', async (c) => {
+  const db = c.env.DB
+  const { member_id, prior_years, service_start_date } = await c.req.json()
+  if (!member_id) return c.json({ success: false, error: '缺少 member_id' })
+  const { nanoid } = await import('nanoid')
+  const existing = await db.prepare(`SELECT id FROM member_service_years WHERE member_id = ?`).bind(member_id).first() as any
+  try {
+    if (existing) {
+      await db.prepare(`
+        UPDATE member_service_years SET prior_years = ?, service_start_date = ?, updated_at = datetime('now')
+        WHERE member_id = ?
+      `).bind(prior_years || 0, service_start_date || null, member_id).run()
+    } else {
+      await db.prepare(`
+        INSERT INTO member_service_years (id, member_id, prior_years, service_start_date)
+        VALUES (?, ?, ?, ?)
+      `).bind(nanoid(), member_id, prior_years || 0, service_start_date || null).run()
+    }
+    return c.json({ success: true })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message })
+  }
+})
+
+// ==================== 職位管理 API ====================
+
+// 取得所有職位（可依 section 篩選）
+apiRoutes.get('/member-roles', async (c) => {
+  const db = c.env.DB
+  const section = c.req.query('section') || ''
+  let roles: any
+  if (section) {
+    roles = await db.prepare(`
+      SELECT * FROM member_roles
+      WHERE scopes IS NULL OR scopes = '' OR (',' || scopes || ',') LIKE '%,' || ? || ',%'
+      ORDER BY display_order, name
+    `).bind(section).all()
+  } else {
+    roles = await db.prepare(`SELECT * FROM member_roles ORDER BY display_order, name`).all()
+  }
+  return c.json({ success: true, roles: roles.results })
+})
+
+// 新增職位
+apiRoutes.post('/member-roles', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  const { name, scopes } = body
+  if (!name?.trim()) return c.json({ success: false, error: '請提供職位名稱' })
+  const { nanoid } = await import('nanoid')
+  const maxOrder = await db.prepare(`SELECT MAX(display_order) as m FROM member_roles`).first() as any
+  const newOrder = (maxOrder?.m || 0) + 1
+  const id = 'role_' + nanoid(8)
+  await db.prepare(`
+    INSERT INTO member_roles (id, name, scopes, display_order) VALUES (?, ?, ?, ?)
+  `).bind(id, name.trim(), scopes?.length > 0 ? scopes.join(',') : null, newOrder).run()
+  return c.json({ success: true, role: { id, name: name.trim(), scopes: scopes?.join(',') || null, display_order: newOrder } })
+})
+
+// 更新職位
+apiRoutes.put('/member-roles/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const { name, scopes } = await c.req.json()
+  if (!name?.trim()) return c.json({ success: false, error: '請提供職位名稱' })
+  await db.prepare(`
+    UPDATE member_roles SET name = ?, scopes = ? WHERE id = ?
+  `).bind(name.trim(), scopes?.length > 0 ? scopes.join(',') : null, id).run()
+  return c.json({ success: true })
+})
+
+// 刪除職位
+apiRoutes.delete('/member-roles/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  await db.prepare(`DELETE FROM member_roles WHERE id = ?`).bind(id).run()
   return c.json({ success: true })
 })
