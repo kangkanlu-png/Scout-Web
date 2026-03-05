@@ -2931,7 +2931,10 @@ apiRoutes.post('/admin/group-cadres-from-roster', async (c) => {
   let imported = 0
   try {
     for (const m of members) {
-      if (!m.chinese_name || !m.role_name) continue
+      if (!m.chinese_name) continue
+      // 支援 role 或 role_name 欄位
+      const roleName = (m.role || m.role_name || '').trim()
+      if (!roleName) continue
       // 檢查是否已在現任幹部（同名同組）
       const existing = await db.prepare(
         `SELECT id FROM group_cadres WHERE group_id=? AND chinese_name=? AND is_current=1`
@@ -2939,9 +2942,9 @@ apiRoutes.post('/admin/group-cadres-from-roster', async (c) => {
       if (existing) continue
 
       await db.prepare(`
-        INSERT INTO group_cadres (group_id, chinese_name, english_name, role, year_label, is_current, display_order)
-        VALUES (?,?,?,?,?,1,?)
-      `).bind(group_id, m.chinese_name, m.english_name || null, m.role_name, year_label || null, imported).run()
+        INSERT INTO group_cadres (group_id, chinese_name, english_name, role, year_label, photo_url, is_current, display_order)
+        VALUES (?,?,?,?,?,?,1,?)
+      `).bind(group_id, m.chinese_name, m.english_name || null, roleName, year_label || null, m.photo_url || null, imported).run()
       imported++
     }
     return c.json({ success: true, imported })
