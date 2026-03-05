@@ -264,6 +264,12 @@ memberRoutes.get('/', memberAuthMiddleware, async (c) => {
     SELECT * FROM advancement_applications WHERE member_id = ? ORDER BY created_at DESC LIMIT 3
   `).bind(memberId).all()
 
+  // 教練團進程資料
+  const coachStatus = await db.prepare(`SELECT * FROM coach_member_status WHERE member_id = ?`).bind(memberId).first() as any
+  const coachItems = coachStatus ? await db.prepare(`SELECT * FROM coach_checklist_items WHERE stage = ? ORDER BY display_order`).bind(coachStatus.current_stage).all() : { results: [] }
+  const coachCompletions = coachStatus ? await db.prepare(`SELECT item_id FROM coach_checklist_completions WHERE member_id = ?`).bind(memberId).all() : { results: [] }
+  const coachDoneIds = new Set((coachCompletions.results as any[]).map((r: any) => r.item_id))
+
   // 計算出席率
   const presentCount = attendStats?.present_count || 0
   const totalCount = Math.max(attendStats?.total_count || 1, 1)
@@ -411,6 +417,47 @@ memberRoutes.get('/', memberAuthMiddleware, async (c) => {
       </div>
     </div>` : ''}
 
+    ${coachStatus ? `
+    <!-- 教練團進程 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 mt-6">
+      <div class="p-4 border-b border-gray-100 flex items-center justify-between">
+        <h2 class="font-semibold text-gray-800 flex items-center gap-2">
+          <i class="fas fa-chalkboard-teacher text-emerald-600"></i>教練團進程
+        </h2>
+        <span class="px-3 py-1 rounded-full text-xs font-semibold ${coachStatus.current_stage === '指導教練' ? 'bg-purple-100 text-purple-800' : coachStatus.current_stage === '助理教練' ? 'bg-blue-100 text-blue-800' : coachStatus.current_stage === '見習教練' ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-700'}">
+          ${coachStatus.current_stage}
+        </span>
+      </div>
+      <div class="p-4">
+        ${coachItems.results.length === 0 ? '<p class="text-sm text-gray-400 text-center py-4">此階段尚無檢核項目</p>' : (() => {
+          const items = coachItems.results as any[]
+          const doneCount = items.filter((it: any) => coachDoneIds.has(it.id)).length
+          const pct = Math.round(doneCount / items.length * 100)
+          return `
+          <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
+            <span>晉升條件進度</span><span class="${pct>=100?'text-green-600 font-semibold':'text-gray-400'}">${doneCount}/${items.length}</span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-2 mb-3">
+            <div class="h-2 rounded-full ${pct>=100?'bg-green-500':'bg-teal-400'}" style="width:${pct}%"></div>
+          </div>
+          <div class="space-y-2">
+            ${items.map((it: any) => {
+              const done = coachDoneIds.has(it.id)
+              return `<div class="flex items-center gap-2 text-sm ${done?'text-green-700':'text-gray-600'}">
+                <i class="fas ${done?'fa-check-circle text-green-500':'fa-circle text-gray-300'} text-sm flex-shrink-0"></i>
+                <span class="${done?'line-through opacity-60':''}">${it.description}</span>
+                ${it.required_count>1?`<span class="text-xs text-gray-400 ml-auto">×${it.required_count}</span>`:''}
+              </div>`
+            }).join('')}
+          </div>
+          ${pct>=100?`<div class="mt-3 bg-green-50 border border-green-200 rounded-lg p-3 text-center text-sm text-green-700 font-medium">
+            🎉 已完成所有晉升條件！請聯繫服務員申請晉升。
+          </div>`:''}
+          `
+        })()}
+      </div>
+    </div>` : ''}
+
   </div>
 </body></html>`)
 })
@@ -494,6 +541,16 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
     WHERE member_id = ? AND status IN ('pending','reviewing')
     ORDER BY created_at DESC LIMIT 1
   `).bind(memberId).first() as any
+
+  // ===== 教練團進程資料 =====
+  const coachStatusProg = await db.prepare(`SELECT * FROM coach_member_status WHERE member_id = ?`).bind(memberId).first() as any
+  const coachChecklistAll = coachStatusProg
+    ? await db.prepare(`SELECT * FROM coach_checklist_items ORDER BY stage, display_order`).all()
+    : { results: [] }
+  const coachCompletionsProg = coachStatusProg
+    ? await db.prepare(`SELECT item_id FROM coach_checklist_completions WHERE member_id = ?`).bind(memberId).all()
+    : { results: [] }
+  const coachDoneSetProg = new Set((coachCompletionsProg.results as any[]).map((r: any) => r.item_id))
 
   // 取得專科章資料（用於進程頁面的晉級檢核區塊）
   const allBadgesProgress = await db.prepare(`SELECT * FROM specialty_badges WHERE is_active=1 ORDER BY category, display_order`).all()
@@ -1027,9 +1084,136 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
         </div>`}
     </div>`
 
+  // ===== 教練團進程 tab HTML =====
+  const coachStageOrder = ['預備教練','見習教練','助理教練','指導教練']
+  const stageBadgeClass: Record<string,string> = {
+    '預備教練': 'bg-gray-100 text-gray-700',
+    '見習教練': 'bg-teal-100 text-teal-800',
+    '助理教練': 'bg-blue-100 text-blue-800',
+    '指導教練': 'bg-purple-100 text-purple-800',
+  }
+  const stageHeaderClass: Record<string,string> = {
+    '預備教練': 'from-gray-500 to-gray-400',
+    '見習教練': 'from-teal-600 to-teal-500',
+    '助理教練': 'from-blue-600 to-blue-500',
+    '指導教練': 'from-purple-700 to-purple-600',
+  }
+
+  let tabCoachHtml: string
+  if (!coachStatusProg) {
+    tabCoachHtml = `
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
+      <div class="text-5xl mb-4">🧢</div>
+      <h3 class="text-lg font-semibold text-gray-600 mb-2">尚未加入教練團進程</h3>
+      <p class="text-gray-400 text-sm">如需加入教練團進程，請聯繫服務員。</p>
+    </div>`
+  } else {
+    const currentStage = coachStatusProg.current_stage || '預備教練'
+    // 計算各階段進度（顯示所有 3 個晉升階段：見習、助理、指導）
+    const displayStages = ['見習教練','助理教練','指導教練']
+    const stageCards = displayStages.map(stage => {
+      const items = (coachChecklistAll.results as any[]).filter((it: any) => it.stage === stage)
+      const doneCount = items.filter((it: any) => coachDoneSetProg.has(it.id)).length
+      const pct = items.length > 0 ? Math.round(doneCount / items.length * 100) : 0
+      const isCurrentStage = stage === currentStage
+      const stageIdx = coachStageOrder.indexOf(stage)
+      const currentIdx = coachStageOrder.indexOf(currentStage)
+      const isPast = stageIdx < currentIdx
+      const isFuture = stageIdx > currentIdx
+
+      return `
+      <div class="bg-white rounded-2xl border-2 ${isCurrentStage ? 'border-green-400 shadow-md' : isPast ? 'border-gray-200' : 'border-gray-100 opacity-70'} overflow-hidden">
+        <div class="bg-gradient-to-r ${stageHeaderClass[stage]} text-white px-4 py-3 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-sm">${stage}</span>
+            ${isCurrentStage ? '<span class="text-xs bg-white/20 px-2 py-0.5 rounded-full">目前階段</span>' : ''}
+            ${isPast ? '<span class="text-xs bg-white/20 px-2 py-0.5 rounded-full">✓ 已完成</span>' : ''}
+          </div>
+          ${items.length > 0 ? `<span class="text-xs font-medium text-white/80">${doneCount}/${items.length} 項</span>` : ''}
+        </div>
+        <div class="p-4">
+          ${items.length === 0 ? `<p class="text-xs text-gray-400 text-center py-4">此階段尚無檢核項目</p>` : `
+          <!-- 進度條 -->
+          <div class="mb-3">
+            <div class="flex items-center justify-between text-xs mb-1">
+              <span class="text-gray-500">完成進度</span>
+              <span class="${pct>=100?'text-green-600 font-bold':'text-gray-400'}">${pct}%</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full ${pct>=100?'bg-green-500':isCurrentStage?'bg-blue-400':'bg-gray-300'} transition-all" style="width:${pct}%"></div>
+            </div>
+          </div>
+          <!-- 檢核清單 -->
+          <div class="space-y-2">
+            ${items.map((it: any) => {
+              const done = coachDoneSetProg.has(it.id)
+              return `
+              <div class="flex items-start gap-2.5 ${done?'':'opacity-80'}">
+                <div class="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5
+                  ${done?'bg-green-500':'border-2 border-gray-300 bg-white'}">
+                  ${done?'<i class="fas fa-check text-white" style="font-size:9px"></i>':''}
+                </div>
+                <div class="flex-1">
+                  <span class="text-sm ${done?'text-green-800 font-medium':'text-gray-700'}">${it.description}</span>
+                  ${it.required_count>1?`<span class="text-xs text-gray-400 ml-1">(需 ${it.required_count} 次)</span>`:''}
+                </div>
+              </div>`
+            }).join('')}
+          </div>
+          ${pct>=100 && isCurrentStage ? `
+          <div class="mt-3 bg-green-50 border border-green-200 rounded-xl p-3 text-center text-sm text-green-700 font-medium">
+            🎉 已完成所有晉升條件！請聯繫服務員申請晉升至下一階段。
+          </div>` : ''}`}
+        </div>
+      </div>`
+    }).join('')
+
+    tabCoachHtml = `
+    <!-- 教練團狀態卡 -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-5">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="font-bold text-gray-800 flex items-center gap-2">
+            <i class="fas fa-chalkboard-teacher text-emerald-600"></i>教練團進程
+          </h2>
+          <p class="text-sm text-gray-400 mt-0.5">${member.chinese_name} · 加入於 ${coachStatusProg.added_at?.substring(0,10)||''}</p>
+        </div>
+        <div class="flex flex-col items-end gap-1">
+          <span class="px-3 py-1.5 rounded-full text-sm font-semibold ${stageBadgeClass[currentStage]||'bg-gray-100 text-gray-700'}">
+            ${currentStage}
+          </span>
+          ${coachStatusProg.promoted_at ? `<span class="text-xs text-gray-400">晉升於 ${coachStatusProg.promoted_at.substring(0,10)}</span>` : ''}
+        </div>
+      </div>
+      <!-- 整體進度路徑 -->
+      <div class="mt-4 flex items-center gap-2 justify-center">
+        ${coachStageOrder.map((s,i) => {
+          const idx = coachStageOrder.indexOf(currentStage)
+          const isPast2 = i < idx
+          const isCurrent = i === idx
+          return `
+          ${i > 0 ? `<div class="flex-1 h-0.5 ${isPast2 || isCurrent ? 'bg-green-400' : 'bg-gray-200'}"></div>` : ''}
+          <div class="flex flex-col items-center gap-1">
+            <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold
+              ${isCurrent ? 'bg-green-600 text-white ring-2 ring-green-300' : isPast2 ? 'bg-green-200 text-green-700' : 'bg-gray-100 text-gray-400'}">
+              ${isPast2 ? '✓' : i+1}
+            </div>
+            <span class="text-[10px] text-gray-500 text-center leading-tight">${s}</span>
+          </div>`
+        }).join('')}
+      </div>
+    </div>
+
+    <!-- 各階段檢核卡 -->
+    <div class="grid grid-cols-1 gap-4">
+      ${stageCards}
+    </div>`
+  }
+
   const progressTabs = [
-    { key: 'progress',    label: '晉升進度', icon: 'fas fa-chart-line' },
-    { key: 'advancement', label: '晉升申請', icon: 'fas fa-arrow-up' },
+    { key: 'progress',    label: '晉升進度',    icon: 'fas fa-chart-line' },
+    { key: 'advancement', label: '晉升申請',    icon: 'fas fa-arrow-up' },
+    ...(coachStatusProg ? [{ key: 'coach', label: '教練團進程', icon: 'fas fa-chalkboard-teacher' }] : []),
   ]
 
   return c.html(`${memberHead('晉升')}
@@ -1057,7 +1241,7 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
     </div>
 
     <!-- Tab 內容 -->
-    ${activeTab === 'advancement' ? tabAdvancementHtml : tabProgressHtml}
+    ${activeTab === 'advancement' ? tabAdvancementHtml : activeTab === 'coach' ? tabCoachHtml : tabProgressHtml}
   </div>
 
   <!-- 回報進度 Modal -->
