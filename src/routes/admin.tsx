@@ -8898,11 +8898,12 @@ adminRoutes.get('/leaders/advancement', authMiddleware, async (c) => {
     ORDER BY m.chinese_name
   `).all()
 
-  // 所有訓練記錄
+  // 所有訓練記錄（含訓練類別）
   const allTrainingRecs = await db.prepare(`
-    SELECT mlt.member_id, lt.name, lt.category
+    SELECT mlt.member_id, lt.id as training_id, lt.name, lt.category
     FROM member_leader_trainings mlt
     JOIN leader_trainings lt ON lt.id = mlt.training_id
+    ORDER BY lt.category, lt.display_order
   `).all()
 
   // 所有獎章記錄
@@ -8915,11 +8916,15 @@ adminRoutes.get('/leaders/advancement', authMiddleware, async (c) => {
   // 服務年資
   const allServiceYears = await db.prepare(`SELECT * FROM member_service_years`).all()
 
-  // 建立 map
-  const trainingMap: Record<string, string[]> = {}
+  // 建立 map：member_id -> { basic: string[], woodbadge: string[] }
+  const trainingMap: Record<string, { basic: string[]; woodbadge: string[] }> = {}
   allTrainingRecs.results.forEach((r: any) => {
-    if (!trainingMap[r.member_id]) trainingMap[r.member_id] = []
-    trainingMap[r.member_id].push(r.name)
+    if (!trainingMap[r.member_id]) trainingMap[r.member_id] = { basic: [], woodbadge: [] }
+    if (r.category === 'Basic') {
+      trainingMap[r.member_id].basic.push(r.name)
+    } else {
+      trainingMap[r.member_id].woodbadge.push(r.name)
+    }
   })
   const awardMap: Record<string, string[]> = {}
   allAwardRecs.results.forEach((r: any) => {
@@ -8937,32 +8942,40 @@ adminRoutes.get('/leaders/advancement', authMiddleware, async (c) => {
     yearsMap[sy.member_id] = Math.round(total * 10) / 10
   })
 
+  // 渲染訓練標籤列表
+  const renderTrainingTags = (names: string[], colorClass: string) => {
+    if (names.length === 0) return '<span class="text-gray-300 text-sm">—</span>'
+    return names.map(n => `<span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium ${colorClass} mr-1 mb-1">${n}</span>`).join('')
+  }
+
   const rows = leaders.results.map((m: any) => {
-    const trainings = trainingMap[m.id] || []
+    const trainings = trainingMap[m.id] || { basic: [], woodbadge: [] }
     const myAwards = awardMap[m.id] || []
     const years = yearsMap[m.id] || 0
-    const hasBasic = trainings.some((t: string) => t.includes('基本訓練'))
-    const hasWB = trainings.some((t: string) => !t.includes('基本'))
     return `
-    <tr class="hover:bg-gray-50 border-b cursor-pointer" onclick="location.href='/admin/leaders/member/${m.id}/advancement'">
-      <td class="px-4 py-3">
+    <tr class="hover:bg-gray-50 border-b">
+      <td class="px-4 py-4">
         <div class="font-medium text-gray-800 text-sm">${m.chinese_name}</div>
         <div class="text-xs text-gray-400">${m.role_name || '服務員'}</div>
       </td>
-      <td class="px-4 py-3 text-center">
-        ${hasBasic ? '<span class="text-green-500 text-lg">✓</span>' : '<span class="text-gray-300 text-lg">—</span>'}
+      <td class="px-4 py-4">
+        <div class="flex flex-wrap gap-0.5">
+          ${renderTrainingTags(trainings.basic, 'bg-amber-100 text-amber-800')}
+        </div>
       </td>
-      <td class="px-4 py-3 text-center">
-        ${hasWB ? '<span class="text-green-500 text-lg">✓</span>' : '<span class="text-gray-300 text-lg">—</span>'}
+      <td class="px-4 py-4">
+        <div class="flex flex-wrap gap-0.5">
+          ${renderTrainingTags(trainings.woodbadge, 'bg-green-100 text-green-800')}
+        </div>
       </td>
-      <td class="px-4 py-3 text-center">
+      <td class="px-4 py-4 text-center">
         <span class="${years > 0 ? 'text-blue-600 font-semibold' : 'text-gray-300'}">${years > 0 ? years + ' 年' : '—'}</span>
       </td>
-      <td class="px-4 py-3 text-center">
+      <td class="px-4 py-4 text-center">
         <span class="${myAwards.length > 0 ? 'text-amber-600 font-semibold' : 'text-gray-300'}">${myAwards.length > 0 ? myAwards.length + ' 枚' : '—'}</span>
       </td>
-      <td class="px-4 py-3">
-        <a href="/admin/leaders/member/${m.id}/advancement" class="text-xs text-blue-600 hover:underline font-medium">管理 →</a>
+      <td class="px-4 py-4">
+        <a href="/admin/leaders/member/${m.id}/advancement" class="text-xs text-blue-600 hover:underline font-medium whitespace-nowrap">管理 →</a>
       </td>
     </tr>`
   }).join('')
@@ -8980,12 +8993,16 @@ adminRoutes.get('/leaders/advancement', authMiddleware, async (c) => {
       <table class="w-full">
         <thead class="bg-gray-50 border-b">
           <tr>
-            <th class="px-4 py-3 text-left text-xs text-gray-500">姓名</th>
-            <th class="px-4 py-3 text-center text-xs text-gray-500">木章基本訓練</th>
-            <th class="px-4 py-3 text-center text-xs text-gray-500">木章訓練</th>
-            <th class="px-4 py-3 text-center text-xs text-gray-500">服務年資</th>
-            <th class="px-4 py-3 text-center text-xs text-gray-500">獎章數</th>
-            <th class="px-4 py-3 text-left text-xs text-gray-500">操作</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 w-32">姓名</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">
+              <span class="inline-block px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full">木章基本訓練</span>
+            </th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">
+              <span class="inline-block px-2 py-0.5 bg-green-100 text-green-800 rounded-full">木章訓練</span>
+            </th>
+            <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500">服務年資</th>
+            <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500">獎章數</th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">操作</th>
           </tr>
         </thead>
         <tbody>
