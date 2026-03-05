@@ -8405,6 +8405,10 @@ adminRoutes.get('/leaders/member/:id/advancement', authMiddleware, async (c) => 
   const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(id).first() as any
   if (!member) return c.redirect('/admin/leaders/roster')
 
+  // 取得目前學年度設定
+  const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
+  const currentYearLabel = yearSetting?.value || ''
+
   // 所有訓練定義
   const allTrainings = await db.prepare(`SELECT * FROM leader_trainings ORDER BY category, display_order`).all()
   // 所有獎章定義（只取 Association & Service）
@@ -8624,8 +8628,8 @@ adminRoutes.get('/leaders/member/:id/advancement', authMiddleware, async (c) => 
         <input type="hidden" id="award-detail-checkbox-ref">
         <div class="space-y-3">
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">學年度 <span class="text-gray-400">（選填）</span></label>
-            <input id="award-detail-year" type="text" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：114">
+            <label class="block text-xs font-medium text-gray-700 mb-1">學年度 <span class="text-gray-400">（預設為目前年度）</span></label>
+            <input id="award-detail-year" type="text" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例：${currentYearLabel || '115'}">
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-700 mb-1">頒發日期 <span class="text-gray-400">（選填）</span></label>
@@ -8673,6 +8677,7 @@ adminRoutes.get('/leaders/member/:id/advancement', authMiddleware, async (c) => 
 
     <script>
     const MEMBER_ID = '${id}'
+    const CURRENT_YEAR = '${currentYearLabel}'
 
     // ---- Toast 通知 ----
     function showToast(msg, isError = false) {
@@ -8762,7 +8767,7 @@ adminRoutes.get('/leaders/member/:id/advancement', authMiddleware, async (c) => 
         document.getElementById('award-detail-id').value = awardId
         document.getElementById('award-detail-name').textContent = name
         document.getElementById('award-detail-title').textContent = '新增：' + name
-        document.getElementById('award-detail-year').value = ''
+        document.getElementById('award-detail-year').value = CURRENT_YEAR
         document.getElementById('award-detail-date').value = ''
         document.getElementById('award-detail-notes').value = ''
         document.getElementById('award-detail-modal').classList.remove('hidden')
@@ -8939,7 +8944,7 @@ adminRoutes.get('/leaders/advancement', authMiddleware, async (c) => {
     const hasBasic = trainings.some((t: string) => t.includes('基本訓練'))
     const hasWB = trainings.some((t: string) => !t.includes('基本'))
     return `
-    <tr class="hover:bg-gray-50 border-b cursor-pointer" onclick="location.href='/admin/leaders/member/${m.id}'">
+    <tr class="hover:bg-gray-50 border-b cursor-pointer" onclick="location.href='/admin/leaders/member/${m.id}/advancement'">
       <td class="px-4 py-3">
         <div class="font-medium text-gray-800 text-sm">${m.chinese_name}</div>
         <div class="text-xs text-gray-400">${m.role_name || '服務員'}</div>
@@ -8957,7 +8962,7 @@ adminRoutes.get('/leaders/advancement', authMiddleware, async (c) => {
         <span class="${myAwards.length > 0 ? 'text-amber-600 font-semibold' : 'text-gray-300'}">${myAwards.length > 0 ? myAwards.length + ' 枚' : '—'}</span>
       </td>
       <td class="px-4 py-3">
-        <a href="/admin/leaders/member/${m.id}" class="text-xs text-blue-600 hover:underline">管理 →</a>
+        <a href="/admin/leaders/member/${m.id}/advancement" class="text-xs text-blue-600 hover:underline font-medium">管理 →</a>
       </td>
     </tr>`
   }).join('')
