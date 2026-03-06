@@ -336,57 +336,85 @@ frontendRoutes.get('/stats', async (c) => {
   const settings: Record<string, string> = {}
   settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
 
-  // 各組人數
+  // ── 基礎數據查詢 ──────────────────────────────────────────
+  // 當前在籍各組人數
   const sectionCounts = await db.prepare(`
     SELECT section, COUNT(*) as count
     FROM members
-    WHERE membership_status = 'ACTIVE'
+    WHERE UPPER(membership_status) = 'ACTIVE'
     GROUP BY section
-    ORDER BY count DESC
+    ORDER BY CASE section
+      WHEN '服務員' THEN 1 WHEN '羅浮童軍' THEN 2
+      WHEN '行義童軍' THEN 3 WHEN '童軍' THEN 4
+      WHEN '幼童軍' THEN 5 ELSE 6 END
+  `).all()
+  const totalMembers = (sectionCounts.results as any[]).reduce((s: number, r: any) => s + r.count, 0)
+
+  // 各年度各組人數（從 member_year_records）
+  const yearSectionData = await db.prepare(`
+    SELECT year_label, section, COUNT(DISTINCT member_id) as count
+    FROM member_year_records
+    GROUP BY year_label, section
+    ORDER BY year_label DESC, section
   `).all()
 
-  const totalMembers = (sectionCounts.results as any[]).reduce((sum: number, r: any) => sum + r.count, 0)
+  // 各年度總人數
+  const yearTotals = await db.prepare(`
+    SELECT year_label, COUNT(DISTINCT member_id) as count
+    FROM member_year_records
+    GROUP BY year_label
+    ORDER BY year_label DESC
+  `).all()
 
-  // 各組晉級統計
-  const rankStats = await db.prepare(`
-    SELECT m.section, pr.award_name, COUNT(*) as count
+  // 各年度晉級統計
+  const yearRankData = await db.prepare(`
+    SELECT pr.year_label, m.section, pr.award_name, COUNT(*) as count
     FROM progress_records pr
     JOIN members m ON m.id = pr.member_id
-    WHERE pr.record_type = 'rank'
-    GROUP BY m.section, pr.award_name
-    ORDER BY m.section, count DESC
+    WHERE pr.record_type = 'rank' AND pr.year_label IS NOT NULL
+    GROUP BY pr.year_label, m.section, pr.award_name
+    ORDER BY pr.year_label DESC, m.section, count DESC
   `).all()
 
-  // 近期進程記錄（最新 15 筆）
-  const recentProgress = await db.prepare(`
-    SELECT pr.*, m.chinese_name, m.section
-    FROM progress_records pr
-    JOIN members m ON m.id = pr.member_id
-    ORDER BY pr.awarded_at DESC
-    LIMIT 15
+  // 教練團各階段人數
+  const coachStages = await db.prepare(`
+    SELECT current_stage, COUNT(*) as count
+    FROM coach_member_status
+    GROUP BY current_stage
+  `).all()
+  const coachStageMap: Record<string, number> = {}
+  ;(coachStages.results as any[]).forEach((r: any) => { coachStageMap[r.current_stage] = r.count })
+  const totalCoaches = Object.values(coachStageMap).reduce((s, v) => s + v, 0)
+
+  // 羅浮童軍海外分佈
+  const roverMembers = await db.prepare(`
+    SELECT chinese_name, country, university
+    FROM members
+    WHERE UPPER(membership_status) = 'ACTIVE' AND section = '羅浮童軍'
+    ORDER BY country, chinese_name
   `).all()
 
-  // 出席場次統計（最近 6 場）
-  const recentSessions = await db.prepare(`
-    SELECT
-      s.id, s.title, s.date, s.section,
-      COUNT(CASE WHEN ar.status = 'present' THEN 1 END) as present_count,
-      COUNT(ar.id) as total_count
-    FROM attendance_sessions s
-    LEFT JOIN attendance_records ar ON ar.session_id = s.id
-    GROUP BY s.id
-    ORDER BY s.date DESC
-    LIMIT 6
+  // 羅浮地圖座標（從 site_settings）
+  const mapCoordRows = await db.prepare(`
+    SELECT key, value FROM site_settings WHERE key LIKE 'rover_map_coord_%'
   `).all()
+  const mapCoords: Record<string, {x: number, y: number, label?: string}> = {}
+  ;(mapCoordRows.results as any[]).forEach((row: any) => {
+    const country = row.key.replace('rover_map_coord_', '')
+    try { mapCoords[country] = JSON.parse(row.value) } catch {}
+  })
 
-  // 教練人數
-  const coachCount = await db.prepare(`SELECT COUNT(*) as count FROM coach_members`).first() as any
-
+  // ── 組織資料 ──────────────────────────────────────────────
   const sectionIcons: Record<string, string> = {
     '童軍': '🏕️', '行義童軍': '⛺', '羅浮童軍': '🧭',
     '服務員': '🎖️', '幼童軍': '🌱', '稚齡童軍': '🌟'
   }
-  const sectionColors: Record<string, string> = {
+  const sectionBgColors: Record<string, string> = {
+    '童軍': '#22c55e', '行義童軍': '#3b82f6',
+    '羅浮童軍': '#a855f7', '服務員': '#f59e0b',
+    '幼童軍': '#ec4899', '稚齡童軍': '#f97316'
+  }
+  const sectionCardColors: Record<string, string> = {
     '童軍': 'from-green-500 to-emerald-600',
     '行義童軍': 'from-blue-500 to-blue-700',
     '羅浮童軍': 'from-purple-500 to-purple-700',
@@ -395,71 +423,213 @@ frontendRoutes.get('/stats', async (c) => {
     '稚齡童軍': 'from-yellow-400 to-orange-400',
   }
 
-  const memberCards = (sectionCounts.results as any[]).map((row: any) => `
-    <div class="bg-gradient-to-br ${sectionColors[row.section] || 'from-gray-400 to-gray-600'} text-white rounded-2xl p-6 shadow-lg">
-      <div class="flex items-center justify-between mb-3">
-        <span class="text-3xl">${sectionIcons[row.section] || '⚜️'}</span>
-        <span class="text-4xl font-bold">${row.count}</span>
-      </div>
-      <p class="font-semibold text-base opacity-90">${row.section}</p>
-      <p class="text-xs opacity-70 mt-0.5">${Math.round(row.count / totalMembers * 100)}% 的成員</p>
-    </div>
-  `).join('')
+  // 年度列表
+  const years = [...new Set((yearTotals.results as any[]).map((r: any) => r.year_label))].sort((a, b) => b.localeCompare(a))
+  const latestYear = years[0] || ''
 
-  // 出席率圖表資料
-  const sessionBars = (recentSessions.results as any[]).reverse().map((s: any) => {
-    const rate = s.total_count > 0 ? Math.round(s.present_count / s.total_count * 100) : 0
-    const barColor = rate >= 80 ? 'bg-green-500' : rate >= 60 ? 'bg-amber-500' : 'bg-red-400'
-    const sectionLabel: Record<string, string> = { junior: '童軍', senior: '行義', rover: '羅浮', all: '全體' }
-    return `
-    <div class="flex flex-col items-center gap-1">
-      <span class="text-xs font-bold text-gray-700">${rate}%</span>
-      <div class="w-10 ${barColor} rounded-t-md transition-all" style="height:${Math.max(rate * 1.2, 8)}px"></div>
-      <div class="text-center">
-        <div class="text-xs text-gray-500 w-12 truncate" title="${s.title}">${s.title.substring(0,4)}</div>
-        <div class="text-xs text-gray-400">${sectionLabel[s.section] || s.section}</div>
-      </div>
-    </div>`
-  }).join('')
-
-  // 晉級統計
-  const rankGrouped: Record<string, Record<string, number>> = {}
-  ;(rankStats.results as any[]).forEach((r: any) => {
-    if (!rankGrouped[r.section]) rankGrouped[r.section] = {}
-    rankGrouped[r.section][r.award_name] = r.count
+  // 依年度整理組別人數
+  const yearSectionMap: Record<string, Record<string, number>> = {}
+  ;(yearSectionData.results as any[]).forEach((r: any) => {
+    if (!yearSectionMap[r.year_label]) yearSectionMap[r.year_label] = {}
+    yearSectionMap[r.year_label][r.section] = r.count
   })
 
-  const rankTable = Object.entries(rankGrouped).map(([section, awards]) => {
-    const rows = Object.entries(awards).map(([award, cnt]) =>
-      `<tr class="border-b border-gray-50 last:border-0">
-        <td class="py-2 pr-4 text-sm text-gray-700">${award}</td>
-        <td class="py-2 text-sm font-bold text-green-700 text-right">${cnt} 位</td>
-      </tr>`
-    ).join('')
-    return `
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-      <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">
-        ${sectionIcons[section] || '⚜️'} ${section}
-      </h3>
-      <table class="w-full">${rows}</table>
+  // 依年度整理晉級
+  const yearRankMap: Record<string, Record<string, Record<string, number>>> = {}
+  ;(yearRankData.results as any[]).forEach((r: any) => {
+    if (!yearRankMap[r.year_label]) yearRankMap[r.year_label] = {}
+    if (!yearRankMap[r.year_label][r.section]) yearRankMap[r.year_label][r.section] = {}
+    yearRankMap[r.year_label][r.section][r.award_name] = (yearRankMap[r.year_label][r.section][r.award_name] || 0) + r.count
+  })
+
+  // 羅浮童軍海外分組
+  const roverCountryMap: Record<string, {count: number, members: string[]}> = {}
+  ;(roverMembers.results as any[]).forEach((r: any) => {
+    const country = (r.country && r.country !== 'null') ? r.country : '台灣'
+    if (!roverCountryMap[country]) roverCountryMap[country] = { count: 0, members: [] }
+    roverCountryMap[country].count++
+    const uni = (r.university && r.university !== 'null') ? ` (${r.university})` : ''
+    roverCountryMap[country].members.push(r.chinese_name + uni)
+  })
+  const totalRovers = (roverMembers.results as any[]).length
+
+  // ── Tab 內容生成 ────────────────────────────────────────────
+  // === Tab 1: 當年度概覽 ===
+  const currentSections = yearSectionMap[latestYear] || {}
+  const currentTotal = Object.values(currentSections).reduce((s, v) => s + v, 0) || totalMembers
+  const currentSectionCards = Object.entries(currentSections).length > 0
+    ? Object.entries(currentSections).map(([sec, cnt]) => `
+      <div class="bg-gradient-to-br ${sectionCardColors[sec] || 'from-gray-400 to-gray-600'} text-white rounded-2xl p-5 shadow-lg">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-2xl">${sectionIcons[sec] || '⚜️'}</span>
+          <span class="text-3xl font-bold">${cnt}</span>
+        </div>
+        <p class="font-semibold opacity-90">${sec}</p>
+        <p class="text-xs opacity-70 mt-0.5">${currentTotal > 0 ? Math.round(cnt / currentTotal * 100) : 0}% 的成員</p>
+      </div>`).join('')
+    : (sectionCounts.results as any[]).map((row: any) => `
+      <div class="bg-gradient-to-br ${sectionCardColors[row.section] || 'from-gray-400 to-gray-600'} text-white rounded-2xl p-5 shadow-lg">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-2xl">${sectionIcons[row.section] || '⚜️'}</span>
+          <span class="text-3xl font-bold">${row.count}</span>
+        </div>
+        <p class="font-semibold opacity-90">${row.section}</p>
+        <p class="text-xs opacity-70 mt-0.5">${totalMembers > 0 ? Math.round(row.count / totalMembers * 100) : 0}% 的成員</p>
+      </div>`).join('')
+
+  const coachStageOrder = ['預備教練', '見習教練', '助理教練', '指導教練']
+  const coachStageBg: Record<string, string> = {
+    '預備教練': 'bg-gray-100 border-gray-300',
+    '見習教練': 'bg-yellow-50 border-yellow-300',
+    '助理教練': 'bg-blue-50 border-blue-300',
+    '指導教練': 'bg-green-50 border-green-300'
+  }
+  const coachStageText: Record<string, string> = {
+    '預備教練': 'text-gray-700', '見習教練': 'text-yellow-700',
+    '助理教練': 'text-blue-700', '指導教練': 'text-green-700'
+  }
+  const coachCards = coachStageOrder.map(stage => {
+    const cnt = coachStageMap[stage] || 0
+    return `<div class="flex flex-col items-center justify-center rounded-xl border-2 p-4 ${coachStageBg[stage]}">
+      <span class="text-2xl font-bold ${coachStageText[stage]}">${cnt}</span>
+      <span class="text-xs font-medium ${coachStageText[stage]} mt-1">${stage}</span>
     </div>`
   }).join('')
 
-  // 近期進程
-  const progressList = (recentProgress.results as any[]).map((p: any) => {
-    const typeLabel: Record<string, string> = { rank: '晉級', badge: '徽章', achievement: '成就', award: '獎項' }
-    const typeBg: Record<string, string> = { rank: 'bg-green-100 text-green-700', badge: 'bg-blue-100 text-blue-700', achievement: 'bg-amber-100 text-amber-700', award: 'bg-purple-100 text-purple-700' }
+  // === Tab 2: 總人數趨勢 ===
+  const maxYearTotal = Math.max(...(yearTotals.results as any[]).map((r: any) => r.count), 1)
+  const yearBars = (yearTotals.results as any[]).slice().reverse().map((r: any) => {
+    const pct = Math.round(r.count / maxYearTotal * 100)
+    const yearSecs = yearSectionMap[r.year_label] || {}
+    const breakdown = Object.entries(yearSecs).map(([sec, cnt]) =>
+      `<span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" style="background:${sectionBgColors[sec]}22;color:${sectionBgColors[sec]}">${sectionIcons[sec]} ${cnt}</span>`
+    ).join('')
     return `
-    <div class="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
-      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${typeBg[p.record_type] || 'bg-gray-100 text-gray-600'} flex-shrink-0">
-        ${typeLabel[p.record_type] || p.record_type}
-      </span>
-      <div class="flex-1 min-w-0">
-        <span class="font-medium text-gray-800 text-sm">${p.chinese_name}</span>
-        <span class="text-gray-400 text-xs ml-1">${p.section}</span>
-        <span class="text-gray-600 text-sm ml-2">${p.award_name}</span>
+    <div class="flex items-center gap-3 mb-3">
+      <div class="w-10 text-right text-xs text-gray-500 flex-shrink-0">${r.year_label}</div>
+      <div class="flex-1 relative h-8 bg-gray-100 rounded-lg overflow-hidden">
+        <div class="h-full bg-gradient-to-r from-green-400 to-emerald-500 rounded-lg transition-all flex items-center pl-2"
+             style="width:${pct}%">
+          <span class="text-white text-xs font-bold">${r.count}</span>
+        </div>
       </div>
-      <span class="text-gray-400 text-xs flex-shrink-0">${p.year_label || ''}</span>
+      <div class="text-xs text-gray-500 flex flex-wrap gap-1">${breakdown || `<span class="text-gray-400">${r.count} 人</span>`}</div>
+    </div>`
+  }).join('')
+
+  // === Tab 3: 組別趨勢 ===
+  const allSections = [...new Set((yearSectionData.results as any[]).map((r: any) => r.section))]
+    .sort((a, b) => {
+      const order = ['服務員','羅浮童軍','行義童軍','童軍','幼童軍']
+      return (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)
+    })
+
+  const sectionTrendCards = allSections.map(sec => {
+    const dataByYear = years.map(yr => yearSectionMap[yr]?.[sec] || 0)
+    const maxVal = Math.max(...dataByYear, 1)
+    const bars = years.slice().reverse().map((yr, i) => {
+      const val = yearSectionMap[yr]?.[sec] || 0
+      const pct = Math.round(val / maxVal * 100)
+      return `<div class="flex items-center gap-2 mb-1.5">
+        <span class="w-8 text-xs text-right text-gray-400">${yr}</span>
+        <div class="flex-1 h-5 bg-gray-100 rounded overflow-hidden">
+          <div class="h-full rounded transition-all" style="width:${pct}%;background:${sectionBgColors[sec] || '#888'}">
+          </div>
+        </div>
+        <span class="w-8 text-xs text-gray-600">${val}</span>
+      </div>`
+    }).join('')
+    return `
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+      <h3 class="font-bold text-gray-800 mb-4 flex items-center gap-2">
+        <span class="text-xl">${sectionIcons[sec] || '⚜️'}</span>
+        <span>${sec}</span>
+        <span class="ml-auto text-sm font-normal text-gray-400">${dataByYear[0]} 人（最新）</span>
+      </h3>
+      ${bars || '<p class="text-gray-400 text-sm">尚無資料</p>'}
+    </div>`
+  }).join('')
+
+  // === Tab 4: 晉級趨勢 ===
+  // 整理各年度童軍晉級資料
+  const scoutRankOrder = ['初級童軍', '中級童軍', '高級童軍', '銳級童軍', '長城童軍', '國花童軍']
+  const roverRankOrder = ['見習羅浮', '授銜羅浮', '深資羅浮']
+  const seniorRankOrder = ['初級童軍', '中級童軍', '高級童軍']
+
+  const rankSummary = years.map(yr => {
+    const yr_data = yearRankMap[yr] || {}
+    const scoutTotal = Object.values(yr_data['童軍'] || {}).reduce((s, v) => s + v, 0)
+    const seniorTotal = Object.values(yr_data['行義童軍'] || {}).reduce((s, v) => s + v, 0)
+    const roverTotal = Object.values(yr_data['羅浮童軍'] || {}).reduce((s, v) => s + v, 0)
+    const rows = Object.entries(yr_data).map(([sec, awards]) => {
+      const awardRows = Object.entries(awards).map(([award, cnt]) =>
+        `<tr><td class="py-1 pr-4 text-sm text-gray-600">${award}</td><td class="py-1 text-sm font-semibold text-right" style="color:${sectionBgColors[sec] || '#666'}">${cnt}</td></tr>`
+      ).join('')
+      return `<tr class="border-t border-gray-50"><td colspan="2" class="pt-3 pb-1 text-xs font-bold text-gray-500">${sectionIcons[sec]} ${sec}</td></tr>${awardRows}`
+    }).join('')
+    return `
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-gray-800">${yr} 學年度</h3>
+        <div class="flex gap-2">
+          ${scoutTotal > 0 ? `<span class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">童軍 ${scoutTotal}</span>` : ''}
+          ${seniorTotal > 0 ? `<span class="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">行義 ${seniorTotal}</span>` : ''}
+          ${roverTotal > 0 ? `<span class="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">羅浮 ${roverTotal}</span>` : ''}
+        </div>
+      </div>
+      ${rows ? `<table class="w-full">${rows}</table>` : '<p class="text-gray-400 text-sm">本年度尚無晉級記錄</p>'}
+    </div>`
+  }).join('')
+
+  // === Tab 5: 羅浮全球分佈 ===
+  // 預設座標（世界地圖百分比位置）
+  const defaultPositions: Record<string, {x: number, y: number}> = {
+    '台灣': {x: 80.5, y: 38}, '中國': {x: 76, y: 34}, '日本': {x: 82, y: 31},
+    '韓國': {x: 80, y: 30}, '美國': {x: 20, y: 35}, '加拿大': {x: 18, y: 26},
+    '英國': {x: 46, y: 24}, '德國': {x: 49, y: 25}, '法國': {x: 47, y: 27},
+    '澳洲': {x: 82, y: 65}, '紐西蘭': {x: 88, y: 70}, '新加坡': {x: 77, y: 50},
+    '馬來西亞': {x: 77, y: 48}, '泰國': {x: 75, y: 44}, '香港': {x: 79, y: 38},
+    '義大利': {x: 51, y: 29}, '西班牙': {x: 45, y: 30}, '荷蘭': {x: 48, y: 24},
+    '瑞典': {x: 51, y: 20}, '丹麥': {x: 49, y: 22}, '波蘭': {x: 52, y: 24},
+    '奧地利': {x: 51, y: 26}, '瑞士': {x: 49, y: 27}, '比利時': {x: 48, y: 25},
+    '印度': {x: 68, y: 42}, '巴西': {x: 32, y: 60}, '阿根廷': {x: 28, y: 68},
+    '墨西哥': {x: 15, y: 40}, '俄羅斯': {x: 63, y: 22}, '土耳其': {x: 56, y: 31},
+  }
+
+  const roverCountries = Object.keys(roverCountryMap)
+  const roverDots = roverCountries.map(country => {
+    const coord = mapCoords[country] || defaultPositions[country]
+    if (!coord) return ''
+    const cnt = roverCountryMap[country].count
+    const r = Math.max(8, Math.min(20, 8 + cnt * 3))
+    return `<circle
+      cx="${coord.x}%" cy="${coord.y}%"
+      r="${r}"
+      fill="#a855f7" fill-opacity="0.75"
+      stroke="white" stroke-width="2"
+      data-country="${country}" data-count="${cnt}"
+      class="rover-dot cursor-pointer hover:fill-opacity-100 transition-all"
+      onclick="selectRoverCountry('${country}')"
+    />`
+  }).join('')
+
+  const roverCountryList = roverCountries.map(country => {
+    const { count, members } = roverCountryMap[country]
+    const coord = mapCoords[country] || defaultPositions[country]
+    return `
+    <div class="rover-country-item border border-gray-100 rounded-xl p-3 mb-2 cursor-pointer hover:bg-purple-50 transition-colors"
+         id="country-${country.replace(/\s/g,'-')}"
+         onclick="selectRoverCountry('${country}')">
+      <div class="flex items-center justify-between">
+        <span class="font-semibold text-gray-800">${country}</span>
+        <span class="text-purple-600 font-bold">${count} 人</span>
+      </div>
+      <div class="text-xs text-gray-500 mt-1">${members.join('、')}</div>
+      <div class="mt-2 flex items-center gap-2">
+        <span class="text-xs text-gray-400">地圖座標 X: <span id="cx-${country.replace(/\s/g,'-')}">${coord ? coord.x.toFixed(1) : '?'}</span>%
+        Y: <span id="cy-${country.replace(/\s/g,'-')}">${coord ? coord.y.toFixed(1) : '?'}</span>%</span>
+        ${coord ? '' : '<span class="text-xs text-amber-500">尚未設定座標</span>'}
+      </div>
     </div>`
   }).join('')
 
@@ -473,71 +643,328 @@ frontendRoutes.get('/stats', async (c) => {
       <p class="text-green-200">Scout Statistics · 紀錄每一段成長的足跡</p>
     </div>
   </div>
-  <div class="max-w-5xl mx-auto px-4 py-10">
 
-    <!-- 成員總數 -->
-    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8 flex items-center justify-between flex-wrap gap-4">
-      <div>
-        <p class="text-gray-500 text-sm">在籍成員總數</p>
-        <p class="text-5xl font-bold text-green-700">${totalMembers}</p>
-        <p class="text-gray-400 text-sm mt-1">Active Members</p>
+  <!-- 頂部摘要卡 -->
+  <div class="max-w-5xl mx-auto px-4 -mt-6">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      <div class="bg-white rounded-2xl shadow-md p-4 text-center border border-gray-100">
+        <p class="text-3xl font-bold text-green-700">${totalMembers}</p>
+        <p class="text-xs text-gray-500 mt-1">在籍總人數</p>
       </div>
-      <div class="text-center">
-        <p class="text-gray-500 text-sm">教練團人數</p>
-        <p class="text-4xl font-bold text-blue-700">${coachCount?.count || 0}</p>
-        <p class="text-gray-400 text-sm mt-1">Coaches</p>
+      <div class="bg-white rounded-2xl shadow-md p-4 text-center border border-gray-100">
+        <p class="text-3xl font-bold text-purple-600">${totalCoaches}</p>
+        <p class="text-xs text-gray-500 mt-1">教練團人數</p>
       </div>
-      <div class="text-center">
-        <p class="text-gray-500 text-sm">近期出席場次</p>
-        <p class="text-4xl font-bold text-amber-600">${recentSessions.results.length}</p>
-        <p class="text-gray-400 text-sm mt-1">Recent Sessions</p>
+      <div class="bg-white rounded-2xl shadow-md p-4 text-center border border-gray-100">
+        <p class="text-3xl font-bold text-blue-600">${years.length}</p>
+        <p class="text-xs text-gray-500 mt-1">記錄年度</p>
+      </div>
+      <div class="bg-white rounded-2xl shadow-md p-4 text-center border border-gray-100">
+        <p class="text-3xl font-bold text-amber-600">${totalRovers}</p>
+        <p class="text-xs text-gray-500 mt-1">羅浮童軍</p>
       </div>
     </div>
+  </div>
 
-    <!-- 各組人數卡片 -->
-    <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-      <span class="text-green-600">👥</span> 各組在籍人數
-    </h2>
-    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-10">
-      ${memberCards || '<p class="text-gray-400 col-span-3">尚無成員資料</p>'}
+  <!-- Tab 導覽 -->
+  <div class="max-w-5xl mx-auto px-4 mb-6">
+    <div class="flex gap-2 overflow-x-auto pb-1" id="stats-tabs">
+      <button onclick="switchTab('current')" id="tab-current"
+        class="tab-btn active flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all bg-green-600 text-white">
+        📋 當年度
+      </button>
+      <button onclick="switchTab('total')" id="tab-total"
+        class="tab-btn flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all bg-gray-100 text-gray-600 hover:bg-gray-200">
+        📈 總人數趨勢
+      </button>
+      <button onclick="switchTab('section')" id="tab-section"
+        class="tab-btn flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all bg-gray-100 text-gray-600 hover:bg-gray-200">
+        👥 組別趨勢
+      </button>
+      <button onclick="switchTab('rank')" id="tab-rank"
+        class="tab-btn flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all bg-gray-100 text-gray-600 hover:bg-gray-200">
+        🏅 晉級統計
+      </button>
+      <button onclick="switchTab('rover')" id="tab-rover"
+        class="tab-btn flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all bg-gray-100 text-gray-600 hover:bg-gray-200">
+        🌍 羅浮分佈
+      </button>
+    </div>
+  </div>
+
+  <div class="max-w-5xl mx-auto px-4 pb-16">
+
+    <!-- ====== Tab: 當年度概覽 ====== -->
+    <div id="pane-current" class="tab-pane">
+      <div class="mb-6">
+        <h2 class="text-xl font-bold text-gray-800 mb-1">
+          ${latestYear ? latestYear + ' 學年度' : '當年度'} 概覽
+        </h2>
+        <p class="text-sm text-gray-500">目前在籍成員組成與教練團分佈</p>
+      </div>
+
+      <!-- 各組人數 -->
+      <h3 class="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+        <span>👥</span> 各組在籍人數
+      </h3>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-8">
+        ${currentSectionCards || '<p class="text-gray-400 col-span-4">尚無成員資料</p>'}
+      </div>
+
+      <!-- 教練團分佈 -->
+      <h3 class="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+        <span>🏋️</span> 教練團階段分佈
+        <span class="ml-auto text-sm font-normal text-gray-400">共 ${totalCoaches} 位</span>
+      </h3>
+      ${totalCoaches > 0 ? `
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-8">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          ${coachCards}
+        </div>
+        <!-- 進度條 -->
+        <div class="mt-2">
+          ${coachStageOrder.map(stage => {
+            const cnt = coachStageMap[stage] || 0
+            const pct = totalCoaches > 0 ? Math.round(cnt / totalCoaches * 100) : 0
+            const colorMap: Record<string,string> = { '預備教練': 'bg-gray-400', '見習教練': 'bg-yellow-400', '助理教練': 'bg-blue-400', '指導教練': 'bg-green-500' }
+            return `<div class="flex items-center gap-2 mb-1.5">
+              <span class="text-xs text-gray-500 w-16 flex-shrink-0">${stage}</span>
+              <div class="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                <div class="${colorMap[stage]} h-full rounded-full transition-all" style="width:${pct}%"></div>
+              </div>
+              <span class="text-xs text-gray-600 w-8 text-right">${cnt} 位</span>
+            </div>`
+          }).join('')}
+        </div>
+      </div>` : `
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-8 text-center text-gray-400">
+        尚無教練團資料
+      </div>`}
     </div>
 
-    <!-- 出席率長條圖 -->
-    ${recentSessions.results.length > 0 ? `
-    <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-      <span class="text-blue-600">📅</span> 近期出席率
-    </h2>
-    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-10">
-      <div class="flex items-end gap-4 justify-center min-h-[140px]">
-        ${sessionBars}
+    <!-- ====== Tab: 總人數趨勢 ====== -->
+    <div id="pane-total" class="tab-pane hidden">
+      <div class="mb-6">
+        <h2 class="text-xl font-bold text-gray-800 mb-1">歷年總人數趨勢</h2>
+        <p class="text-sm text-gray-500">各年度在籍人數與組成比例</p>
       </div>
-      <div class="flex items-center gap-4 mt-4 justify-center text-xs text-gray-500">
-        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-green-500 inline-block"></span>≥80%</span>
-        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-amber-500 inline-block"></span>60–79%</span>
-        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-red-400 inline-block"></span>&lt;60%</span>
+      ${yearBars ? `
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+        ${yearBars}
+      </div>` : '<p class="text-gray-400 bg-white rounded-2xl p-6 text-center">尚無年度資料</p>'}
+    </div>
+
+    <!-- ====== Tab: 組別趨勢 ====== -->
+    <div id="pane-section" class="tab-pane hidden">
+      <div class="mb-6">
+        <h2 class="text-xl font-bold text-gray-800 mb-1">各組歷年趨勢</h2>
+        <p class="text-sm text-gray-500">各童軍組別歷年人數變化</p>
       </div>
-    </div>` : ''}
+      ${sectionTrendCards ? `
+      <div class="grid md:grid-cols-2 gap-4">
+        ${sectionTrendCards}
+      </div>` : '<p class="text-gray-400 bg-white rounded-2xl p-6 text-center">尚無組別資料</p>'}
+    </div>
 
-    <!-- 晉級統計 -->
-    ${rankTable ? `
-    <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-      <span class="text-amber-600">🏅</span> 晉級統計
-    </h2>
-    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-10">
-      ${rankTable}
-    </div>` : ''}
+    <!-- ====== Tab: 晉級統計 ====== -->
+    <div id="pane-rank" class="tab-pane hidden">
+      <div class="mb-6">
+        <h2 class="text-xl font-bold text-gray-800 mb-1">歷年晉級統計</h2>
+        <p class="text-sm text-gray-500">各年度各組晉級人數記錄</p>
+      </div>
+      ${rankSummary ? `
+      <div class="grid md:grid-cols-2 gap-4">
+        ${rankSummary}
+      </div>` : '<p class="text-gray-400 bg-white rounded-2xl p-6 text-center">尚無晉級資料</p>'}
+    </div>
 
-    <!-- 近期進程 -->
-    ${progressList ? `
-    <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-      <span class="text-purple-600">📈</span> 近期進程記錄
-    </h2>
-    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-      ${progressList}
-    </div>` : ''}
+    <!-- ====== Tab: 羅浮童軍全球分佈 ====== -->
+    <div id="pane-rover" class="tab-pane hidden">
+      <div class="mb-4 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 class="text-xl font-bold text-gray-800 mb-1">🌍 羅浮童軍全球分佈</h2>
+          <p class="text-sm text-gray-500">共 ${totalRovers} 位羅浮童軍，分佈於 ${roverCountries.length} 個地區</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="edit-map-toggle" onchange="toggleMapEdit(this.checked)"
+              class="w-4 h-4 rounded accent-purple-600">
+            <span class="text-sm text-gray-600">編輯地圖座標</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 地圖容器 -->
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-100 mb-4 overflow-hidden">
+        <div class="relative w-full" style="padding-bottom:50%">
+          <div class="absolute inset-0 bg-gradient-to-b from-sky-100 to-sky-200 cursor-default" id="map-container"
+               onclick="handleMapClick(event)">
+            <!-- SVG 世界地圖輪廓（簡化版）-->
+            <svg class="absolute inset-0 w-full h-full" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet">
+              <!-- 大陸輪廓（簡化多邊形）-->
+              <!-- 北美洲 -->
+              <polygon points="60,60 200,50 230,80 240,130 200,180 160,220 100,240 60,200 40,140 50,80" fill="#d1fae5" stroke="#6ee7b7" stroke-width="1" opacity="0.8"/>
+              <!-- 南美洲 -->
+              <polygon points="200,250 270,240 300,260 310,320 290,380 250,420 210,400 190,350 180,290" fill="#d1fae5" stroke="#6ee7b7" stroke-width="1" opacity="0.8"/>
+              <!-- 歐洲 -->
+              <polygon points="420,60 520,50 540,80 530,120 490,140 450,130 420,110 410,80" fill="#dbeafe" stroke="#93c5fd" stroke-width="1" opacity="0.8"/>
+              <!-- 非洲 -->
+              <polygon points="440,150 540,140 570,170 570,230 550,300 520,360 480,380 450,340 430,280 420,210" fill="#fef3c7" stroke="#fcd34d" stroke-width="1" opacity="0.8"/>
+              <!-- 亞洲 -->
+              <polygon points="540,40 800,30 860,60 880,100 840,150 780,180 700,190 620,170 560,140 530,100 530,60" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1" opacity="0.8"/>
+              <!-- 東南亞島鏈 -->
+              <ellipse cx="750" cy="220" rx="30" ry="15" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1" opacity="0.7"/>
+              <ellipse cx="790" cy="230" rx="20" ry="10" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1" opacity="0.7"/>
+              <!-- 澳洲 -->
+              <polygon points="760,310 870,300 910,330 920,370 880,410 820,420 770,400 750,360 755,320" fill="#fce7f3" stroke="#f9a8d4" stroke-width="1" opacity="0.8"/>
+              <!-- 日本 -->
+              <ellipse cx="820" cy="115" rx="10" ry="25" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1" opacity="0.8"/>
+              <!-- 台灣 -->
+              <ellipse cx="805" cy="150" rx="6" ry="10" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1.5" opacity="0.9"/>
+
+              <!-- 羅浮童軍位置標記 -->
+              ${roverDots}
+
+              <!-- 國家名稱標籤（選中時顯示）-->
+              <text id="map-selected-label" x="50%" y="95%" text-anchor="middle"
+                class="pointer-events-none" font-size="12" fill="#6b21a8" font-weight="bold"
+                opacity="0"></text>
+            </svg>
+
+            <!-- 編輯提示 -->
+            <div id="edit-hint" class="hidden absolute bottom-2 left-2 bg-purple-600 text-white text-xs px-3 py-1.5 rounded-lg shadow">
+              ✏️ 點擊地圖設定 <span id="editing-country-name" class="font-bold"></span> 的位置
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 圖例 -->
+      <div class="flex items-center gap-4 text-xs text-gray-500 mb-4">
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-purple-400 inline-block"></span>1-2 人</span>
+        <span class="flex items-center gap-1"><span class="w-4 h-4 rounded-full bg-purple-400 inline-block"></span>3-5 人</span>
+        <span class="flex items-center gap-1"><span class="w-5 h-5 rounded-full bg-purple-400 inline-block"></span>6+ 人</span>
+      </div>
+
+      <!-- 國家列表 -->
+      ${roverCountries.length > 0 ? `
+      <div class="grid md:grid-cols-2 gap-2" id="rover-country-list">
+        ${roverCountryList}
+      </div>` : `
+      <div class="bg-white rounded-2xl p-8 text-center">
+        <p class="text-4xl mb-3">🌍</p>
+        <p class="text-gray-500">尚未設定羅浮童軍所在地資料</p>
+        <p class="text-gray-400 text-sm mt-1">請在成員管理中設定國家與大學資訊</p>
+      </div>`}
+    </div>
 
   </div>
+
   ${pageFooter(settings)}
+
+  <script>
+    // ── Tab 切換 ──────────────────────────────────────
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('bg-green-600', 'text-white')
+        btn.classList.add('bg-gray-100', 'text-gray-600')
+      })
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.add('hidden'))
+
+      const activeBtn = document.getElementById('tab-' + tabId)
+      if (activeBtn) {
+        activeBtn.classList.add('bg-green-600', 'text-white')
+        activeBtn.classList.remove('bg-gray-100', 'text-gray-600')
+      }
+      const activePane = document.getElementById('pane-' + tabId)
+      if (activePane) activePane.classList.remove('hidden')
+    }
+
+    // ── 羅浮地圖 ──────────────────────────────────────
+    let editingMode = false
+    let editingCountry = null
+
+    function toggleMapEdit(enabled) {
+      editingMode = enabled
+      const hint = document.getElementById('edit-hint')
+      const container = document.getElementById('map-container')
+      if (enabled) {
+        hint.classList.remove('hidden')
+        container.style.cursor = 'crosshair'
+        if (!editingCountry && Object.keys(${JSON.stringify(roverCountryMap)}).length > 0) {
+          editingCountry = Object.keys(${JSON.stringify(roverCountryMap)})[0]
+          document.getElementById('editing-country-name').textContent = editingCountry
+          highlightCountry(editingCountry)
+        }
+      } else {
+        hint.classList.add('hidden')
+        container.style.cursor = 'default'
+        editingCountry = null
+      }
+    }
+
+    function selectRoverCountry(country) {
+      highlightCountry(country)
+      if (editingMode) {
+        editingCountry = country
+        document.getElementById('editing-country-name').textContent = country
+      }
+    }
+
+    function highlightCountry(country) {
+      document.querySelectorAll('.rover-country-item').forEach(el => {
+        el.classList.remove('bg-purple-50', 'border-purple-200')
+      })
+      const id = 'country-' + country.replace(/\\s/g, '-')
+      const el = document.getElementById(id)
+      if (el) {
+        el.classList.add('bg-purple-50', 'border-purple-200')
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      }
+    }
+
+    function handleMapClick(event) {
+      if (!editingMode || !editingCountry) return
+      const rect = event.currentTarget.getBoundingClientRect()
+      const x = ((event.clientX - rect.left) / rect.width * 100).toFixed(1)
+      const y = ((event.clientY - rect.top) / rect.height * 100).toFixed(1)
+
+      // 更新顯示
+      const cid = editingCountry.replace(/\\s/g, '-')
+      const cxEl = document.getElementById('cx-' + cid)
+      const cyEl = document.getElementById('cy-' + cid)
+      if (cxEl) cxEl.textContent = x
+      if (cyEl) cyEl.textContent = y
+
+      // 更新圓點位置
+      const dot = document.querySelector('[data-country="' + editingCountry + '"]')
+      if (dot) {
+        dot.setAttribute('cx', x + '%')
+        dot.setAttribute('cy', y + '%')
+      }
+
+      // 儲存至後端
+      fetch('/api/rover-map-coord', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ country: editingCountry, x: parseFloat(x), y: parseFloat(y) })
+      }).then(r => r.json()).then(data => {
+        if (data.ok) {
+          const hint = document.getElementById('edit-hint')
+          hint.textContent = '✅ ' + editingCountry + ' 座標已儲存！'
+          setTimeout(() => {
+            hint.innerHTML = '✏️ 點擊地圖設定 <span id="editing-country-name" class="font-bold">' + editingCountry + '</span> 的位置'
+          }, 1500)
+        }
+      }).catch(() => {})
+    }
+
+    // ── URL Hash 支援 ──────────────────────────────────
+    const hash = location.hash.replace('#', '')
+    if (['current','total','section','rank','rover'].includes(hash)) {
+      switchTab(hash)
+    }
+  </script>
 `)
 })
 

@@ -2989,3 +2989,34 @@ apiRoutes.delete('/admin/site-links/:id', async (c) => {
     return c.json({ success: true })
   } catch(e: any) { return c.json({ success: false, error: e.message }) }
 })
+
+// ===================== 羅浮地圖座標 API =====================
+apiRoutes.put('/rover-map-coord', async (c) => {
+  const db = c.env.DB
+  const { country, x, y, label } = await c.req.json() as any
+  if (!country || x === undefined || y === undefined) {
+    return c.json({ ok: false, error: '缺少必要參數 country, x, y' }, 400)
+  }
+  const key = `rover_map_coord_${country}`
+  const value = JSON.stringify({ x: parseFloat(x), y: parseFloat(y), label: label || country })
+  try {
+    await db.prepare(`
+      INSERT INTO site_settings (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).bind(key, value).run()
+    return c.json({ ok: true })
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500)
+  }
+})
+
+apiRoutes.get('/rover-map-coord', async (c) => {
+  const db = c.env.DB
+  const rows = await db.prepare(`SELECT key, value FROM site_settings WHERE key LIKE 'rover_map_coord_%'`).all()
+  const coords: Record<string, any> = {}
+  ;(rows.results as any[]).forEach((row: any) => {
+    const country = row.key.replace('rover_map_coord_', '')
+    try { coords[country] = JSON.parse(row.value) } catch {}
+  })
+  return c.json({ ok: true, data: coords })
+})
