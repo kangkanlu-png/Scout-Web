@@ -197,8 +197,14 @@ frontendRoutes.get('/honor', async (c) => {
 </body></html>`)
 })
 
-// ===================== 教練團總覽頁（公開）=====================
+// ===================== 教練團總覽頁（公開）→ 重定向至行義團教練團頁 =====================
 frontendRoutes.get('/coaches', async (c) => {
+  // 重定向到行義團教練團頁面（服務員＋指導教練）
+  return c.redirect('/group/senior-scout/coaches-list', 302)
+})
+
+// ===================== 教練團舊版（保留路由備用）=====================
+frontendRoutes.get('/coaches-legacy', async (c) => {
   const db = c.env.DB
 
   const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
@@ -1319,7 +1325,7 @@ function navBar(settings: Record<string, string>, groups: any[] = []) {
         <a href="/#activities" class="hover:text-amber-300 transition-colors hidden md:inline">活動</a>
         <a href="/highlights" class="hover:text-amber-300 transition-colors hidden md:inline">📸 精彩回顧</a>
         <a href="/honor" class="hover:text-amber-300 transition-colors hidden md:inline">🏅 榮譽榜</a>
-        <a href="/coaches" class="hover:text-amber-300 transition-colors hidden md:inline">🧢 教練團</a>
+        <a href="/group/senior-scout/coaches-list" class="hover:text-amber-300 transition-colors hidden md:inline">🧢 教練團</a>
         <a href="/stats" class="hover:text-amber-300 transition-colors hidden md:inline">📊 統計</a>
         <a href="/attendance" class="hover:text-amber-300 transition-colors hidden md:inline">📅 出席</a>
         <a href="/links" class="hover:text-amber-300 transition-colors hidden md:inline">🔗 相關網頁</a>

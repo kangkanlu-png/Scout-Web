@@ -3905,9 +3905,18 @@ adminRoutes.get('/coaches', authMiddleware, async (c) => {
 adminRoutes.get('/coaches/advancement', authMiddleware, async (c) => {
   const db = c.env.DB
 
-  // 取得所有成員（用於新增教練成員）
-  const allMembers = await db.prepare(`
-    SELECT id, chinese_name, section FROM members WHERE membership_status='active' ORDER BY section, chinese_name
+  // 取得曾參加幹部訓練的學員（具備預備教練資格）
+  const trainedMembers = await db.prepare(`
+    SELECT DISTINCT m.id, m.chinese_name, m.section, m.rank_level
+    FROM members m
+    WHERE UPPER(m.membership_status)='ACTIVE'
+      AND (
+        m.section = '服務員'
+        OR EXISTS (
+          SELECT 1 FROM member_leader_trainings mlt WHERE mlt.member_id = m.id
+        )
+      )
+    ORDER BY m.section, m.chinese_name
   `).all()
 
   // 取得教練團成員狀態
@@ -3915,7 +3924,7 @@ adminRoutes.get('/coaches/advancement', authMiddleware, async (c) => {
     SELECT cms.*, m.chinese_name, m.section, m.rank_level
     FROM coach_member_status cms
     JOIN members m ON m.id = cms.member_id
-    ORDER BY CASE cms.current_stage WHEN '指導教練' THEN 1 WHEN '助理教練' THEN 2 WHEN '見習教練' THEN 3 ELSE 4 END, m.chinese_name
+    ORDER BY CASE cms.current_stage WHEN '指導教練' THEN 1 WHEN '助理教練' THEN 2 WHEN '見習教練' THEN 3 WHEN '預備教練' THEN 4 ELSE 5 END, m.chinese_name
   `).all()
 
   // 取得所有完成記錄
@@ -3993,9 +4002,11 @@ adminRoutes.get('/coaches/advancement', authMiddleware, async (c) => {
     </div>`
   }).join('<div class="w-px bg-gray-200 mx-2 self-stretch"></div>')
 
-  const memberOptions = allMembers.results
+  // 尚未加入教練進程的有資格成員
+  const eligibleMembers = (trainedMembers.results as any[])
     .filter((m: any) => !coachStatuses.results.some((cs: any) => cs.member_id === m.id))
-    .map((m: any) => `<option value="${m.id}">${m.chinese_name} (${m.section})</option>`).join('')
+  const memberOptions = eligibleMembers
+    .map((m: any) => `<option value="${m.id}" data-section="${m.section}">${m.chinese_name}（${m.section}${m.rank_level ? ' · ' + m.rank_level : ''}）</option>`).join('')
 
   return c.html(adminLayout('教練團進程管理', `
     <div class="flex items-center justify-between mb-6">
@@ -4020,31 +4031,43 @@ adminRoutes.get('/coaches/advancement', authMiddleware, async (c) => {
       ${columns}
     </div>
 
-    <!-- 新增教練成員 Modal -->
-    <div id="add-coach-member-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6">
-        <h3 class="text-lg font-bold mb-4">新增教練團成員</h3>
-        <div class="space-y-3">
+    <!-- 新增教練成員 Modal（連動學員，勾選加入） -->
+    <div id="add-coach-member-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">選擇現有服務員</label>
-            <select id="new-coach-member-id" class="w-full border rounded-lg px-3 py-2 text-sm">
-              <option value="">選擇現有服務員...</option>
-              ${memberOptions}
-            </select>
+            <h3 class="text-lg font-bold text-gray-800">新增教練團成員</h3>
+            <p class="text-sm text-gray-400 mt-0.5">以下為具備預備教練資格的學員（服務員 或 曾參加幹部訓練）</p>
           </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">初始階段</label>
-            <select id="new-coach-stage" class="w-full border rounded-lg px-3 py-2 text-sm">
-              <option value="預備教練">預備教練</option>
-              <option value="見習教練">見習教練</option>
-              <option value="助理教練">助理教練</option>
-              <option value="指導教練">指導教練</option>
-            </select>
-          </div>
+          <button onclick="document.getElementById('add-coach-member-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
-        <div class="flex gap-3 mt-4">
-          <button onclick="addCoachMember()" class="flex-1 bg-green-700 text-white py-2 rounded-lg text-sm font-medium">加入預備行列</button>
-          <button onclick="document.getElementById('add-coach-member-modal').classList.add('hidden')" class="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg text-sm">取消</button>
+
+        <!-- 搜尋過濾 -->
+        <input type="text" id="coach-member-search" placeholder="搜尋姓名..." oninput="filterCoachMembers()"
+          class="w-full border rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-green-500">
+
+        <!-- 學員勾選列表 -->
+        <div id="coach-member-list" class="space-y-1 max-h-64 overflow-y-auto border rounded-xl p-2 bg-gray-50">
+          ${eligibleMembers.length === 0
+            ? `<p class="text-center text-gray-400 text-sm py-6">目前無具備資格的學員<br><span class="text-xs">（服務員 或 曾參加幹部訓練的學員才會出現）</span></p>`
+            : eligibleMembers.map((m: any) => `
+              <label class="flex items-center gap-3 p-2.5 rounded-lg hover:bg-white cursor-pointer border border-transparent hover:border-green-200 transition-all" data-name="${m.chinese_name}">
+                <input type="checkbox" class="coach-add-cb w-4 h-4 accent-green-600" value="${m.id}">
+                <div class="flex-1">
+                  <span class="font-medium text-gray-800 text-sm">${m.chinese_name}</span>
+                  <span class="ml-2 text-xs text-gray-400">${m.section}${m.rank_level ? ' · ' + m.rank_level : ''}</span>
+                </div>
+              </label>
+            `).join('')
+          }
+        </div>
+
+        <div class="mt-4 pt-4 border-t flex items-center justify-between">
+          <div class="text-sm text-gray-500"><span id="selected-count">0</span> 位已勾選，加入後為 <strong>預備教練</strong> 階段</div>
+          <div class="flex gap-2">
+            <button onclick="document.getElementById('add-coach-member-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm">取消</button>
+            <button onclick="addCheckedCoachMembers()" class="px-5 py-2 bg-green-700 text-white rounded-lg text-sm font-medium">✓ 加入預備行列</button>
+          </div>
         </div>
       </div>
     </div>
@@ -4160,18 +4183,34 @@ adminRoutes.get('/coaches/advancement', authMiddleware, async (c) => {
       }
     }
 
-    async function addCoachMember() {
-      const memberId = document.getElementById('new-coach-member-id').value
-      const stage = document.getElementById('new-coach-stage').value
-      if (!memberId) { alert('請選擇成員'); return }
-      const res = await fetch('/api/coach/member-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ member_id: memberId, stage })
+    function filterCoachMembers() {
+      const q = document.getElementById('coach-member-search').value.toLowerCase()
+      document.querySelectorAll('#coach-member-list label[data-name]').forEach(el => {
+        const name = el.getAttribute('data-name').toLowerCase()
+        el.style.display = name.includes(q) ? '' : 'none'
       })
-      const r = await res.json()
-      if (r.success) { location.reload() }
-      else { alert('新增失敗：' + (r.error || '')) }
+    }
+    document.addEventListener('change', function(e) {
+      if (e.target && e.target.classList.contains('coach-add-cb')) {
+        const cnt = document.querySelectorAll('.coach-add-cb:checked').length
+        document.getElementById('selected-count').textContent = cnt
+      }
+    })
+    async function addCheckedCoachMembers() {
+      const checked = [...document.querySelectorAll('.coach-add-cb:checked')].map(cb => cb.value)
+      if (checked.length === 0) { alert('請至少勾選一位學員'); return }
+      let ok = 0, fail = 0
+      for (const memberId of checked) {
+        const res = await fetch('/api/coach/member-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ member_id: memberId, stage: '預備教練' })
+        })
+        const r = await res.json()
+        if (r.success) ok++; else fail++
+      }
+      if (fail > 0) alert('新增完成：' + ok + ' 位成功，' + fail + ' 位失敗')
+      location.reload()
     }
 
     async function promoteCoachMember() {
@@ -4204,13 +4243,15 @@ adminRoutes.get('/coaches/advancement', authMiddleware, async (c) => {
 adminRoutes.get('/coaches/settings', authMiddleware, async (c) => {
   const db = c.env.DB
   const checklistItems = await db.prepare(`SELECT * FROM coach_checklist_items ORDER BY stage, display_order`).all()
-  const stages = ['見習教練', '助理教練', '指導教練']
+  const stages = ['預備教練', '見習教練', '助理教練', '指導教練']
   const stageColor: Record<string, string> = {
+    '預備教練': 'bg-gray-50 border-gray-300',
     '見習教練': 'bg-teal-50 border-teal-300',
     '助理教練': 'bg-blue-50 border-blue-300',
     '指導教練': 'bg-purple-50 border-purple-300',
   }
   const stageHeaderColor: Record<string, string> = {
+    '預備教練': 'bg-gray-500',
     '見習教練': 'bg-teal-600',
     '助理教練': 'bg-blue-600',
     '指導教練': 'bg-purple-700',
@@ -4262,6 +4303,7 @@ adminRoutes.get('/coaches/settings', authMiddleware, async (c) => {
           <div>
             <label class="block text-xs font-medium text-gray-700 mb-1">階段</label>
             <select id="new-item-stage" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="預備教練">預備教練</option>
               <option value="見習教練">見習教練</option>
               <option value="助理教練">助理教練</option>
               <option value="指導教練">指導教練</option>
@@ -4291,6 +4333,10 @@ adminRoutes.get('/coaches/settings', authMiddleware, async (c) => {
           </h3>
           <div class="space-y-3 text-sm text-blue-800">
             <div class="flex items-start gap-2">
+              <span class="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs font-medium mt-0.5">預備教練</span>
+              <span>入門階段，完成所有預備教練項目後，可晉升至見習教練</span>
+            </div>
+            <div class="flex items-start gap-2">
               <span class="bg-teal-100 text-teal-800 px-2 py-0.5 rounded text-xs font-medium mt-0.5">見習教練</span>
               <span>完成所有見習教練項目後，可晉升至助理教練</span>
             </div>
@@ -4300,7 +4346,7 @@ adminRoutes.get('/coaches/settings', authMiddleware, async (c) => {
             </div>
             <div class="flex items-start gap-2">
               <span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded text-xs font-medium mt-0.5">指導教練</span>
-              <span>完成所有指導教練項目，具備指導及考核助理教練能力</span>
+              <span>✅ 全部完成後取得指導教練資格，具備指導及考核能力</span>
             </div>
           </div>
         </div>
