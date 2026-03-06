@@ -3905,18 +3905,20 @@ adminRoutes.get('/coaches', authMiddleware, async (c) => {
 adminRoutes.get('/coaches/advancement', authMiddleware, async (c) => {
   const db = c.env.DB
 
-  // 取得曾參加幹部訓練的學員（具備預備教練資格）
+  // 取得所有在籍成員（所有童軍團成員都具備加入教練訓練的資格）
   const trainedMembers = await db.prepare(`
     SELECT DISTINCT m.id, m.chinese_name, m.section, m.rank_level
     FROM members m
     WHERE UPPER(m.membership_status)='ACTIVE'
-      AND (
-        m.section = '服務員'
-        OR EXISTS (
-          SELECT 1 FROM member_leader_trainings mlt WHERE mlt.member_id = m.id
-        )
-      )
-    ORDER BY m.section, m.chinese_name
+    ORDER BY
+      CASE m.section
+        WHEN '服務員' THEN 1
+        WHEN '羅浮童軍' THEN 2
+        WHEN '行義童軍' THEN 3
+        WHEN '童軍' THEN 4
+        ELSE 5
+      END,
+      m.chinese_name
   `).all()
 
   // 取得教練團成員狀態
@@ -4037,7 +4039,7 @@ adminRoutes.get('/coaches/advancement', authMiddleware, async (c) => {
         <div class="flex items-center justify-between mb-4">
           <div>
             <h3 class="text-lg font-bold text-gray-800">新增教練團成員</h3>
-            <p class="text-sm text-gray-400 mt-0.5">以下為具備預備教練資格的學員（服務員 或 曾參加幹部訓練）</p>
+            <p class="text-sm text-gray-400 mt-0.5">所有在籍團員皆可加入教練訓練（從預備教練開始）</p>
           </div>
           <button onclick="document.getElementById('add-coach-member-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
@@ -4049,16 +4051,34 @@ adminRoutes.get('/coaches/advancement', authMiddleware, async (c) => {
         <!-- 學員勾選列表 -->
         <div id="coach-member-list" class="space-y-1 max-h-64 overflow-y-auto border rounded-xl p-2 bg-gray-50">
           ${eligibleMembers.length === 0
-            ? `<p class="text-center text-gray-400 text-sm py-6">目前無具備資格的學員<br><span class="text-xs">（服務員 或 曾參加幹部訓練的學員才會出現）</span></p>`
-            : eligibleMembers.map((m: any) => `
-              <label class="flex items-center gap-3 p-2.5 rounded-lg hover:bg-white cursor-pointer border border-transparent hover:border-green-200 transition-all" data-name="${m.chinese_name}">
-                <input type="checkbox" class="coach-add-cb w-4 h-4 accent-green-600" value="${m.id}">
-                <div class="flex-1">
-                  <span class="font-medium text-gray-800 text-sm">${m.chinese_name}</span>
-                  <span class="ml-2 text-xs text-gray-400">${m.section}${m.rank_level ? ' · ' + m.rank_level : ''}</span>
-                </div>
-              </label>
-            `).join('')
+            ? `<p class="text-center text-gray-400 text-sm py-6">目前無在籍成員</p>`
+            : (() => {
+                // 按組別分組顯示
+                const sectionOrder = ['服務員', '羅浮童軍', '行義童軍', '童軍']
+                const sectionLabel: Record<string,string> = { '服務員':'🎖️ 服務員', '羅浮童軍':'🧭 羅浮童軍', '行義童軍':'⛺ 行義童軍', '童軍':'🏕️ 童軍' }
+                const grouped: Record<string, any[]> = {}
+                eligibleMembers.forEach((m: any) => {
+                  const sec = m.section || '其他'
+                  if (!grouped[sec]) grouped[sec] = []
+                  grouped[sec].push(m)
+                })
+                return sectionOrder.concat(Object.keys(grouped).filter(s => !sectionOrder.includes(s)))
+                  .filter(sec => grouped[sec]?.length > 0)
+                  .map(sec => `
+                    <div class="mb-2">
+                      <div class="text-xs font-semibold text-gray-500 px-2 py-1 bg-gray-100 rounded-lg mb-1">${sectionLabel[sec] || sec} (${grouped[sec].length})</div>
+                      ${grouped[sec].map((m: any) => `
+                        <label class="flex items-center gap-3 p-2.5 rounded-lg hover:bg-white cursor-pointer border border-transparent hover:border-green-200 transition-all" data-name="${m.chinese_name}">
+                          <input type="checkbox" class="coach-add-cb w-4 h-4 accent-green-600" value="${m.id}">
+                          <div class="flex-1">
+                            <span class="font-medium text-gray-800 text-sm">${m.chinese_name}</span>
+                            ${m.rank_level ? `<span class="ml-2 text-xs text-gray-400">${m.rank_level}</span>` : ''}
+                          </div>
+                        </label>
+                      `).join('')}
+                    </div>
+                  `).join('')
+              })()
           }
         </div>
 

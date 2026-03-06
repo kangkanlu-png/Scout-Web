@@ -1321,15 +1321,14 @@ function navBar(settings: Record<string, string>, groups: any[] = []) {
         </div>
       </a>
       <div class="flex items-center gap-4 text-sm">
+        <a href="/#about" class="hover:text-amber-300 transition-colors hidden md:inline">關於我們</a>
         <a href="/#groups" class="hover:text-amber-300 transition-colors hidden md:inline">分組</a>
         <a href="/#activities" class="hover:text-amber-300 transition-colors hidden md:inline">活動</a>
         <a href="/highlights" class="hover:text-amber-300 transition-colors hidden md:inline">📸 精彩回顧</a>
         <a href="/honor" class="hover:text-amber-300 transition-colors hidden md:inline">🏅 榮譽榜</a>
         <a href="/group/senior-scout/coaches-list" class="hover:text-amber-300 transition-colors hidden md:inline">🧢 教練團</a>
         <a href="/stats" class="hover:text-amber-300 transition-colors hidden md:inline">📊 統計</a>
-        <a href="/attendance" class="hover:text-amber-300 transition-colors hidden md:inline">📅 出席</a>
         <a href="/links" class="hover:text-amber-300 transition-colors hidden md:inline">🔗 相關網頁</a>
-        <a href="/#about" class="hover:text-amber-300 transition-colors hidden md:inline">關於我們</a>
         <a href="/member" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">👤 會員入口</a>
         <a href="/admin" class="bg-amber-500 hover:bg-amber-400 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">⚙ 後台管理</a>
       </div>
