@@ -761,6 +761,192 @@ adminRoutes.get('/settings', authMiddleware, async (c) => {
   `))
 })
 
+// ===================== 相關網頁管理 =====================
+adminRoutes.get('/links', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const links = await db.prepare(`SELECT * FROM site_links ORDER BY display_order ASC, id ASC`).all()
+
+  const rows = links.results.map((l: any) => `
+    <tr class="border-b hover:bg-gray-50">
+      <td class="px-4 py-3 text-xl">${l.icon_emoji || '🔗'}</td>
+      <td class="px-4 py-3">
+        <div class="font-medium text-gray-800">${l.title}</div>
+        ${l.description ? `<div class="text-xs text-gray-400 mt-0.5">${l.description}</div>` : ''}
+      </td>
+      <td class="px-4 py-3 text-sm text-green-700 max-w-xs truncate">
+        <a href="${l.url}" target="_blank" class="hover:underline">${l.url}</a>
+      </td>
+      <td class="px-4 py-3 text-sm text-gray-500">${l.category || '-'}</td>
+      <td class="px-4 py-3 text-center">
+        <span class="px-2 py-0.5 rounded-full text-xs ${l.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">${l.is_active ? '顯示' : '隱藏'}</span>
+      </td>
+      <td class="px-4 py-3 text-sm text-gray-400">${l.display_order ?? 0}</td>
+      <td class="px-4 py-3">
+        <button onclick="editLink(${JSON.stringify(l).replace(/"/g, '&quot;')})" class="text-blue-600 hover:text-blue-800 text-sm mr-3">✏️ 編輯</button>
+        <button onclick="deleteLink(${l.id}, '${l.title.replace(/'/g, "\\'")}')">🗑 刪除</button>
+      </td>
+    </tr>
+  `).join('')
+
+  return c.html(adminLayout('相關網頁管理', `
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-xl font-bold text-gray-800">🔗 相關網頁管理</h1>
+        <p class="text-sm text-gray-400 mt-1">管理對外公開的童軍相關網站連結</p>
+      </div>
+      <div class="flex gap-2">
+        <a href="/links" target="_blank" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">👁 前台預覽</a>
+        <button onclick="openAddLink()" class="px-4 py-2 bg-green-700 text-white rounded-lg text-sm hover:bg-green-600">+ 新增連結</button>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">圖示</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">標題 / 說明</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">網址</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">分類</th>
+            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">狀態</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">排序</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="7" class="px-4 py-10 text-center text-gray-400">尚無連結，請點擊「新增連結」</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Add/Edit Modal -->
+    <div id="link-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+        <h3 id="link-modal-title" class="text-lg font-bold text-gray-800 mb-5">新增連結</h3>
+        <input type="hidden" id="link-id">
+        <div class="space-y-4">
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">圖示 Emoji</label>
+              <input type="text" id="link-icon" placeholder="🔗" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+            </div>
+            <div class="col-span-2">
+              <label class="block text-sm font-medium text-gray-700 mb-1">分類</label>
+              <input type="text" id="link-category" placeholder="例：國內童軍、國際童軍" list="link-category-list" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+              <datalist id="link-category-list">
+                <option value="國內童軍">
+                <option value="國際童軍">
+                <option value="學校資源">
+                <option value="其他">
+              </datalist>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">標題 <span class="text-red-500">*</span></label>
+            <input type="text" id="link-title" placeholder="例：中華民國童軍總會" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">網址 <span class="text-red-500">*</span></label>
+            <input type="url" id="link-url" placeholder="https://..." class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">說明（選填）</label>
+            <input type="text" id="link-desc" placeholder="簡短說明這個網站" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">排序（小的在前）</label>
+              <input type="number" id="link-order" value="0" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+            </div>
+            <div class="flex items-end pb-1">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="link-active" checked class="w-4 h-4 text-green-600 rounded">
+                <span class="text-sm text-gray-700">顯示在前台</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div id="link-msg" class="mt-3 text-sm hidden"></div>
+        <div class="mt-6 flex gap-3 justify-end">
+          <button onclick="closeLinkModal()" class="px-4 py-2 text-gray-600 border rounded-lg hover:bg-gray-50">取消</button>
+          <button onclick="saveLink()" class="px-5 py-2 bg-green-700 text-white rounded-lg hover:bg-green-600 font-medium">儲存</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    function openAddLink() {
+      document.getElementById('link-modal-title').textContent = '新增連結'
+      document.getElementById('link-id').value = ''
+      document.getElementById('link-icon').value = '🔗'
+      document.getElementById('link-category').value = ''
+      document.getElementById('link-title').value = ''
+      document.getElementById('link-url').value = ''
+      document.getElementById('link-desc').value = ''
+      document.getElementById('link-order').value = '0'
+      document.getElementById('link-active').checked = true
+      document.getElementById('link-msg').classList.add('hidden')
+      document.getElementById('link-modal').classList.remove('hidden')
+    }
+    function editLink(l) {
+      document.getElementById('link-modal-title').textContent = '編輯連結'
+      document.getElementById('link-id').value = l.id
+      document.getElementById('link-icon').value = l.icon_emoji || '🔗'
+      document.getElementById('link-category').value = l.category || ''
+      document.getElementById('link-title').value = l.title || ''
+      document.getElementById('link-url').value = l.url || ''
+      document.getElementById('link-desc').value = l.description || ''
+      document.getElementById('link-order').value = l.display_order ?? 0
+      document.getElementById('link-active').checked = !!l.is_active
+      document.getElementById('link-msg').classList.add('hidden')
+      document.getElementById('link-modal').classList.remove('hidden')
+    }
+    function closeLinkModal() {
+      document.getElementById('link-modal').classList.add('hidden')
+    }
+    async function saveLink() {
+      const id = document.getElementById('link-id').value
+      const title = document.getElementById('link-title').value.trim()
+      const url = document.getElementById('link-url').value.trim()
+      if (!title || !url) {
+        const msg = document.getElementById('link-msg')
+        msg.textContent = '請填寫標題和網址'
+        msg.className = 'mt-3 text-sm text-red-600'
+        return
+      }
+      const body = {
+        title, url,
+        description: document.getElementById('link-desc').value.trim(),
+        category: document.getElementById('link-category').value.trim() || '其他',
+        icon_emoji: document.getElementById('link-icon').value.trim() || '🔗',
+        display_order: parseInt(document.getElementById('link-order').value) || 0,
+        is_active: document.getElementById('link-active').checked ? 1 : 0
+      }
+      const method = id ? 'PUT' : 'POST'
+      const endpoint = id ? '/api/admin/site-links/' + id : '/api/admin/site-links'
+      const res = await fetch(endpoint, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) })
+      const data = await res.json()
+      if (data.success) { location.reload() }
+      else {
+        const msg = document.getElementById('link-msg')
+        msg.textContent = data.error || '儲存失敗'
+        msg.className = 'mt-3 text-sm text-red-600'
+      }
+    }
+    async function deleteLink(id, title) {
+      if (!confirm('確定刪除「' + title + '」？')) return
+      const res = await fetch('/api/admin/site-links/' + id, { method: 'DELETE' })
+      const data = await res.json()
+      if (data.success) location.reload()
+      else alert('刪除失敗：' + (data.error || '未知錯誤'))
+    }
+    document.getElementById('link-modal').addEventListener('click', function(e) {
+      if (e.target === this) closeLinkModal()
+    })
+    </script>
+  `))
+})
+
 // ===================== 分組學期管理 =====================
 adminRoutes.get('/groups/:id/semesters', authMiddleware, async (c) => {
   const db = c.env.DB
@@ -1410,6 +1596,9 @@ function adminLayout(title: string, content: string) {
         </a>
         <a href="/admin/settings" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '網站設定' ? 'bg-green-700' : ''}">
           <span>⚙️</span> 網站設定
+        </a>
+        <a href="/admin/links" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '相關網頁管理' ? 'bg-green-700' : ''}">
+          <span>🔗</span> 相關網頁
         </a>
       </nav>
       <div class="p-3 border-t border-green-700">

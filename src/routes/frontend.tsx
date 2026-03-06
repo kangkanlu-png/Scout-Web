@@ -1077,6 +1077,80 @@ frontendRoutes.get('/highlights/:id', async (c) => {
 `)
 })
 
+// ===================== 相關網頁 =====================
+frontendRoutes.get('/links', async (c) => {
+  const db = c.env.DB
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+
+  const links = await db.prepare(`SELECT * FROM site_links WHERE is_active=1 ORDER BY display_order ASC, id ASC`).all()
+
+  const byCategory: Record<string, any[]> = {}
+  links.results.forEach((l: any) => {
+    const cat = l.category || '其他'
+    if (!byCategory[cat]) byCategory[cat] = []
+    byCategory[cat].push(l)
+  })
+
+  const categoryBlocks = Object.entries(byCategory).map(([cat, items]) => `
+    <div class="mb-10">
+      <h3 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2 pb-2 border-b border-gray-200">
+        <span class="w-2 h-6 bg-green-600 rounded-full inline-block"></span>
+        ${cat}
+      </h3>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        ${items.map((l: any) => `
+          <a href="${l.url}" target="_blank" rel="noopener noreferrer"
+             class="flex items-start gap-4 bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md hover:border-green-200 transition-all group">
+            <span class="text-3xl flex-shrink-0 mt-0.5">${l.icon_emoji || '🔗'}</span>
+            <div class="flex-1 min-w-0">
+              <div class="font-bold text-gray-800 group-hover:text-green-700 transition-colors leading-tight">${l.title}</div>
+              ${l.description ? `<p class="text-gray-500 text-sm mt-1 leading-snug">${l.description}</p>` : ''}
+              <p class="text-green-600 text-xs mt-2 truncate">${l.url}</p>
+            </div>
+            <span class="text-gray-300 group-hover:text-green-400 transition-colors flex-shrink-0 mt-1">→</span>
+          </a>
+        `).join('')}
+      </div>
+    </div>
+  `).join('')
+
+  const groups = await db.prepare(`SELECT * FROM scout_groups WHERE is_active=1 ORDER BY display_order ASC`).all()
+
+  return c.html(`${pageHead('相關網頁 - 林口康橋童軍團')}
+<body class="bg-gray-50">
+  ${navBar(settings, groups.results)}
+  <div class="hero-gradient text-white py-14 px-4">
+    <div class="max-w-4xl mx-auto">
+      <div class="flex items-center gap-2 text-green-300 text-sm mb-4 flex-wrap">
+        <a href="/" class="hover:text-white transition-colors">首頁</a>
+        <span>›</span>
+        <span class="text-white">相關網頁</span>
+      </div>
+      <div class="flex items-center gap-4">
+        <span class="text-4xl">🔗</span>
+        <div>
+          <h1 class="text-2xl md:text-3xl font-bold">相關網頁</h1>
+          <p class="text-green-200 mt-1">Scout Related Links · 國內外童軍相關網站</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="max-w-5xl mx-auto px-4 py-10">
+    ${links.results.length === 0
+      ? `<div class="text-center py-20 text-gray-400">
+          <div class="text-5xl mb-4">🔗</div>
+          <p class="text-lg">尚無相關連結</p>
+          <p class="text-sm mt-1">請至後台管理介面新增</p>
+        </div>`
+      : categoryBlocks
+    }
+  </div>
+  ${pageFooter(settings)}
+`)
+})
+
 // ===================== 分組首頁（學期列表）=====================
 frontendRoutes.get('/group/:slug', async (c) => {
   const db = c.env.DB
@@ -1157,19 +1231,40 @@ frontendRoutes.get('/group/:slug/alumni', async (c) => {
   return c.html(renderSubPage(group, 'alumni', alumni.results, settings))
 })
 
-// 教練團頁（行義團專用）
+// 教練團頁（含服務員 + 指導教練兩區塊）
 frontendRoutes.get('/group/:slug/coaches-list', async (c) => {
   const db = c.env.DB
   const slug = c.req.param('slug')
   const group = await db.prepare(`SELECT * FROM scout_groups WHERE slug=? AND is_active=1`).bind(slug).first() as any
   if (!group) return c.notFound()
-  const coaches = await db.prepare(`
-    SELECT * FROM coach_members WHERE section_assigned=? OR section_assigned IS NULL ORDER BY year_label DESC, chinese_name ASC
-  `).bind(group.name).all()
+
+  // 服務員：從成員名冊中取得 section='服務員' 的有效成員
+  const leaders = await db.prepare(`
+    SELECT m.id, m.chinese_name, m.english_name, m.role_name, m.rank_level, m.unit_name, m.troop
+    FROM members m
+    WHERE m.section = '服務員' AND UPPER(m.membership_status) = 'ACTIVE'
+    ORDER BY
+      CASE m.role_name
+        WHEN '團長' THEN 1
+        WHEN '副團長' THEN 2
+        WHEN '群長' THEN 3
+        WHEN '副群長' THEN 4
+        ELSE 5
+      END,
+      m.chinese_name ASC
+  `).all()
+
+  // 指導教練：從教練團資料取得 coach_level='指導教練' 的人員
+  const instructors = await db.prepare(`
+    SELECT * FROM coach_members
+    WHERE coach_level = '指導教練'
+    ORDER BY chinese_name ASC
+  `).all()
+
   const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
   const settings: Record<string, string> = {}
   settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
-  return c.html(renderCoachesList(group, coaches.results, settings))
+  return c.html(renderCoachesList(group, leaders.results, instructors.results, settings))
 })
 
 // ===================== 學期相片頁 =====================
@@ -1227,6 +1322,7 @@ function navBar(settings: Record<string, string>, groups: any[] = []) {
         <a href="/coaches" class="hover:text-amber-300 transition-colors hidden md:inline">🧢 教練團</a>
         <a href="/stats" class="hover:text-amber-300 transition-colors hidden md:inline">📊 統計</a>
         <a href="/attendance" class="hover:text-amber-300 transition-colors hidden md:inline">📅 出席</a>
+        <a href="/links" class="hover:text-amber-300 transition-colors hidden md:inline">🔗 相關網頁</a>
         <a href="/#about" class="hover:text-amber-300 transition-colors hidden md:inline">關於我們</a>
         <a href="/member" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">👤 會員入口</a>
         <a href="/admin" class="bg-amber-500 hover:bg-amber-400 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">⚙ 後台管理</a>
@@ -1581,6 +1677,25 @@ function renderHomePage(activities: any[], groups: any[], settings: Record<strin
   <div class="max-w-6xl mx-auto px-4 py-10">
     ${announcementsHtml}
 
+    <!-- 關於我們（移至最上方，讓訪客第一眼認識童軍團） -->
+    <section id="about" class="mb-14">
+      <h2 class="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
+        <i class="fas fa-info-circle text-[#1a472a]"></i> 關於我們
+      </h2>
+      <p class="text-gray-500 mb-6">About Us</p>
+      <div class="bg-white rounded-xl shadow-md p-8">
+        <p class="text-gray-700 leading-relaxed mb-4">${settings.about_text_zh || ''}</p>
+        <p class="text-gray-500 leading-relaxed text-sm italic">${settings.about_text_en || ''}</p>
+        ${settings.facebook_url ? `
+          <div class="mt-6">
+            <a href="${settings.facebook_url}" target="_blank" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg transition-colors">
+              <i class="fab fa-facebook"></i> 追蹤我們的 Facebook
+            </a>
+          </div>
+        ` : ''}
+      </div>
+    </section>
+
     <!-- 童軍分組（可點擊） -->
     <section id="groups" class="mb-14">
       <h2 class="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
@@ -1644,25 +1759,6 @@ function renderHomePage(activities: any[], groups: any[], settings: Record<strin
         </a>
       </div>
     </section>` : ''}
-
-    <!-- 關於我們 -->
-    <section id="about" class="mb-10">
-      <h2 class="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
-        <i class="fas fa-info-circle text-[#1a472a]"></i> 關於我們
-      </h2>
-      <p class="text-gray-500 mb-6">About Us</p>
-      <div class="bg-white rounded-xl shadow-md p-8">
-        <p class="text-gray-700 leading-relaxed mb-4">${settings.about_text_zh || ''}</p>
-        <p class="text-gray-500 leading-relaxed text-sm italic">${settings.about_text_en || ''}</p>
-        ${settings.facebook_url ? `
-          <div class="mt-6">
-            <a href="${settings.facebook_url}" target="_blank" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg transition-colors">
-              <i class="fab fa-facebook"></i> 追蹤我們的 Facebook
-            </a>
-          </div>
-        ` : ''}
-      </div>
-    </section>
   </div>
 
   <footer class="bg-[#1a472a] text-white py-8 mt-8">
@@ -2459,59 +2555,71 @@ function renderCadresPage(group: any, cadres: any[], orgChart: any, settings: Re
 }
 
 // ===================== 教練團頁（行義團）=====================
-function renderCoachesList(group: any, coaches: any[], settings: Record<string, string>) {
+function renderCoachesList(group: any, leaders: any[], instructors: any[], settings: Record<string, string>) {
   const subNavHtml = `
     <a href="/group/${group.slug}" class="bg-white text-gray-600 hover:bg-gray-50 border border-gray-200 px-4 py-2 rounded-lg text-sm transition-colors">← 相片集</a>
-    <a href="/group/${group.slug}/org" class="bg-white text-green-800 hover:bg-green-50 border border-green-200 px-4 py-2 rounded-lg text-sm transition-colors">行義團組織架構</a>
+    <a href="/group/${group.slug}/org" class="bg-white text-green-800 hover:bg-green-50 border border-green-200 px-4 py-2 rounded-lg text-sm transition-colors">${group.name}組織架構</a>
     <a href="/group/${group.slug}/coaches-list" class="bg-green-700 text-white font-bold border border-green-700 px-4 py-2 rounded-lg text-sm">教練團</a>
-    <a href="/group/${group.slug}/cadres" class="bg-white text-green-800 hover:bg-green-50 border border-green-200 px-4 py-2 rounded-lg text-sm transition-colors">行義團現任幹部</a>
-    <a href="/group/${group.slug}/past-cadres" class="bg-white text-green-800 hover:bg-green-50 border border-green-200 px-4 py-2 rounded-lg text-sm transition-colors">行義團歷屆幹部</a>
-    <a href="/group/${group.slug}/alumni" class="bg-white text-green-800 hover:bg-green-50 border border-green-200 px-4 py-2 rounded-lg text-sm transition-colors">行義團歷屆名單</a>
+    <a href="/group/${group.slug}/cadres" class="bg-white text-green-800 hover:bg-green-50 border border-green-200 px-4 py-2 rounded-lg text-sm transition-colors">${group.name}現任幹部</a>
+    <a href="/group/${group.slug}/past-cadres" class="bg-white text-green-800 hover:bg-green-50 border border-green-200 px-4 py-2 rounded-lg text-sm transition-colors">${group.name}歷屆幹部</a>
+    <a href="/group/${group.slug}/alumni" class="bg-white text-green-800 hover:bg-green-50 border border-green-200 px-4 py-2 rounded-lg text-sm transition-colors">${group.name}歷屆名單</a>
   `
-  let contentHtml = ''
-  if (!coaches || coaches.length === 0) {
-    contentHtml = `<div class="text-center py-20 text-gray-400">
-      <div class="text-5xl mb-4">🧢</div>
-      <p class="text-lg">尚無教練團資料</p>
-      <p class="text-sm mt-1 text-gray-300">請至後台管理介面新增</p>
-    </div>`
-  } else {
-    const byYear: Record<string, any[]> = {}
-    coaches.forEach((c: any) => {
-      const y = c.year_label || '未知年度'
-      if (!byYear[y]) byYear[y] = []
-      byYear[y].push(c)
-    })
-    const yearBlocks = Object.entries(byYear).sort((a, b) => b[0].localeCompare(a[0])).map(([year, members]) => {
-      const cards = members.map((c: any) => `
-        <div class="bg-white rounded-xl shadow-sm border border-blue-100 p-5 flex items-start gap-4">
+
+  // ===== 服務員區塊 =====
+  const roleOrder: Record<string, number> = { '團長': 1, '副團長': 2, '群長': 3, '副群長': 4 }
+  const leaderRoleBadge: Record<string, string> = {
+    '團長': 'bg-amber-100 text-amber-800 border border-amber-200',
+    '副團長': 'bg-orange-100 text-orange-800 border border-orange-200',
+    '群長': 'bg-yellow-100 text-yellow-800 border border-yellow-200',
+    '副群長': 'bg-yellow-50 text-yellow-700 border border-yellow-200',
+  }
+
+  const leaderCards = leaders.length === 0
+    ? `<p class="text-gray-400 text-sm py-4">尚無服務員資料，請至後台「服務員管理」新增。</p>`
+    : leaders.map((m: any) => {
+        const roleName = m.role_name || '服務員'
+        const badge = leaderRoleBadge[roleName] || 'bg-gray-100 text-gray-600 border border-gray-200'
+        return `
+          <div class="bg-white rounded-xl shadow-sm border border-amber-100 p-5 flex items-center gap-4">
+            <div class="w-16 h-16 rounded-full bg-gradient-to-br from-amber-100 to-amber-200 flex items-center justify-center flex-shrink-0 text-2xl">🎖️</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-bold text-gray-800 text-base">${m.chinese_name}</span>
+                ${m.english_name ? `<span class="text-gray-400 text-xs">${m.english_name}</span>` : ''}
+              </div>
+              <div class="flex items-center gap-2 mt-1.5 flex-wrap">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${badge}">${roleName}</span>
+                ${m.rank_level ? `<span class="text-gray-400 text-xs">${m.rank_level}</span>` : ''}
+              </div>
+              ${m.unit_name || m.troop ? `<p class="text-gray-400 text-xs mt-1">${m.unit_name || m.troop}</p>` : ''}
+            </div>
+          </div>
+        `
+      }).join('')
+
+  // ===== 指導教練區塊 =====
+  const instructorCards = instructors.length === 0
+    ? `<p class="text-gray-400 text-sm py-4">尚無指導教練資料，請至後台「教練團」新增。</p>`
+    : instructors.map((c: any) => `
+        <div class="bg-white rounded-xl shadow-sm border border-purple-100 p-5 flex items-center gap-4">
           ${c.photo_url
-            ? `<img src="${c.photo_url}" alt="${c.chinese_name}" class="w-16 h-16 rounded-full object-cover flex-shrink-0 border-2 border-blue-200" onerror="this.style.display='none'">`
-            : `<div class="w-16 h-16 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center flex-shrink-0 text-2xl">🧢</div>`
+            ? `<img src="${c.photo_url}" alt="${c.chinese_name}" class="w-16 h-16 rounded-full object-cover flex-shrink-0 border-2 border-purple-200" onerror="this.style.display='none'">`
+            : `<div class="w-16 h-16 rounded-full bg-gradient-to-br from-purple-100 to-purple-200 flex items-center justify-center flex-shrink-0 text-2xl">🏫</div>`
           }
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="font-bold text-gray-800 text-lg">${c.chinese_name}</span>
-              ${c.english_name ? `<span class="text-gray-400 text-sm">${c.english_name}</span>` : ''}
+              <span class="font-bold text-gray-800 text-base">${c.chinese_name}</span>
+              ${c.english_name ? `<span class="text-gray-400 text-xs">${c.english_name}</span>` : ''}
             </div>
-            <span class="inline-block mt-1 bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-1 rounded-full">${c.coach_level || '教練'}</span>
-            ${c.specialties ? `<p class="text-gray-500 text-sm mt-1">專長：${c.specialties}</p>` : ''}
-            ${c.notes ? `<p class="text-gray-400 text-xs mt-1">${c.notes}</p>` : ''}
+            <div class="flex items-center gap-2 mt-1.5 flex-wrap">
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 border border-purple-200">指導教練</span>
+              ${c.section_assigned && c.section_assigned !== '未指定' ? `<span class="text-gray-400 text-xs">${c.section_assigned}</span>` : ''}
+            </div>
+            ${c.specialties ? `<p class="text-gray-500 text-xs mt-1">專長：${c.specialties}</p>` : ''}
+            ${c.notes ? `<p class="text-gray-400 text-xs mt-0.5">${c.notes}</p>` : ''}
           </div>
         </div>
       `).join('')
-      return `
-        <div class="mb-8">
-          <h3 class="text-lg font-bold text-blue-800 mb-4 flex items-center gap-2">
-            <span class="w-8 h-8 bg-blue-700 text-white rounded-full flex items-center justify-center text-sm font-bold">${year.slice(-2)}</span>
-            民國 ${year} 學年度教練團
-            <span class="text-sm font-normal text-gray-400 ml-auto">${members.length} 位教練</span>
-          </h3>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${cards}</div>
-        </div>`
-    }).join('')
-    contentHtml = yearBlocks
-  }
 
   return `${pageHead(`教練團 - ${group.name} - 林口康橋童軍團`)}
 <body class="bg-gray-50">
@@ -2538,7 +2646,36 @@ function renderCoachesList(group: any, coaches: any[], settings: Record<string, 
     <div class="flex flex-wrap gap-2 mb-8">
       ${subNavHtml}
     </div>
-    ${contentHtml}
+
+    <!-- 服務員區塊 -->
+    <section class="mb-12">
+      <div class="flex items-center gap-3 mb-5">
+        <div class="w-1 h-8 bg-amber-500 rounded-full"></div>
+        <div>
+          <h2 class="text-xl font-bold text-gray-800">🎖️ 服務員</h2>
+          <p class="text-gray-400 text-sm">Scout Leaders · 帶領學員成長的夥伴</p>
+        </div>
+        <span class="ml-auto text-sm text-amber-600 font-medium bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">${leaders.length} 位</span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        ${leaderCards}
+      </div>
+    </section>
+
+    <!-- 指導教練區塊 -->
+    <section class="mb-12">
+      <div class="flex items-center gap-3 mb-5">
+        <div class="w-1 h-8 bg-purple-500 rounded-full"></div>
+        <div>
+          <h2 class="text-xl font-bold text-gray-800">🏫 指導教練</h2>
+          <p class="text-gray-400 text-sm">Instructor Coaches · 提供專業指導與訓練</p>
+        </div>
+        <span class="ml-auto text-sm text-purple-600 font-medium bg-purple-50 border border-purple-200 px-3 py-1 rounded-full">${instructors.length} 位</span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        ${instructorCards}
+      </div>
+    </section>
   </div>
   ${pageFooter(settings)}
 `

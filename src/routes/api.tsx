@@ -2952,3 +2952,40 @@ apiRoutes.post('/admin/group-cadres-from-roster', async (c) => {
     return c.json({ success: false, error: e.message })
   }
 })
+
+// ===================== 相關網頁 CRUD =====================
+apiRoutes.post('/admin/site-links', async (c) => {
+  const db = c.env.DB
+  const { title, url, description, category, icon_emoji, display_order, is_active } = await c.req.json() as any
+  if (!title || !url) return c.json({ success: false, error: '標題和網址為必填' })
+  try {
+    await db.prepare(`
+      INSERT INTO site_links (title, url, description, category, icon_emoji, display_order, is_active)
+      VALUES (?,?,?,?,?,?,?)
+    `).bind(title, url, description || null, category || '其他', icon_emoji || '🔗', display_order ?? 0, is_active ?? 1).run()
+    return c.json({ success: true })
+  } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
+
+apiRoutes.put('/admin/site-links/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const { title, url, description, category, icon_emoji, display_order, is_active } = await c.req.json() as any
+  if (!title || !url) return c.json({ success: false, error: '標題和網址為必填' })
+  try {
+    await db.prepare(`
+      UPDATE site_links SET title=?, url=?, description=?, category=?, icon_emoji=?, display_order=?, is_active=?
+      WHERE id=?
+    `).bind(title, url, description || null, category || '其他', icon_emoji || '🔗', display_order ?? 0, is_active ?? 1, id).run()
+    return c.json({ success: true })
+  } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
+
+apiRoutes.delete('/admin/site-links/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  try {
+    await db.prepare(`DELETE FROM site_links WHERE id=?`).bind(id).run()
+    return c.json({ success: true })
+  } catch(e: any) { return c.json({ success: false, error: e.message }) }
+})
