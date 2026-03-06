@@ -54,24 +54,81 @@ frontendRoutes.get('/honor', async (c) => {
   const settings: Record<string, string> = {}
   settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
 
-  // 取得所有進程記錄，按類型分組
-  const rankRecords = await db.prepare(`
-    SELECT pr.*, m.chinese_name, m.section
+  // ── 進程階層定義 ──────────────────────────────────────────
+  // 每人只取「最高階段」，依此優先序判斷
+  const rankPriority: Record<string, number> = {
+    // 童軍 / 行義 階段（數字越大越高）
+    '見習童軍': 1,
+    '初級童軍': 2,
+    '中級童軍': 3,
+    '高級童軍': 4,
+    '獅級童軍': 5,
+    '長城童軍': 6,
+    '國花童軍': 7,
+    // 羅浮階段
+    '見習羅浮': 10,
+    '授銜羅浮': 11,
+    '服務羅浮': 12,
+    // 行義特殊
+    '初級行義': 2,
+  }
+
+  // 三階段分層定義
+  // 第一階（全國性）：績優童軍團、優秀童軍獎章、國花童軍、服務羅浮
+  // 第二階（縣市級）：長城童軍、獅級童軍、高級童軍、授銜羅浮
+  // 第三階（童軍團）：榮譽小隊、中級童軍、初級童軍、見習羅浮
+  const tier1Ranks = ['國花童軍', '服務羅浮']
+  const tier2Ranks = ['長城童軍', '獅級童軍', '高級童軍', '授銜羅浮']
+  const tier3Ranks = ['中級童軍', '初級童軍', '見習羅浮']
+
+  // ── 取每人最高晉級階段（童軍/行義用一套優先序，羅浮獨立）──
+  // 使用 subquery 取每人最高 priority 的紀錄
+  const allRankRecords = await db.prepare(`
+    SELECT pr.member_id, pr.award_name, pr.year_label, m.chinese_name, m.section
     FROM progress_records pr
     JOIN members m ON m.id = pr.member_id
     WHERE pr.record_type = 'rank'
-    ORDER BY pr.year_label DESC, pr.award_name, m.chinese_name
+    ORDER BY m.chinese_name
   `).all()
 
-  const awardRecords = await db.prepare(`
-    SELECT pr.*, m.chinese_name, m.section
+  // 每人只保留最高階段（分童軍/行義組 vs 羅浮組）
+  const memberHighestRank: Record<string, {award_name: string, year_label: string, chinese_name: string, section: string}> = {}
+  ;(allRankRecords.results as any[]).forEach((r: any) => {
+    const key = r.member_id
+    const pri = rankPriority[r.award_name] ?? 0
+    if (!memberHighestRank[key]) {
+      memberHighestRank[key] = r
+    } else {
+      const curPri = rankPriority[memberHighestRank[key].award_name] ?? 0
+      if (pri > curPri) memberHighestRank[key] = r
+    }
+  })
+
+  // 按最高獎項名稱分組
+  const grouped: Record<string, Array<{chinese_name: string, section: string, year_label: string}>> = {}
+  Object.values(memberHighestRank).forEach((r: any) => {
+    const award = r.award_name
+    if (!grouped[award]) grouped[award] = []
+    grouped[award].push({ chinese_name: r.chinese_name, section: r.section, year_label: r.year_label })
+  })
+  // 按姓名排序
+  Object.values(grouped).forEach(arr => arr.sort((a, b) => a.chinese_name.localeCompare(b.chinese_name)))
+
+  // ── 優秀童軍 / 績優童軍團（achievement/award 類型）──
+  const specialAwardRecords = await db.prepare(`
+    SELECT pr.award_name, pr.year_label, m.chinese_name, m.section
     FROM progress_records pr
     JOIN members m ON m.id = pr.member_id
     WHERE pr.record_type IN ('achievement', 'award')
-    ORDER BY pr.year_label DESC, pr.award_name, m.chinese_name
+    ORDER BY pr.award_name, m.chinese_name
   `).all()
+  const specialGrouped: Record<string, any[]> = {}
+  ;(specialAwardRecords.results as any[]).forEach((r: any) => {
+    if (!specialGrouped[r.award_name]) specialGrouped[r.award_name] = []
+    specialGrouped[r.award_name].push(r)
+  })
 
-  // 取得公告的榮譽小隊記錄（最新20筆）
+  // ── 榮譽小隊（公告記錄）──
   const honorPatrolRecords = await db.prepare(`
     SELECT hp.*, ats.title as session_title, ats.date as session_date
     FROM honor_patrol_records hp
@@ -81,119 +138,176 @@ frontendRoutes.get('/honor', async (c) => {
     LIMIT 20
   `).all()
 
-  // 按獎項名稱分組
-  const grouped: Record<string, any[]> = {}
-  rankRecords.results.forEach((r: any) => {
-    if (!grouped[r.award_name]) grouped[r.award_name] = []
-    grouped[r.award_name].push(r)
-  })
+  // ── 輔助：產生成員 chip ────────────────────────────────
+  const makeChip = (m: any, borderColor: string, textColor: string, bgBadge: string, textBadge: string) => `
+    <div class="inline-flex items-center gap-1.5 bg-white rounded-full px-3 py-1.5 shadow-sm border ${borderColor} text-sm">
+      <span class="${textColor} font-medium">${m.chinese_name}</span>
+      <span class="text-gray-400 text-xs">${m.section}</span>
+      ${(m.year_label && m.year_label !== 'null') ? `<span class="text-xs ${bgBadge} ${textBadge} px-1.5 py-0.5 rounded-full">${m.year_label}</span>` : ''}
+    </div>`
 
-  const awardGrouped: Record<string, any[]> = {}
-  awardRecords.results.forEach((r: any) => {
-    if (!awardGrouped[r.award_name]) awardGrouped[r.award_name] = []
-    awardGrouped[r.award_name].push(r)
-  })
-
-  const rankOrder = ['初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮']
-  const rankCards = rankOrder.filter(r => grouped[r]?.length > 0).map(rankName => {
+  // ── 輔助：產生獎項區塊 ────────────────────────────────
+  const makeRankBlock = (rankName: string, emoji: string, gradient: string, border: string, headColor: string, chipBorder: string, chipText: string, chipBg: string, chipBadgeText: string) => {
     const members = grouped[rankName]
-    const memberChips = members.map(m => `
-      <div class="flex items-center gap-2 bg-white rounded-lg px-3 py-2 shadow-sm border border-green-100">
-        <span class="text-green-700 font-medium text-sm">${m.chinese_name}</span>
-        <span class="text-xs text-gray-400">${m.section}</span>
-        ${m.year_label ? '<span class="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded">' + m.year_label + '年</span>' : ''}
-      </div>
-    `).join('')
+    if (!members?.length) return ''
+    const chips = members.map(m => makeChip(m, chipBorder, chipText, chipBg, chipBadgeText)).join('\n')
     return `
-      <div class="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5">
-        <h3 class="font-bold text-green-800 text-lg mb-3 flex items-center gap-2">
-          🏅 ${rankName}
-          <span class="text-sm font-normal text-green-600 bg-white px-2 py-0.5 rounded-full">${members.length} 位</span>
-        </h3>
-        <div class="flex flex-wrap gap-2">${memberChips}</div>
+    <div class="bg-gradient-to-br ${gradient} border ${border} rounded-2xl p-5">
+      <div class="flex items-center gap-2 mb-4">
+        <span class="text-2xl">${emoji}</span>
+        <h3 class="${headColor} font-bold text-lg">${rankName}</h3>
+        <span class="ml-auto text-sm font-semibold bg-white/60 px-3 py-0.5 rounded-full ${headColor}">${members.length} 位</span>
       </div>
-    `
-  }).join('')
+      <div class="flex flex-wrap gap-2">${chips}</div>
+    </div>`
+  }
 
-  const awardCards = Object.entries(awardGrouped).map(([awardName, members]) => {
-    const memberChips = members.map((m: any) => `
-      <div class="flex items-center gap-2 bg-white rounded-lg px-3 py-2 shadow-sm border border-amber-100">
-        <span class="text-amber-700 font-medium text-sm">${m.chinese_name}</span>
-        <span class="text-xs text-gray-400">${m.section}</span>
-        ${m.year_label ? '<span class="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">' + m.year_label + '年</span>' : ''}
-      </div>
-    `).join('')
+  // ── 三個層級的區塊 ────────────────────────────────────
+  // 第一階：全國性
+  const tier1RankBlocks = [
+    makeRankBlock('國花童軍',   '🌺', 'from-rose-50 to-pink-50',     'border-rose-200',   'text-rose-800',   'border-rose-200',   'text-rose-700',   'bg-rose-50',   'text-rose-600'),
+    makeRankBlock('服務羅浮',   '🦁', 'from-purple-50 to-violet-50', 'border-purple-200', 'text-purple-800', 'border-purple-200', 'text-purple-700', 'bg-purple-50', 'text-purple-600'),
+  ].filter(Boolean)
+  // 特殊獎章（優秀童軍、績優童軍團等）也在第一階
+  const specialBlocks = Object.entries(specialGrouped).map(([awardName, members]) => {
+    const chips = members.map(m => makeChip(m, 'border-amber-200', 'text-amber-800', 'bg-amber-50', 'text-amber-600')).join('\n')
     return `
-      <div class="bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-5">
-        <h3 class="font-bold text-amber-800 text-lg mb-3 flex items-center gap-2">
-          🌟 ${awardName}
-          <span class="text-sm font-normal text-amber-600 bg-white px-2 py-0.5 rounded-full">${(members as any[]).length} 位</span>
-        </h3>
-        <div class="flex flex-wrap gap-2">${memberChips}</div>
+    <div class="bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200 rounded-2xl p-5">
+      <div class="flex items-center gap-2 mb-4">
+        <span class="text-2xl">🌟</span>
+        <h3 class="text-amber-800 font-bold text-lg">${awardName}</h3>
+        <span class="ml-auto text-sm font-semibold bg-white/60 px-3 py-0.5 rounded-full text-amber-700">${members.length} 位</span>
       </div>
-    `
-  }).join('')
+      <div class="flex flex-wrap gap-2">${chips}</div>
+    </div>`
+  })
 
-  // 榮譽小隊公告卡片
-  const honorPatrolCards = (honorPatrolRecords.results as any[]).map((h: any) => {
-    const sectionLabel: Record<string,string> = {junior:'童軍',senior:'行義童軍',rover:'羅浮童軍',all:'全體'}
-    return `
-      <div class="bg-gradient-to-br from-yellow-50 to-amber-50 border border-yellow-300 rounded-xl p-5">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="text-2xl">🏆</span>
-          <div>
-            <div class="font-bold text-amber-900 text-lg">${h.patrol_name}</div>
-            <div class="text-xs text-amber-600">${sectionLabel[h.section] || h.section}${h.year_label ? ' · ' + h.year_label + '學年' : ''}</div>
-          </div>
+  // 第二階：縣市級
+  const tier2RankBlocks = [
+    makeRankBlock('長城童軍',   '🏯', 'from-blue-50 to-sky-50',      'border-blue-200',   'text-blue-800',   'border-blue-200',   'text-blue-700',   'bg-blue-50',   'text-blue-600'),
+    makeRankBlock('獅級童軍',   '🦁', 'from-indigo-50 to-blue-50',   'border-indigo-200', 'text-indigo-800', 'border-indigo-200', 'text-indigo-700', 'bg-indigo-50', 'text-indigo-600'),
+    makeRankBlock('高級童軍',   '⭐', 'from-cyan-50 to-sky-50',      'border-cyan-200',   'text-cyan-800',   'border-cyan-200',   'text-cyan-700',   'bg-cyan-50',   'text-cyan-600'),
+    makeRankBlock('授銜羅浮',   '🧭', 'from-violet-50 to-purple-50', 'border-violet-200', 'text-violet-800', 'border-violet-200', 'text-violet-700', 'bg-violet-50', 'text-violet-600'),
+  ].filter(Boolean)
+
+  // 第三階：童軍團
+  // 榮譽小隊卡片
+  const sectionLabel: Record<string,string> = {junior:'童軍',senior:'行義童軍',rover:'羅浮童軍',all:'全體'}
+  const honorPatrolCards = (honorPatrolRecords.results as any[]).map((h: any) => `
+    <div class="bg-gradient-to-br from-yellow-50 to-amber-50 border border-yellow-300 rounded-2xl p-5">
+      <div class="flex items-center gap-3 mb-2">
+        <span class="text-3xl">🏆</span>
+        <div>
+          <div class="font-bold text-amber-900 text-base">${h.patrol_name}</div>
+          <div class="text-xs text-amber-600">${sectionLabel[h.section] || h.section}${h.year_label ? ' · ' + h.year_label + ' 學年' : ''}</div>
         </div>
-        ${h.reason ? '<p class="text-sm text-gray-600 mt-1">' + h.reason + '</p>' : ''}
-        <div class="text-xs text-gray-400 mt-2">場次：${h.session_title} · ${h.session_date}</div>
       </div>
-    `
-  }).join('')
+      ${h.reason ? `<p class="text-sm text-gray-600 mt-1 mb-2">${h.reason}</p>` : ''}
+      <div class="text-xs text-gray-400">場次：${h.session_title} · ${h.session_date}</div>
+    </div>
+  `).join('')
+
+  const tier3RankBlocks = [
+    makeRankBlock('中級童軍',   '🥈', 'from-green-50 to-emerald-50', 'border-green-200',  'text-green-800',  'border-green-200',  'text-green-700',  'bg-green-50',  'text-green-600'),
+    makeRankBlock('初級童軍',   '🥉', 'from-teal-50 to-green-50',    'border-teal-200',   'text-teal-800',   'border-teal-200',   'text-teal-700',   'bg-teal-50',   'text-teal-600'),
+    makeRankBlock('見習羅浮',   '🌱', 'from-purple-50 to-fuchsia-50','border-purple-100', 'text-purple-700', 'border-purple-100', 'text-purple-600', 'bg-purple-50', 'text-purple-500'),
+  ].filter(Boolean)
+
+  // ── 統計摘要 ─────────────────────────────────────────
+  const totalHonored = Object.keys(memberHighestRank).length
+  const tier1Count = [...tier1Ranks, ...Object.keys(specialGrouped)].reduce((s, n) => s + (grouped[n]?.length || specialGrouped[n]?.length || 0), 0)
+  const tier2Count = tier2Ranks.reduce((s, n) => s + (grouped[n]?.length || 0), 0)
+  const tier3Count = tier3Ranks.reduce((s, n) => s + (grouped[n]?.length || 0), 0) + (honorPatrolRecords.results as any[]).length
 
   return c.html(`${pageHead('榮譽榜 - 林口康橋童軍團')}
 <body class="bg-gray-50">
   ${navBar(settings)}
+
+  <!-- Hero -->
   <div class="hero-gradient text-white py-14 px-4">
     <div class="max-w-5xl mx-auto text-center">
-      <h1 class="text-3xl md:text-4xl font-bold mb-3">🏅 童軍榮譽榜</h1>
+      <div class="text-5xl mb-4">🏅</div>
+      <h1 class="text-3xl md:text-4xl font-bold mb-3">童軍榮譽榜</h1>
       <p class="text-green-200">Honor Roll · 記錄每一位童軍的成長與成就</p>
     </div>
   </div>
-  <div class="max-w-5xl mx-auto px-4 py-10">
-    ${honorPatrolCards ? `
-      <h2 class="text-xl font-bold text-gray-800 mb-5 flex items-center gap-2">
-        <span class="text-amber-600">🏆</span> 榮譽小隊公告
-      </h2>
-      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-10">
-        ${honorPatrolCards}
+
+  <!-- 摘要卡 -->
+  <div class="max-w-5xl mx-auto px-4 -mt-6 mb-8">
+    <div class="grid grid-cols-3 gap-3">
+      <div class="bg-white rounded-2xl shadow-md p-4 text-center border-t-4 border-rose-400">
+        <p class="text-2xl font-bold text-rose-600">${tier1Count}</p>
+        <p class="text-xs text-gray-500 mt-1">全國性榮譽</p>
       </div>
-    ` : ''}
-    ${rankCards || awardCards ? `
-      <h2 class="text-xl font-bold text-gray-800 mb-5 flex items-center gap-2">
-        <span class="text-green-700">📈</span> 晉級記錄
-      </h2>
-      <div class="grid md:grid-cols-2 gap-4 mb-10">
-        ${rankCards || '<p class="text-gray-400 col-span-2 py-4">尚無晉級記錄</p>'}
+      <div class="bg-white rounded-2xl shadow-md p-4 text-center border-t-4 border-blue-400">
+        <p class="text-2xl font-bold text-blue-600">${tier2Count}</p>
+        <p class="text-xs text-gray-500 mt-1">縣市級榮譽</p>
       </div>
-      ${awardCards ? `
-        <h2 class="text-xl font-bold text-gray-800 mb-5 flex items-center gap-2">
-          <span class="text-amber-600">🌟</span> 榮譽與成就
-        </h2>
-        <div class="grid md:grid-cols-2 gap-4">
-          ${awardCards}
-        </div>
-      ` : ''}
-    ` : (!honorPatrolCards ? '<div class="text-center py-20 text-gray-400">尚無榮譽記錄</div>' : '')}
-  </div>
-  <footer class="bg-[#1a472a] text-white py-8 mt-8">
-    <div class="max-w-6xl mx-auto px-4 text-center">
-      <div class="text-2xl mb-2">⚜️</div>
-      <p class="font-bold">${settings.site_title || 'KCISLK 林口康橋圓桌武士童軍團'}</p>
-      <a href="/" class="text-green-300 hover:text-white text-sm mt-2 inline-block">← 返回首頁</a>
+      <div class="bg-white rounded-2xl shadow-md p-4 text-center border-t-4 border-green-400">
+        <p class="text-2xl font-bold text-green-600">${tier3Count}</p>
+        <p class="text-xs text-gray-500 mt-1">童軍團榮譽</p>
+      </div>
     </div>
-  </footer>
+  </div>
+
+  <div class="max-w-5xl mx-auto px-4 pb-16">
+
+    ${(tier1RankBlocks.length > 0 || specialBlocks.length > 0) ? `
+    <!-- ══════════════ 第一階：全國性 ══════════════ -->
+    <div class="flex items-center gap-3 mb-5">
+      <div class="w-1 h-8 bg-rose-400 rounded-full"></div>
+      <div>
+        <h2 class="text-xl font-bold text-gray-800">第一階　全國性榮譽</h2>
+        <p class="text-xs text-gray-500 mt-0.5">績優童軍團 · 優秀童軍獎章 · 國花童軍獎章 · 服務羅浮獎章</p>
+      </div>
+    </div>
+    <div class="grid md:grid-cols-2 gap-4 mb-10">
+      ${[...tier1RankBlocks, ...specialBlocks].join('') || '<p class="text-gray-400 col-span-2 py-6 text-center">尚無全國性榮譽記錄</p>'}
+    </div>` : ''}
+
+    ${tier2RankBlocks.length > 0 ? `
+    <!-- ══════════════ 第二階：縣市級 ══════════════ -->
+    <div class="flex items-center gap-3 mb-5">
+      <div class="w-1 h-8 bg-blue-400 rounded-full"></div>
+      <div>
+        <h2 class="text-xl font-bold text-gray-800">第二階　縣市級榮譽</h2>
+        <p class="text-xs text-gray-500 mt-0.5">長城童軍獎章 · 獅級童軍獎章 · 高級童軍獎章 · 授銜羅浮獎章</p>
+      </div>
+    </div>
+    <div class="grid md:grid-cols-2 gap-4 mb-10">
+      ${tier2RankBlocks.join('')}
+    </div>` : ''}
+
+    <!-- ══════════════ 第三階：童軍團 ══════════════ -->
+    <div class="flex items-center gap-3 mb-5">
+      <div class="w-1 h-8 bg-green-400 rounded-full"></div>
+      <div>
+        <h2 class="text-xl font-bold text-gray-800">第三階　童軍團榮譽</h2>
+        <p class="text-xs text-gray-500 mt-0.5">榮譽小隊 · 中級童軍 · 初級童軍 · 見習羅浮</p>
+      </div>
+    </div>
+
+    ${honorPatrolCards ? `
+    <h3 class="font-semibold text-gray-700 mb-3 flex items-center gap-2 ml-4">
+      <span>🏆</span> 榮譽小隊公告
+    </h3>
+    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+      ${honorPatrolCards}
+    </div>` : ''}
+
+    <div class="grid md:grid-cols-2 gap-4 mb-10">
+      ${tier3RankBlocks.join('') || '<p class="text-gray-400 col-span-2 py-6 text-center">尚無童軍團晉級記錄</p>'}
+    </div>
+
+    ${totalHonored === 0 && !honorPatrolCards ? `
+    <div class="text-center py-20 text-gray-400">
+      <p class="text-4xl mb-3">🏅</p>
+      <p>尚無榮譽記錄</p>
+    </div>` : ''}
+
+  </div>
+
+  ${pageFooter(settings)}
 </body></html>`)
 })
 
