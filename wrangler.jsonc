@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "webapp",
+  "name": "scout-management",
   "compatibility_date": "2026-02-28",
   "pages_build_output_dir": "./dist",
   "compatibility_flags": [
@@ -9,8 +9,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "webapp-production",
-      "database_id": "placeholder-will-update-after-create"
+      "database_name": "scout-management-production",
+      "database_id": "001fb707-f2b9-4790-90bd-03a6be67c7e9"
     }
   ]
 }
