@@ -9521,6 +9521,33 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
   // 總人數
   const total = await db.prepare(`SELECT COUNT(*) as c FROM members WHERE membership_status='ACTIVE'`).first() as any
 
+  // 各年度各組人數（歷年趨勢）
+  const yearSectionData = await db.prepare(`
+    SELECT year_label, section, COUNT(DISTINCT member_id) as count
+    FROM member_enrollments
+    WHERE is_active = 1
+    GROUP BY year_label, section
+    ORDER BY year_label ASC
+  `).all()
+
+  // 各年度總人數
+  const yearTotals = await db.prepare(`
+    SELECT year_label, COUNT(DISTINCT member_id) as count
+    FROM member_enrollments
+    WHERE is_active = 1
+    GROUP BY year_label
+    ORDER BY year_label ASC
+  `).all()
+
+  // 各年度晉級統計
+  const yearRankData = await db.prepare(`
+    SELECT pr.year_label, pr.award_name, COUNT(*) as count
+    FROM progress_records pr
+    WHERE pr.record_type = 'rank' AND pr.year_label IS NOT NULL
+    GROUP BY pr.year_label, pr.award_name
+    ORDER BY pr.year_label ASC
+  `).all()
+
   // 近期活動出席率（最近10場）
   const recentSessions = await db.prepare(`
     SELECT ats.title, ats.date, ats.section,
@@ -9546,9 +9573,68 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
   // 教練人數
   const coachTotal = await db.prepare(`SELECT COUNT(*) as c FROM coach_members`).first() as any
 
-  // 各組別出席率
-  const sectionColors: Record<string,string> = {'童軍':'bg-blue-500','行義童軍':'bg-green-500','羅浮童軍':'bg-purple-500','全體':'bg-gray-400'}
+  // ── 整理趨勢資料 ──
+  const yearsAsc = [...new Set((yearTotals.results as any[]).map((r: any) => r.year_label))].sort()
+  const latestYear = yearsAsc[yearsAsc.length - 1] || ''
 
+  const yearSectionMap: Record<string, Record<string, number>> = {}
+  ;(yearSectionData.results as any[]).forEach((r: any) => {
+    if (!yearSectionMap[r.year_label]) yearSectionMap[r.year_label] = {}
+    yearSectionMap[r.year_label][r.section] = r.count
+  })
+
+  const yearTotalMap: Record<string, number> = {}
+  ;(yearTotals.results as any[]).forEach((r: any) => { yearTotalMap[r.year_label] = r.count })
+
+  const rankYearMap: Record<string, Record<string, number>> = {}
+  ;(yearRankData.results as any[]).forEach((r: any) => {
+    if (!rankYearMap[r.award_name]) rankYearMap[r.award_name] = {}
+    rankYearMap[r.award_name][r.year_label] = (rankYearMap[r.award_name][r.year_label] || 0) + r.count
+  })
+
+  const mainSections = ['童軍','行義童軍','羅浮童軍','服務員']
+  const sectionColors: Record<string, string> = {
+    '童軍': '#22c55e', '行義童軍': '#3b82f6', '羅浮童軍': '#a855f7', '服務員': '#f59e0b'
+  }
+
+  // Chart.js 資料
+  const totalChartData = {
+    labels: yearsAsc.map(y => y + '年'),
+    datasets: [{
+      label: '在籍總人數',
+      data: yearsAsc.map(y => yearTotalMap[y] || 0),
+      borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)',
+      tension: 0.4, fill: true, pointRadius: 4, borderWidth: 2.5
+    }]
+  }
+
+  const sectionChartData = {
+    labels: yearsAsc.map(y => y + '年'),
+    datasets: mainSections.map(sec => ({
+      label: sec,
+      data: yearsAsc.map(y => yearSectionMap[y]?.[sec] || 0),
+      borderColor: sectionColors[sec] || '#888',
+      backgroundColor: (sectionColors[sec] || '#888') + '22',
+      tension: 0.4, fill: false, pointRadius: 3, borderWidth: 2
+    }))
+  }
+
+  const highRankDefs = [
+    { name: '獅級童軍', color: '#a855f7' },
+    { name: '長城童軍', color: '#3b82f6' },
+    { name: '國花童軍', color: '#ec4899' },
+  ]
+  const rankChartData = {
+    labels: yearsAsc.map(y => y + '年'),
+    datasets: highRankDefs.map(r => ({
+      label: r.name,
+      data: yearsAsc.map(y => rankYearMap[r.name]?.[y] || 0),
+      borderColor: r.color, backgroundColor: r.color + '22',
+      tension: 0.4, fill: false, pointRadius: 4, borderWidth: 2
+    }))
+  }
+
+  // ── 原有 HTML 元素 ──
   const sectionCards = sectionStats.results.map((s: any) => `
     <div class="bg-white rounded-xl shadow-sm p-5 text-center">
       <div class="text-3xl font-bold text-green-700">${s.count}</div>
@@ -9598,7 +9684,7 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
 
   return c.html(adminLayout('統計報表', `
     <!-- 總覽卡片 -->
-    <div class="grid grid-cols-4 gap-4 mb-6">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
       <div class="bg-white rounded-xl shadow-sm p-5 text-center">
         <div class="text-3xl font-bold text-green-700">${total?.c || 0}</div>
         <div class="text-sm text-gray-500 mt-1">在籍成員</div>
@@ -9607,6 +9693,67 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
       <div class="bg-white rounded-xl shadow-sm p-5 text-center">
         <div class="text-3xl font-bold text-blue-600">${coachTotal?.c || 0}</div>
         <div class="text-sm text-gray-500 mt-1">教練人數</div>
+      </div>
+    </div>
+
+    <!-- 歷年趨勢 Tab -->
+    <div class="bg-white rounded-xl shadow-sm mb-6">
+      <div class="flex border-b overflow-x-auto" id="admin-trend-tabs">
+        <button onclick="switchAdminTab('atotal')" id="atab-atotal"
+          class="admin-tab-btn flex-shrink-0 px-5 py-3 text-sm font-medium border-b-2 border-blue-600 text-blue-700 whitespace-nowrap">
+          📈 總人數趨勢
+        </button>
+        <button onclick="switchAdminTab('asection')" id="atab-asection"
+          class="admin-tab-btn flex-shrink-0 px-5 py-3 text-sm font-medium border-b-2 border-transparent text-gray-600 hover:text-gray-800 whitespace-nowrap">
+          👥 階段別趨勢
+        </button>
+        <button onclick="switchAdminTab('arank')" id="atab-arank"
+          class="admin-tab-btn flex-shrink-0 px-5 py-3 text-sm font-medium border-b-2 border-transparent text-gray-600 hover:text-gray-800 whitespace-nowrap">
+          ⚜️ 晉級趨勢
+        </button>
+      </div>
+      <div class="p-5">
+        <div id="apane-atotal" class="admin-tab-pane">
+          ${yearsAsc.length >= 2 ? `
+          <div class="flex gap-4 mb-3 flex-wrap">
+            ${(() => {
+              const vals = yearsAsc.map(y => yearTotalMap[y] || 0)
+              const last = vals[vals.length-1]
+              const prev = vals[vals.length-2]
+              const diff = prev ? last - prev : 0
+              const pct = prev ? (diff / prev * 100).toFixed(1) : '0'
+              return `
+              <div class="flex items-center gap-2 bg-blue-50 rounded-lg px-4 py-2">
+                <span class="text-2xl font-bold text-blue-700">${last}</span>
+                <div><p class="text-xs text-blue-500">最新年度人數</p>
+                <p class="text-xs ${diff>=0?'text-green-600':'text-red-500'}">${diff>=0?'↑':'↓'} ${Math.abs(diff)} 人 (${diff>=0?'+':''}${pct}%)</p></div>
+              </div>
+              <div class="flex items-center gap-2 bg-gray-50 rounded-lg px-4 py-2">
+                <span class="text-lg font-semibold text-gray-600">${yearsAsc.length}</span>
+                <p class="text-xs text-gray-500">年度記錄</p>
+              </div>`
+            })()}
+          </div>
+          <canvas id="admin-chart-total" height="60"></canvas>` : `<p class="text-gray-400 text-center py-8">需要至少兩個年度才能顯示趨勢</p>`}
+        </div>
+        <div id="apane-asection" class="admin-tab-pane hidden">
+          ${yearsAsc.length >= 2 ? `<canvas id="admin-chart-section" height="70"></canvas>` : `<p class="text-gray-400 text-center py-8">需要至少兩個年度才能顯示趨勢</p>`}
+        </div>
+        <div id="apane-arank" class="admin-tab-pane hidden">
+          ${yearsAsc.length >= 1 ? `
+          <div class="flex gap-3 mb-3 flex-wrap">
+            ${highRankDefs.map(r => {
+              const latest = rankYearMap[r.name]?.[latestYear] || 0
+              const total = Object.values(rankYearMap[r.name] || {}).reduce((s,v) => s+v, 0)
+              return `<div class="flex items-center gap-2 rounded-lg px-3 py-1.5" style="background:${r.color}11;border:1px solid ${r.color}33">
+                <span class="text-xl font-bold" style="color:${r.color}">${latest}</span>
+                <div><p class="text-xs font-medium" style="color:${r.color}">${r.name}</p>
+                <p class="text-xs text-gray-400">累計 ${total} 人</p></div>
+              </div>`
+            }).join('')}
+          </div>
+          <canvas id="admin-chart-rank" height="60"></canvas>` : `<p class="text-gray-400 text-center py-8">尚無晉級記錄</p>`}
+        </div>
       </div>
     </div>
 
@@ -9644,6 +9791,63 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
         </div>
       </div>
     </div>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"><\/script>
+    <script>
+      const TOTAL_DATA = ${JSON.stringify(totalChartData)};
+      const SECTION_DATA = ${JSON.stringify(sectionChartData)};
+      const RANK_DATA = ${JSON.stringify(rankChartData)};
+      let adminCharts = {};
+
+      const CHART_OPTS = {
+        responsive: true,
+        interaction: { intersect: false, mode: 'index' },
+        plugins: {
+          legend: { position: 'bottom', labels: { usePointStyle: true, padding: 12, font: { size: 11 } } },
+          tooltip: { backgroundColor: 'rgba(17,24,39,0.9)', padding: 8, cornerRadius: 6 }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+          y: { beginAtZero: true, grid: { color: '#f3f4f6' }, ticks: { font: { size: 10 }, precision: 0 } }
+        },
+        animation: { duration: 400 }
+      };
+
+      function switchAdminTab(tabId) {
+        document.querySelectorAll('.admin-tab-btn').forEach(b => {
+          b.classList.remove('border-blue-600','text-blue-700')
+          b.classList.add('border-transparent','text-gray-600')
+        })
+        document.querySelectorAll('.admin-tab-pane').forEach(p => p.classList.add('hidden'))
+        const btn = document.getElementById('atab-' + tabId)
+        if (btn) { btn.classList.add('border-blue-600','text-blue-700'); btn.classList.remove('border-transparent','text-gray-600') }
+        const pane = document.getElementById('apane-' + tabId)
+        if (pane) pane.classList.remove('hidden')
+        setTimeout(() => initAdminChart(tabId), 50)
+      }
+
+      function initAdminChart(tabId) {
+        if (tabId === 'atotal' && !adminCharts.total) {
+          const ctx = document.getElementById('admin-chart-total')
+          if (!ctx) return
+          adminCharts.total = new Chart(ctx, { type: 'line', data: TOTAL_DATA, options: { ...CHART_OPTS, plugins: { ...CHART_OPTS.plugins, legend: { display: false } } } })
+        }
+        if (tabId === 'asection' && !adminCharts.section) {
+          const ctx = document.getElementById('admin-chart-section')
+          if (!ctx) return
+          adminCharts.section = new Chart(ctx, { type: 'line', data: SECTION_DATA, options: CHART_OPTS })
+        }
+        if (tabId === 'arank' && !adminCharts.rank) {
+          const ctx = document.getElementById('admin-chart-rank')
+          if (!ctx) return
+          adminCharts.rank = new Chart(ctx, { type: 'bar', data: RANK_DATA, options: CHART_OPTS })
+        }
+      }
+
+      // 初始化第一個 tab 的圖表
+      setTimeout(() => initAdminChart('atotal'), 100)
+    <\/script>
   `))
 })
 
