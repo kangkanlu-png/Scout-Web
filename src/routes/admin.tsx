@@ -1759,7 +1759,8 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
 
   // 取得此年度在籍成員（含歷史參與年度統計）
   let enrollQuery = `
-    SELECT me.id as enroll_id, me.*, m.chinese_name, m.english_name, m.gender, m.national_id, m.dob, m.phone, m.email, m.parent_name,
+    SELECT me.id as enroll_id, me.*, m.chinese_name, m.english_name, m.gender, m.national_id, m.dob, m.phone, m.email, m.parent_name, m.country, m.university, m.membership_status,
+      me.notes as notes,
       (SELECT GROUP_CONCAT(year_label ORDER BY year_label) FROM member_enrollments WHERE member_id=m.id AND is_active=1 AND year_label != ?) as past_years
     FROM member_enrollments me
     JOIN members m ON m.id = me.member_id
@@ -2019,70 +2020,117 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
 
     <!-- 新增成員 Modal -->
     <div id="add-member-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-        <div class="p-5 border-b">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[92vh] overflow-y-auto">
+        <div class="p-5 border-b flex items-center justify-between">
           <h3 class="text-lg font-bold">＋ 新增 ${currentYear} 學年團員</h3>
+          <button onclick="document.getElementById('add-member-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 text-xl">✕</button>
         </div>
-        <div class="p-5 space-y-3">
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">中文姓名 *</label>
-              <input type="text" id="add-chinese_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="請輸入姓名">
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">英文姓名</label>
-              <input type="text" id="add-english_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="English Name">
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">性別</label>
-              <select id="add-gender" class="w-full border rounded-lg px-3 py-2 text-sm">
-                <option value="">未指定</option><option value="男">男</option><option value="女">女</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">身分證號</label>
-              <input type="text" id="add-national_id" class="w-full border rounded-lg px-3 py-2 text-sm uppercase" placeholder="A123456789">
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">生日</label>
-              <input type="date" id="add-dob" class="w-full border rounded-lg px-3 py-2 text-sm">
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">組別 *</label>
-              <select id="add-section" class="w-full border rounded-lg px-3 py-2 text-sm">
-                ${sectionList.map(s => `<option value="${s}">${s}</option>`).join('')}
-              </select>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">小隊</label>
-              <select id="add-unit_name" class="w-full border rounded-lg px-3 py-2 text-sm">
-                <option value="">未指定</option>
-                ${unitOptions}
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">職位</label>
-              <select id="add-role_name" class="w-full border rounded-lg px-3 py-2 text-sm">
-                <option value="">請選擇...</option>
-              </select>
+        <div class="p-5 space-y-4">
+          <!-- 區塊一：基本識別 -->
+          <div class="bg-gray-50 rounded-xl p-4">
+            <h4 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">基本資料</h4>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">中文姓名 <span class="text-red-500">*</span></label>
+                <input type="text" id="add-chinese_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="請輸入姓名">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">英文姓名</label>
+                <input type="text" id="add-english_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="English Name">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">性別</label>
+                <select id="add-gender" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="">未指定</option><option value="男">男</option><option value="女">女</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">身分證號</label>
+                <input type="text" id="add-national_id" class="w-full border rounded-lg px-3 py-2 text-sm uppercase" placeholder="A123456789">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">生日</label>
+                <input type="date" id="add-dob" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">在籍狀態</label>
+                <select id="add-membership_status" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="ACTIVE">在籍</option>
+                  <option value="INACTIVE">停團</option>
+                  <option value="GRADUATED">畢業</option>
+                </select>
+              </div>
             </div>
           </div>
+
+          <!-- 區塊二：聯絡資訊 -->
+          <div class="bg-blue-50 rounded-xl p-4">
+            <h4 class="text-xs font-bold text-blue-500 uppercase tracking-wide mb-3">聯絡資訊</h4>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">電話</label>
+                <input type="tel" id="add-phone" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="0912-345-678">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" id="add-email" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="name@example.com">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">家長/聯絡人姓名</label>
+                <input type="text" id="add-parent_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="家長姓名">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">所在國家</label>
+                <input type="text" id="add-country" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="台灣、美國、日本...">
+              </div>
+              <div class="col-span-2">
+                <label class="block text-xs font-medium text-gray-700 mb-1">就讀學校／大學</label>
+                <input type="text" id="add-university" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="學校名稱（羅浮：含科系）">
+              </div>
+            </div>
+          </div>
+
+          <!-- 區塊三：童軍在籍資料 -->
+          <div class="bg-green-50 rounded-xl p-4">
+            <h4 class="text-xs font-bold text-green-600 uppercase tracking-wide mb-3">童軍在籍資料</h4>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">組別 <span class="text-red-500">*</span></label>
+                <select id="add-section" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  ${sectionList.map(s => `<option value="${s}">${s}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">進程</label>
+                <select id="add-rank_level" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  ${ranks.map(r => `<option value="${r}">${r || '未設定'}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">小隊</label>
+                <select id="add-unit_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="">未指定</option>
+                  ${unitOptions}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">職位</label>
+                <select id="add-role_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="">請選擇...</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 備註 -->
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">進程</label>
-            <select id="add-rank_level" class="w-full border rounded-lg px-3 py-2 text-sm">
-              ${ranks.map(r => `<option value="${r}">${r || '未設定'}</option>`).join('')}
-            </select>
+            <label class="block text-xs font-medium text-gray-700 mb-1">備註</label>
+            <textarea id="add-notes" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm resize-none" placeholder="其他備註說明..."></textarea>
           </div>
         </div>
         <div id="add-member-msg" class="hidden px-5 pb-3 text-sm"></div>
-        <div class="p-4 border-t flex gap-2">
-          <button onclick="saveNewMember()" class="bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium">新增</button>
+        <div class="p-4 border-t flex gap-2 sticky bottom-0 bg-white">
+          <button onclick="saveNewMember()" class="bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium">新增團員</button>
           <button onclick="document.getElementById('add-member-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
         </div>
       </div>
@@ -2090,46 +2138,131 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
 
     <!-- 編輯在籍資料 Modal -->
     <div id="edit-enroll-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-        <div class="p-5 border-b">
-          <h3 class="text-lg font-bold">✏️ 編輯在籍資料</h3>
-          <p id="edit-enroll-name" class="text-sm text-gray-500 mt-1"></p>
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[92vh] overflow-y-auto">
+        <div class="p-5 border-b flex items-center justify-between">
+          <div>
+            <h3 class="text-lg font-bold">✏️ 編輯成員資料</h3>
+            <p id="edit-enroll-name" class="text-sm text-gray-500 mt-0.5"></p>
+          </div>
+          <button onclick="document.getElementById('edit-enroll-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 text-xl">✕</button>
         </div>
-        <div class="p-5 space-y-3">
+        <div class="p-5 space-y-4">
           <input type="hidden" id="edit-enroll-id">
           <input type="hidden" id="edit-enroll-member-id">
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">組別</label>
-              <select id="edit-section" class="w-full border rounded-lg px-3 py-2 text-sm">
-                ${sectionList.map(s => `<option value="${s}">${s}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">小隊</label>
-              <select id="edit-unit_name" class="w-full border rounded-lg px-3 py-2 text-sm">
-                <option value="">未指定</option>
-                ${unitOptions}
-              </select>
+
+          <!-- 基本資料 -->
+          <div class="bg-gray-50 rounded-xl p-4">
+            <h4 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">基本資料</h4>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">中文姓名 <span class="text-red-500">*</span></label>
+                <input type="text" id="edit-chinese_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">英文姓名</label>
+                <input type="text" id="edit-english_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">性別</label>
+                <select id="edit-gender" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="">未指定</option><option value="男">男</option><option value="女">女</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">身分證號</label>
+                <input type="text" id="edit-national_id" class="w-full border rounded-lg px-3 py-2 text-sm uppercase">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">生日</label>
+                <input type="date" id="edit-dob" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">在籍狀態</label>
+                <select id="edit-membership_status" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="ACTIVE">在籍</option>
+                  <option value="INACTIVE">停團</option>
+                  <option value="GRADUATED">畢業</option>
+                </select>
+              </div>
             </div>
           </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">職位</label>
-              <select id="edit-role_name" class="w-full border rounded-lg px-3 py-2 text-sm">
-                <option value="">請選擇...</option>
-              </select>
+
+          <!-- 聯絡資訊 -->
+          <div class="bg-blue-50 rounded-xl p-4">
+            <h4 class="text-xs font-bold text-blue-500 uppercase tracking-wide mb-3">聯絡資訊</h4>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">電話</label>
+                <input type="tel" id="edit-phone" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" id="edit-email" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">家長/聯絡人</label>
+                <input type="text" id="edit-parent_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">所在國家</label>
+                <input type="text" id="edit-country" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="台灣、美國...">
+              </div>
+              <div class="col-span-2">
+                <label class="block text-xs font-medium text-gray-700 mb-1">就讀學校／大學</label>
+                <input type="text" id="edit-university" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="學校名稱（含科系）">
+              </div>
             </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">進程</label>
-              <select id="edit-rank_level" class="w-full border rounded-lg px-3 py-2 text-sm">
-                ${ranks.map(r => `<option value="${r}">${r || '未設定'}</option>`).join('')}
-              </select>
+          </div>
+
+          <!-- 在籍資料 -->
+          <div class="bg-green-50 rounded-xl p-4">
+            <h4 class="text-xs font-bold text-green-600 uppercase tracking-wide mb-3">童軍在籍資料</h4>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">組別</label>
+                <select id="edit-section" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  ${sectionList.map(s => `<option value="${s}">${s}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">進程</label>
+                <select id="edit-rank_level" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  ${ranks.map(r => `<option value="${r}">${r || '未設定'}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">小隊</label>
+                <select id="edit-unit_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="">未指定</option>
+                  ${unitOptions}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">職位</label>
+                <select id="edit-role_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="">請選擇...</option>
+                </select>
+              </div>
             </div>
+          </div>
+
+          <!-- 備註 -->
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">備註</label>
+            <textarea id="edit-notes" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm resize-none"></textarea>
+          </div>
+
+          <!-- 刪除區 -->
+          <div class="border border-red-200 rounded-xl p-4 bg-red-50">
+            <h4 class="text-xs font-bold text-red-500 uppercase tracking-wide mb-2">危險操作</h4>
+            <button onclick="deleteMemberFromList()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+              🗑️ 刪除此成員（不可復原）
+            </button>
+            <p class="text-xs text-red-400 mt-1">將刪除該成員所有資料，包含出席記錄與進程記錄</p>
           </div>
         </div>
-        <div class="p-4 border-t flex gap-2">
-          <button onclick="saveEditEnroll()" class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium">更新</button>
+        <div class="p-4 border-t flex gap-2 sticky bottom-0 bg-white">
+          <button onclick="saveEditEnroll()" class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium">儲存所有變更</button>
           <button onclick="document.getElementById('edit-enroll-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
         </div>
       </div>
@@ -2341,10 +2474,17 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
           gender: document.getElementById('add-gender').value,
           national_id: document.getElementById('add-national_id').value.trim().toUpperCase(),
           dob: document.getElementById('add-dob').value || null,
+          phone: document.getElementById('add-phone').value.trim(),
+          email: document.getElementById('add-email').value.trim(),
+          parent_name: document.getElementById('add-parent_name').value.trim(),
+          country: document.getElementById('add-country').value.trim(),
+          university: document.getElementById('add-university').value.trim(),
           section: document.getElementById('add-section').value,
           unit_name: document.getElementById('add-unit_name').value,
           role_name: document.getElementById('add-role_name').value,
           rank_level: document.getElementById('add-rank_level').value,
+          membership_status: document.getElementById('add-membership_status').value,
+          notes: document.getElementById('add-notes').value.trim(),
         };
         if (!data.chinese_name) { alert('請填寫姓名'); return; }
         const res = await fetch('/api/enrollments', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
@@ -2363,30 +2503,103 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
         document.getElementById('edit-enroll-id').value = m.enroll_id;
         document.getElementById('edit-enroll-member-id').value = m.member_id;
         document.getElementById('edit-enroll-name').textContent = m.chinese_name + (m.english_name ? ' / ' + m.english_name : '');
+        // 基本資料
+        document.getElementById('edit-chinese_name').value = m.chinese_name || '';
+        document.getElementById('edit-english_name').value = m.english_name || '';
+        document.getElementById('edit-gender').value = m.gender || '';
+        document.getElementById('edit-national_id').value = m.national_id || '';
+        document.getElementById('edit-dob').value = m.dob ? m.dob.split('T')[0] : '';
+        document.getElementById('edit-membership_status').value = m.membership_status || 'ACTIVE';
+        // 聯絡資訊
+        document.getElementById('edit-phone').value = m.phone || '';
+        document.getElementById('edit-email').value = m.email || '';
+        document.getElementById('edit-parent_name').value = m.parent_name || '';
+        document.getElementById('edit-country').value = m.country || '';
+        document.getElementById('edit-university').value = m.university || '';
+        // 在籍資料
         document.getElementById('edit-section').value = m.section || '童軍';
         document.getElementById('edit-unit_name').value = m.unit_name || '';
         // 先更新職位選單再設定值
         updateRolesBySection('edit-section', 'edit-role_name', m.role_name || '');
         document.getElementById('edit-rank_level').value = m.rank_level || '';
+        // 備註
+        document.getElementById('edit-notes').value = m.notes || '';
         document.getElementById('edit-enroll-modal').classList.remove('hidden');
       }
 
       async function saveEditEnroll() {
-        const id = document.getElementById('edit-enroll-id').value;
-        const data = {
-          section: document.getElementById('edit-section').value,
-          unit_name: document.getElementById('edit-unit_name').value,
-          role_name: document.getElementById('edit-role_name').value,
-          rank_level: document.getElementById('edit-rank_level').value,
+        const memberId = document.getElementById('edit-enroll-member-id').value;
+        const enrollId = document.getElementById('edit-enroll-id').value;
+        const section = document.getElementById('edit-section').value;
+        const rank_level = document.getElementById('edit-rank_level').value;
+
+        // 1. 更新成員個人資料
+        const memberData = {
+          chinese_name: document.getElementById('edit-chinese_name').value.trim(),
+          english_name: document.getElementById('edit-english_name').value.trim() || null,
+          gender: document.getElementById('edit-gender').value || null,
+          national_id: document.getElementById('edit-national_id').value.trim().toUpperCase() || null,
+          dob: document.getElementById('edit-dob').value || null,
+          phone: document.getElementById('edit-phone').value.trim() || null,
+          email: document.getElementById('edit-email').value.trim() || null,
+          parent_name: document.getElementById('edit-parent_name').value.trim() || null,
+          country: document.getElementById('edit-country').value.trim() || null,
+          university: document.getElementById('edit-university').value.trim() || null,
+          membership_status: document.getElementById('edit-membership_status').value,
+          section,
+          rank_level,
+          unit_name: document.getElementById('edit-unit_name').value || null,
+          role_name: document.getElementById('edit-role_name').value || null,
+          notes: document.getElementById('edit-notes').value.trim() || null,
         };
-        const res = await fetch('/api/enrollments/' + id, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
-        if (res.ok) location.reload(); else alert('更新失敗');
+        if (!memberData.chinese_name) { alert('請填寫姓名'); return; }
+
+        const r1 = await fetch('/api/members/' + memberId, {
+          method: 'PUT',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(memberData)
+        });
+
+        // 2. 更新年度在籍資料
+        const enrollData = {
+          section,
+          unit_name: memberData.unit_name,
+          role_name: memberData.role_name,
+          rank_level,
+          notes: memberData.notes,
+        };
+        const r2 = await fetch('/api/enrollments/' + enrollId, {
+          method: 'PUT',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(enrollData)
+        });
+
+        if (r1.ok && r2.ok) {
+          location.reload();
+        } else {
+          const err1 = r1.ok ? '' : (await r1.json().catch(()=>({error:'未知'}))).error;
+          const err2 = r2.ok ? '' : '在籍資料更新失敗';
+          alert('更新失敗：' + [err1, err2].filter(Boolean).join('；'));
+        }
       }
 
       async function removeEnroll(id, name) {
         if (!confirm('確定要將「' + name + '」從本學年度名冊中移除？（成員資料仍保留）')) return;
         const res = await fetch('/api/enrollments/' + id, { method: 'DELETE' });
         if (res.ok) location.reload(); else alert('移除失敗');
+      }
+
+      async function deleteMemberFromList() {
+        const memberId = document.getElementById('edit-enroll-member-id').value;
+        const memberName = document.getElementById('edit-enroll-name').textContent;
+        if (!confirm('⚠️ 確定要永久刪除「' + memberName + '」？\n\n此操作將刪除該成員所有資料，包含出席記錄與進程記錄，且不可復原！')) return;
+        const res = await fetch('/api/members/' + memberId, { method: 'DELETE' });
+        if (res.ok) {
+          alert('✅ 已刪除成員：' + memberName);
+          location.reload();
+        } else {
+          alert('❌ 刪除失敗，請稍後再試');
+        }
       }
 
       // ===== CSV / Excel 匯入 =====
@@ -8427,43 +8640,262 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
   }
 
   const contentInfo = `
-    <!-- 原本的「基本資料」部分保留 -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div class="bg-white rounded-xl shadow-sm p-5">
-        <h3 class="font-bold text-gray-700 mb-4">基本資料</h3>
-        <div class="space-y-2 text-sm">
-          <div class="flex justify-between"><span class="text-gray-500">姓名</span><span class="font-medium">${member.chinese_name}</span></div>
-          <div class="flex justify-between"><span class="text-gray-500">組別</span><span class="font-medium">${currentEnrollment?.section || member.section}</span></div>
-          <div class="flex justify-between items-center">
-            <span class="text-gray-500">目前階級</span>
-            <div class="flex items-center gap-2">
-              <span class="text-green-700 font-bold" id="curr-rank-display">${member.rank_level || '未設定'}</span>
-              <button onclick="document.getElementById('rank-edit-panel').classList.toggle('hidden')" class="text-xs text-blue-600 hover:underline">✏️ 修改</button>
+    <!-- 基本資料 + 編輯 -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- 左：顯示資料 + 快速操作 -->
+      <div class="lg:col-span-2 space-y-4">
+
+        <!-- 基本識別資料 -->
+        <div class="bg-white rounded-xl shadow-sm p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-bold text-gray-700">基本資料</h3>
+            <button onclick="document.getElementById('edit-basic-modal').classList.remove('hidden')"
+              class="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 flex items-center gap-1">
+              ✏️ 編輯所有資料
+            </button>
+          </div>
+          <div class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">中文姓名</span>
+              <span class="font-semibold text-gray-800">${member.chinese_name}</span>
+            </div>
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">英文姓名</span>
+              <span class="text-gray-700">${member.english_name || '—'}</span>
+            </div>
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">性別</span>
+              <span class="text-gray-700">${member.gender || '—'}</span>
+            </div>
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">身分證號</span>
+              <span class="text-gray-700 font-mono">${member.national_id || '—'}</span>
+            </div>
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">生日</span>
+              <span class="text-gray-700">${member.dob ? member.dob.substring(0,10) : '—'}</span>
+            </div>
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">在籍狀態</span>
+              <span class="px-2 py-0.5 rounded text-xs font-medium ${member.membership_status === 'ACTIVE' ? 'bg-green-100 text-green-700' : member.membership_status === 'GRADUATED' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}">${member.membership_status === 'ACTIVE' ? '在籍' : member.membership_status === 'INACTIVE' ? '停團' : member.membership_status === 'GRADUATED' ? '畢業' : member.membership_status || '—'}</span>
             </div>
           </div>
         </div>
-        <!-- 快速修改階級 -->
-        <div id="rank-edit-panel" class="hidden mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <label class="block text-xs font-medium text-gray-600 mb-1">選擇新階級（儲存後將自動同步進程勾選）</label>
-          <div class="flex gap-2">
-            <select id="quick-rank-select" class="flex-1 border rounded-lg px-2 py-1.5 text-sm">
-              ${['','見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮'].map(r => `<option value="${r}" ${r === (member.rank_level||'') ? 'selected' : ''}>${r || '未設定'}</option>`).join('')}
-            </select>
-            <button onclick="quickUpdateRank()" class="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-700">更新</button>
+
+        <!-- 聯絡資訊 -->
+        <div class="bg-white rounded-xl shadow-sm p-5">
+          <h3 class="font-bold text-gray-700 mb-3">聯絡資訊</h3>
+          <div class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">電話</span>
+              <span class="text-gray-700">${member.phone ? `<a href="tel:${member.phone}" class="text-blue-600 hover:underline">${member.phone}</a>` : '—'}</span>
+            </div>
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">Email</span>
+              <span class="text-gray-700">${member.email ? `<a href="mailto:${member.email}" class="text-blue-600 hover:underline">${member.email}</a>` : '—'}</span>
+            </div>
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">家長／聯絡人</span>
+              <span class="text-gray-700">${member.parent_name || '—'}</span>
+            </div>
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">所在國家</span>
+              <span class="text-gray-700">${member.country || '—'}</span>
+            </div>
+            <div class="col-span-2">
+              <span class="text-xs text-gray-400 block mb-0.5">就讀學校／大學</span>
+              <span class="text-gray-700">${member.university || '—'}</span>
+            </div>
           </div>
-          <p class="text-xs text-blue-600 mt-1">💡 更新後請切到「進程與專科章」頁查看自動勾選效果</p>
+        </div>
+
+        <!-- 童軍在籍資料 -->
+        <div class="bg-white rounded-xl shadow-sm p-5">
+          <h3 class="font-bold text-gray-700 mb-3">童軍在籍資料</h3>
+          <div class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">組別</span>
+              <span class="px-2 py-0.5 rounded text-xs font-medium ${(currentEnrollment?.section || member.section) === '童軍' ? 'bg-green-100 text-green-700' : (currentEnrollment?.section || member.section) === '行義童軍' ? 'bg-blue-100 text-blue-700' : (currentEnrollment?.section || member.section) === '羅浮童軍' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}">${currentEnrollment?.section || member.section || '—'}</span>
+            </div>
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">目前階級</span>
+              <div class="flex items-center gap-2">
+                <span class="text-green-700 font-bold" id="curr-rank-display">${member.rank_level || '未設定'}</span>
+                <button onclick="document.getElementById('rank-edit-panel').classList.toggle('hidden')" class="text-xs text-blue-600 hover:underline">✏️ 修改</button>
+              </div>
+            </div>
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">小隊</span>
+              <span class="text-gray-700">${currentEnrollment?.unit_name || member.unit_name || '—'}</span>
+            </div>
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">職位</span>
+              <span class="text-gray-700">${currentEnrollment?.role_name || member.role_name || '—'}</span>
+            </div>
+            <div>
+              <span class="text-xs text-gray-400 block mb-0.5">團次</span>
+              <span class="text-gray-700">${member.troop || '54團'}</span>
+            </div>
+          </div>
+          <!-- 快速修改階級 -->
+          <div id="rank-edit-panel" class="hidden mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <label class="block text-xs font-medium text-gray-600 mb-1">選擇新階級（儲存後將自動同步進程勾選）</label>
+            <div class="flex gap-2">
+              <select id="quick-rank-select" class="flex-1 border rounded-lg px-2 py-1.5 text-sm">
+                ${['','見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮'].map(r => `<option value="${r}" ${r === (member.rank_level||'') ? 'selected' : ''}>${r || '未設定'}</option>`).join('')}
+              </select>
+              <button onclick="quickUpdateRank()" class="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-700">更新</button>
+            </div>
+            <p class="text-xs text-blue-600 mt-1">💡 更新後請切到「進程與專科章」頁查看自動勾選效果</p>
+          </div>
+          ${member.notes ? `<div class="mt-3 p-3 bg-gray-50 rounded-lg text-xs text-gray-600"><span class="font-medium">備註：</span>${member.notes}</div>` : ''}
         </div>
       </div>
-      <div class="bg-white rounded-xl shadow-sm p-5">
-        <h3 class="font-bold text-gray-700 mb-4">系統操作</h3>
-        ${member.section === '服務員'
-          ? `<a href="/admin/leaders/member/${id}" class="block w-full text-center bg-slate-600 text-white py-2 rounded-lg hover:bg-slate-500 mb-2">👮 服務員資料頁</a>
-             <a href="/admin/leaders/member/${id}/advancement" class="block w-full text-center bg-amber-600 text-white py-2 rounded-lg hover:bg-amber-500 mb-2">🏅 進程與獎章管理</a>`
-          : `<a href="/admin/members/${id}?tab=advancement" class="block w-full text-center bg-green-600 text-white py-2 rounded-lg hover:bg-green-500 mb-2">管理進程與專科章</a>`
-        }
-        <a href="/admin/members-legacy/${id}" class="block w-full text-center bg-gray-100 text-gray-600 py-2 rounded-lg hover:bg-gray-200 text-sm">完整資料與出席記錄</a>
+
+      <!-- 右：系統操作 -->
+      <div class="space-y-4">
+        <div class="bg-white rounded-xl shadow-sm p-5">
+          <h3 class="font-bold text-gray-700 mb-3">系統操作</h3>
+          ${member.section === '服務員'
+            ? `<a href="/admin/leaders/member/${id}" class="block w-full text-center bg-slate-600 text-white py-2 rounded-lg hover:bg-slate-500 mb-2 text-sm">👮 服務員資料頁</a>
+               <a href="/admin/leaders/member/${id}/advancement" class="block w-full text-center bg-amber-600 text-white py-2 rounded-lg hover:bg-amber-500 mb-2 text-sm">🏅 進程與獎章管理</a>`
+            : `<a href="/admin/members/${id}?tab=advancement" class="block w-full text-center bg-green-600 text-white py-2 rounded-lg hover:bg-green-500 mb-2 text-sm">🎖️ 管理進程與專科章</a>`
+          }
+          <a href="/admin/members-legacy/${id}" class="block w-full text-center bg-gray-100 text-gray-600 py-2 rounded-lg hover:bg-gray-200 text-sm">📋 完整資料與出席記錄</a>
+          <button onclick="document.getElementById('edit-basic-modal').classList.remove('hidden')"
+            class="mt-2 block w-full text-center bg-blue-50 text-blue-700 py-2 rounded-lg hover:bg-blue-100 text-sm border border-blue-200">
+            ✏️ 編輯基本資料
+          </button>
+        </div>
       </div>
     </div>
+
+    <!-- 編輯基本資料 Modal -->
+    <div id="edit-basic-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[92vh] overflow-y-auto">
+        <div class="p-5 border-b flex items-center justify-between">
+          <div>
+            <h3 class="text-lg font-bold">✏️ 編輯成員資料</h3>
+            <p class="text-sm text-gray-500 mt-0.5">${member.chinese_name}</p>
+          </div>
+          <button onclick="document.getElementById('edit-basic-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+        </div>
+        <div class="p-5 space-y-4">
+          <!-- 基本識別 -->
+          <div class="bg-gray-50 rounded-xl p-4">
+            <h4 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">基本識別</h4>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">中文姓名 <span class="text-red-500">*</span></label>
+                <input type="text" id="bi-chinese_name" value="${member.chinese_name.replace(/"/g,'&quot;')}" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">英文姓名</label>
+                <input type="text" id="bi-english_name" value="${(member.english_name||'').replace(/"/g,'&quot;')}" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">性別</label>
+                <select id="bi-gender" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="">未指定</option>
+                  <option value="男" ${member.gender==='男'?'selected':''}>男</option>
+                  <option value="女" ${member.gender==='女'?'selected':''}>女</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">身分證號</label>
+                <input type="text" id="bi-national_id" value="${(member.national_id||'').replace(/"/g,'&quot;')}" class="w-full border rounded-lg px-3 py-2 text-sm uppercase" placeholder="A123456789">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">生日</label>
+                <input type="date" id="bi-dob" value="${member.dob ? member.dob.substring(0,10) : ''}" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">在籍狀態</label>
+                <select id="bi-membership_status" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="ACTIVE" ${member.membership_status==='ACTIVE'?'selected':''}>在籍</option>
+                  <option value="INACTIVE" ${member.membership_status==='INACTIVE'?'selected':''}>停團</option>
+                  <option value="GRADUATED" ${member.membership_status==='GRADUATED'?'selected':''}>畢業</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 聯絡資訊 -->
+          <div class="bg-blue-50 rounded-xl p-4">
+            <h4 class="text-xs font-bold text-blue-500 uppercase tracking-wide mb-3">聯絡資訊</h4>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">電話</label>
+                <input type="tel" id="bi-phone" value="${(member.phone||'').replace(/"/g,'&quot;')}" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="0912-345-678">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" id="bi-email" value="${(member.email||'').replace(/"/g,'&quot;')}" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="name@example.com">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">家長／聯絡人姓名</label>
+                <input type="text" id="bi-parent_name" value="${(member.parent_name||'').replace(/"/g,'&quot;')}" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="家長姓名">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">所在國家</label>
+                <input type="text" id="bi-country" value="${(member.country||'').replace(/"/g,'&quot;')}" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="台灣、美國、日本...">
+              </div>
+              <div class="col-span-2">
+                <label class="block text-xs font-medium text-gray-700 mb-1">就讀學校／大學</label>
+                <input type="text" id="bi-university" value="${(member.university||'').replace(/"/g,'&quot;')}" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="學校名稱（羅浮：含科系）">
+              </div>
+            </div>
+          </div>
+
+          <!-- 童軍在籍資料 -->
+          <div class="bg-green-50 rounded-xl p-4">
+            <h4 class="text-xs font-bold text-green-600 uppercase tracking-wide mb-3">童軍在籍資料</h4>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">組別</label>
+                <select id="bi-section" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="童軍" ${member.section==='童軍'?'selected':''}>童軍</option>
+                  <option value="行義童軍" ${member.section==='行義童軍'?'selected':''}>行義童軍</option>
+                  <option value="羅浮童軍" ${member.section==='羅浮童軍'?'selected':''}>羅浮童軍</option>
+                  <option value="服務員" ${member.section==='服務員'?'selected':''}>服務員</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">進程／階級</label>
+                <select id="bi-rank_level" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  ${['','見習童軍','初級童軍','中級童軍','高級童軍','獅級童軍','長城童軍','國花童軍','見習羅浮','授銜羅浮','服務羅浮'].map(r => `<option value="${r}" ${r===(member.rank_level||'')?'selected':''}>${r||'未設定'}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">小隊</label>
+                <input type="text" id="bi-unit_name" value="${(member.unit_name||'').replace(/"/g,'&quot;')}" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">職位</label>
+                <input type="text" id="bi-role_name" value="${(member.role_name||'').replace(/"/g,'&quot;')}" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">團次</label>
+                <input type="text" id="bi-troop" value="${(member.troop||'54團').replace(/"/g,'&quot;')}" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+            </div>
+          </div>
+
+          <!-- 備註 -->
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">備註</label>
+            <textarea id="bi-notes" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm resize-none">${(member.notes||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+          </div>
+        </div>
+        <div id="bi-msg" class="hidden px-5 pb-3 text-sm"></div>
+        <div class="p-4 border-t flex gap-2 sticky bottom-0 bg-white">
+          <button onclick="saveBasicInfo()" class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">儲存變更</button>
+          <button onclick="document.getElementById('edit-basic-modal').classList.add('hidden')" class="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+
     <script>
     async function quickUpdateRank() {
       const rank = document.getElementById('quick-rank-select').value;
@@ -8478,6 +8910,8 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
           phone: ${JSON.stringify(member.phone)},
           email: ${JSON.stringify(member.email)},
           parent_name: ${JSON.stringify(member.parent_name)},
+          country: ${JSON.stringify(member.country)},
+          university: ${JSON.stringify(member.university)},
           section: ${JSON.stringify(member.section)},
           rank_level: rank || null,
           unit_name: ${JSON.stringify(member.unit_name)},
@@ -8493,6 +8927,41 @@ adminRoutes.get('/members/:id', authMiddleware, async (c) => {
         alert('✅ 階級已更新！進程細項已自動同步。\\n\\n點「管理進程與專科章」查看效果。');
       } else {
         alert('❌ 更新失敗，請稍後再試');
+      }
+    }
+
+    async function saveBasicInfo() {
+      const data = {
+        chinese_name: document.getElementById('bi-chinese_name').value.trim(),
+        english_name: document.getElementById('bi-english_name').value.trim() || null,
+        gender: document.getElementById('bi-gender').value || null,
+        national_id: document.getElementById('bi-national_id').value.trim().toUpperCase() || null,
+        dob: document.getElementById('bi-dob').value || null,
+        membership_status: document.getElementById('bi-membership_status').value,
+        phone: document.getElementById('bi-phone').value.trim() || null,
+        email: document.getElementById('bi-email').value.trim() || null,
+        parent_name: document.getElementById('bi-parent_name').value.trim() || null,
+        country: document.getElementById('bi-country').value.trim() || null,
+        university: document.getElementById('bi-university').value.trim() || null,
+        section: document.getElementById('bi-section').value,
+        rank_level: document.getElementById('bi-rank_level').value || null,
+        unit_name: document.getElementById('bi-unit_name').value.trim() || null,
+        role_name: document.getElementById('bi-role_name').value.trim() || null,
+        troop: document.getElementById('bi-troop').value.trim() || '54團',
+        notes: document.getElementById('bi-notes').value.trim() || null,
+      };
+      if (!data.chinese_name) { alert('請填寫姓名'); return; }
+      const msg = document.getElementById('bi-msg');
+      const res = await fetch('/api/members/${id}', {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+      });
+      if (res.ok) {
+        msg.textContent = '✅ 儲存成功！'; msg.className = 'px-5 pb-3 text-sm text-green-600'; msg.classList.remove('hidden');
+        setTimeout(() => location.reload(), 800);
+      } else {
+        const j = await res.json().catch(()=>({error:'未知錯誤'}));
+        msg.textContent = '❌ 失敗：' + (j.error||'請稍後再試'); msg.className = 'px-5 pb-3 text-sm text-red-600'; msg.classList.remove('hidden');
       }
     }
     </script>

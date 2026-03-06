@@ -578,7 +578,7 @@ apiRoutes.post('/enrollments', async (c) => {
   const db = c.env.DB
   const body = await c.req.json()
   const { year_label, member_id, chinese_name, english_name, gender, national_id, dob,
-    section, rank_level, unit_name, role_name, troop, phone, email, parent_name, notes } = body
+    section, rank_level, unit_name, role_name, troop, phone, email, parent_name, country, university, membership_status, notes } = body
   if (!year_label) return c.json({ success: false, error: '年度為必填' }, 400)
   if (!chinese_name && !member_id) return c.json({ success: false, error: '姓名為必填' }, 400)
 
@@ -607,7 +607,12 @@ apiRoutes.post('/enrollments', async (c) => {
       if (gender) { updates.push('gender=?'); vals.push(gender) }
       if (dob) { updates.push('dob=?'); vals.push(dob) }
       if (phone) { updates.push('phone=?'); vals.push(phone) }
+      if (email) { updates.push('email=?'); vals.push(email) }
       if (parent_name) { updates.push('parent_name=?'); vals.push(parent_name) }
+      if (country !== undefined) { updates.push('country=?'); vals.push(country || null) }
+      if (university !== undefined) { updates.push('university=?'); vals.push(university || null) }
+      if (membership_status) { updates.push('membership_status=?'); vals.push(membership_status) }
+      if (notes !== undefined) { updates.push('notes=?'); vals.push(notes || null) }
       if (section) { updates.push('section=?'); vals.push(section) }
       if (rank_level) { updates.push('rank_level=?'); vals.push(rank_level) }
       if (unit_name) { updates.push('unit_name=?'); vals.push(unit_name) }
@@ -622,13 +627,14 @@ apiRoutes.post('/enrollments', async (c) => {
       mId = `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
       const finalTroop = troop || '54團'
       await db.prepare(`
-        INSERT INTO members (id, chinese_name, english_name, gender, national_id, dob, phone, email, parent_name, section, rank_level, unit_name, role_name, troop, notes, membership_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+        INSERT INTO members (id, chinese_name, english_name, gender, national_id, dob, phone, email, parent_name, country, university, section, rank_level, unit_name, role_name, troop, notes, membership_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(mId, chinese_name.trim(), english_name || null, gender || null,
         national_id ? national_id.trim().toUpperCase() : null,
         dob || null, phone || null, email || null, parent_name || null,
+        country || null, university || null,
         section || '童軍', rank_level || null, unit_name || null,
-        role_name || '隊員', finalTroop, notes || null).run()
+        role_name || '隊員', finalTroop, notes || null, membership_status || 'ACTIVE').run()
     }
   }
 
@@ -813,18 +819,19 @@ apiRoutes.put('/members/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { chinese_name, english_name, gender, national_id, dob, phone, email, parent_name, section, rank_level, unit_name, role_name, troop, membership_status, notes } = body
+  const { chinese_name, english_name, gender, national_id, dob, phone, email, parent_name, section, rank_level, unit_name, role_name, troop, membership_status, notes, country, university } = body
   
   await db.prepare(`
     UPDATE members SET
       chinese_name=?, english_name=?, gender=?, national_id=?, dob=?, phone=?, email=?,
       parent_name=?, section=?, rank_level=?, unit_name=?, role_name=?, troop=?,
-      membership_status=?, notes=?, updated_at=CURRENT_TIMESTAMP
+      membership_status=?, notes=?, country=?, university=?, updated_at=CURRENT_TIMESTAMP
     WHERE id=?
   `).bind(
     chinese_name, english_name || null, gender || null, national_id || null, dob || null,
     phone || null, email || null, parent_name || null, section || '童軍', rank_level || null,
-    unit_name || null, role_name || '隊員', troop || '54團', membership_status || 'ACTIVE', notes || null, id
+    unit_name || null, role_name || '隊員', troop || '54團', membership_status || 'ACTIVE', notes || null,
+    country || null, university || null, id
   ).run()
 
   // 自動同步進程標準勾選（當有設定階級時）
