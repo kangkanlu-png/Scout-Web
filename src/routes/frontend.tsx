@@ -357,6 +357,16 @@ frontendRoutes.get('/honor', async (c) => {
     specialGrouped[r.award_name].push(r)
   })
 
+  
+  // ── 團體榮譽 (績優童軍團等) ──
+  const groupHonorRecords = await db.prepare('SELECT honor_name, year_label, tier FROM group_honors ORDER BY tier ASC, year_label DESC').all()
+  const groupHonorsByTier: Record<number, Record<string, string[]>> = { 1: {}, 2: {}, 3: {} }
+  ;(groupHonorRecords.results as any[]).forEach((h: any) => {
+    if (!groupHonorsByTier[h.tier]) groupHonorsByTier[h.tier] = {}
+    if (!groupHonorsByTier[h.tier][h.honor_name]) groupHonorsByTier[h.tier][h.honor_name] = []
+    groupHonorsByTier[h.tier][h.honor_name].push(h.year_label)
+  })
+
   // ── 榮譽小隊（公告記錄）──
   const honorPatrolRecords = await db.prepare(`
     SELECT hp.*, ats.title as session_title, ats.date as session_date
@@ -392,7 +402,25 @@ frontendRoutes.get('/honor', async (c) => {
   }
 
   // ── 三個層級的區塊 ────────────────────────────────────
+  
+  // 產生團體獎項區塊的函數
+  const makeGroupHonorBlock = (tierData: Record<string, string[]>) => {
+    return Object.entries(tierData).map(([honorName, years]) => {
+      const yearChips = years.map(y => `<span class="px-3 py-1 bg-white/60 border border-amber-200 text-amber-700 text-sm font-bold rounded-full">${y}</span>`).join('\n')
+      return `
+      <div class="bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200 rounded-2xl p-5">
+        <div class="flex items-center gap-2 mb-4">
+          <span class="text-2xl">🏆</span>
+          <h3 class="text-amber-800 font-bold text-lg">${honorName}</h3>
+          <span class="ml-auto text-sm font-semibold bg-amber-100 px-3 py-0.5 rounded-full text-amber-700">團體榮譽</span>
+        </div>
+        <div class="flex flex-wrap gap-2">${yearChips}</div>
+      </div>`
+    })
+  }
+
   // 第一階：全國性
+
   const tier1RankBlocks = [
     makeRankBlock('國花童軍',   '🌺', 'from-rose-50 to-pink-50',     'border-rose-200',   'text-rose-800',   'border-rose-200',   'text-rose-700',   'bg-rose-50',   'text-rose-600'),
     makeRankBlock('服務羅浮',   '🦁', 'from-purple-50 to-violet-50', 'border-purple-200', 'text-purple-800', 'border-purple-200', 'text-purple-700', 'bg-purple-50', 'text-purple-600'),
@@ -481,7 +509,7 @@ frontendRoutes.get('/honor', async (c) => {
 
   <div class="max-w-5xl mx-auto px-4 pb-16">
 
-    ${(tier1RankBlocks.length > 0 || specialBlocks.length > 0) ? `
+    ${(Object.keys(groupHonorsByTier[1]).length > 0 || tier1RankBlocks.length > 0 || specialBlocks.length > 0) ? `
     <!-- ══════════════ 第一階：全國性 ══════════════ -->
     <div class="flex items-center gap-3 mb-5">
       <div class="w-1 h-8 bg-rose-400 rounded-full"></div>
@@ -491,10 +519,10 @@ frontendRoutes.get('/honor', async (c) => {
       </div>
     </div>
     <div class="grid md:grid-cols-2 gap-4 mb-10">
-      ${[...tier1RankBlocks, ...specialBlocks].join('') || '<p class="text-gray-400 col-span-2 py-6 text-center">尚無全國性榮譽記錄</p>'}
+      ${[...makeGroupHonorBlock(groupHonorsByTier[1]), ...tier1RankBlocks, ...specialBlocks].join('') || '<p class="text-gray-400 col-span-2 py-6 text-center">尚無全國性榮譽記錄</p>'}
     </div>` : ''}
 
-    ${tier2RankBlocks.length > 0 ? `
+    ${(Object.keys(groupHonorsByTier[2]).length > 0 || tier2RankBlocks.length > 0) ? `
     <!-- ══════════════ 第二階：縣市級 ══════════════ -->
     <div class="flex items-center gap-3 mb-5">
       <div class="w-1 h-8 bg-blue-400 rounded-full"></div>
@@ -504,7 +532,7 @@ frontendRoutes.get('/honor', async (c) => {
       </div>
     </div>
     <div class="grid md:grid-cols-2 gap-4 mb-10">
-      ${tier2RankBlocks.join('')}
+      ${[...makeGroupHonorBlock(groupHonorsByTier[2]), ...tier2RankBlocks].join('')}
     </div>` : ''}
 
     <!-- ══════════════ 第三階：童軍團 ══════════════ -->

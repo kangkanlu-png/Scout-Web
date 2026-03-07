@@ -1626,6 +1626,9 @@ function adminLayout(title: string, content: string) {
           <a href="/admin/progress" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '進程標準設定' ? 'bg-green-700' : 'text-green-200'}">
             📏 標準設定
           </a>
+          <a href="/admin/group-honors" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '榮譽榜管理' ? 'bg-green-700' : 'text-green-200'}">
+            🏆 榮譽榜管理
+          </a>
         </div>
         <a href="/admin/member-accounts" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('帳號') ? 'bg-green-700' : ''}">
           <span>🔑</span> 會員帳號
