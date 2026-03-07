@@ -1579,8 +1579,8 @@ function adminLayout(title: string, content: string) {
           <a href="/admin/groups/1/subpages" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('童軍團') ? 'bg-green-700' : 'text-green-200'}">
             🏕️ 童軍團
           </a>
-          <a href="/admin/groups/2/subpages" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('深資') ? 'bg-green-700' : 'text-green-200'}">
-            ⛺ 深資童軍團
+          <a href="/admin/groups/2/subpages" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('行義') ? 'bg-green-700' : 'text-green-200'}">
+            ⛺ 行義童軍團
           </a>
           <a href="/admin/groups/3/subpages" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('羅浮') ? 'bg-green-700' : 'text-green-200'}">
             🧭 羅浮童軍群

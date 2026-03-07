@@ -1516,7 +1516,7 @@ apiRoutes.post('/groups/:id/alumni/import', async (c) => {
 
   // 根據分組名稱找對應 section
   const sectionMap: Record<string, string> = {
-    '童軍團': '童軍', '深資童軍團': '行義童軍', '羅浮童軍群': '羅浮童軍'
+    '童軍團': '童軍', '行義童軍團': '行義童軍', '羅浮童軍群': '羅浮童軍'
   }
   const section = sectionMap[group.name]
   if (!section) return c.json({ success: false, error: '無法對應組別' }, 400)
