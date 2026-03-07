@@ -9,6 +9,7 @@
     "deploy": "npm run build && wrangler pages deploy dist",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
     "db:migrate:local": "wrangler d1 migrations apply webapp-production --local",
+    "db:migrate:alter": "wrangler d1 execute webapp-production --local --command=\"ALTER TABLE coach_member_status ADD COLUMN section_assigned TEXT; ALTER TABLE coach_member_status ADD COLUMN specialties TEXT; ALTER TABLE coach_member_status ADD COLUMN year_label TEXT;\"",
     "db:migrate:prod": "wrangler d1 migrations apply webapp-production",
     "db:seed": "wrangler d1 execute webapp-production --local --file=./seed.sql",
     "db:reset": "rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run db:seed"

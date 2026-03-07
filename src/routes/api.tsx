@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { sendEmail } from '../utils/email'
 
 type Bindings = {
   DB: D1Database
@@ -6,6 +7,19 @@ type Bindings = {
 }
 
 export const apiRoutes = new Hono<{ Bindings: Bindings }>()
+
+function translateStatus(s: string) {
+  const map: Record<string, string> = {
+    pending: '待審核',
+    approved: '已核准',
+    rejected: '已拒絕',
+    cancelled: '已取消',
+    waiting: '候補中',
+    reviewing: '審核中'
+  }
+  return map[s] || s
+}
+
 
 async function sha256(message: string): Promise<string> {
   const msgBuffer = new TextEncoder().encode(message)
@@ -202,7 +216,7 @@ apiRoutes.put('/registrations/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { status, admin_notes } = body
+  const { status, admin_notes, send_email } = body
   
   if (!['pending', 'approved', 'rejected', 'cancelled', 'waiting'].includes(status)) {
     return c.json({ success: false, error: '無效的狀態' }, 400)
@@ -213,7 +227,26 @@ apiRoutes.put('/registrations/:id', async (c) => {
     SET status = ?, admin_notes = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).bind(status, admin_notes || null, id).run()
-  
+
+  // Send Email Notification
+  if (send_email) {
+    try {
+    const info = await db.prepare(`
+      SELECT m.email, m.chinese_name, a.title 
+      FROM activity_registrations ar 
+      JOIN members m ON ar.member_id = m.id 
+      JOIN activities a ON ar.activity_id = a.id 
+      WHERE ar.id = ?
+    `).bind(id).first() as any
+    if (info && info.email) {
+      await sendEmail(c.env, info.email, `【活動報名通知】${info.title} 報名狀態更新`, 
+        `親愛的 ${info.chinese_name} 您好：<br><br>您報名的活動「${info.title}」狀態已更新為：<b>${translateStatus(status)}</b>。<br><br>${admin_notes ? `備註說明：${admin_notes}<br><br>` : ''}感謝您的參與！`)
+    }
+  } catch (e) {
+      console.error('Email failed:', e)
+    }
+  }
+
   return c.json({ success: true })
 })
 
@@ -1204,9 +1237,28 @@ apiRoutes.put('/leaves/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { status, approved_by } = body
+  const { status, approved_by, send_email } = body
   
   await db.prepare(`UPDATE leave_requests SET status=?, approved_by=? WHERE id=?`).bind(status, approved_by || null, id).run()
+  
+  // Send Email Notification
+  if (send_email) {
+    try {
+    const info = await db.prepare(`
+      SELECT m.email, m.chinese_name, lr.date 
+      FROM leave_requests lr 
+      JOIN members m ON lr.member_id = m.id 
+      WHERE lr.id = ?
+    `).bind(id).first() as any
+    if (info && info.email) {
+      await sendEmail(c.env, info.email, `【請假通知】${info.date} 請假審核結果`, 
+        `親愛的 ${info.chinese_name} 您好：<br><br>您於 ${info.date} 的請假申請，審核結果為：<b>${translateStatus(status)}</b>。<br><br>請隨時登入系統查看詳情。`)
+    }
+  } catch (e) {
+      console.error('Email failed:', e)
+    }
+  }
+
   return c.json({ success: true })
 })
 
@@ -1222,10 +1274,16 @@ apiRoutes.delete('/leaves/:id', async (c) => {
 apiRoutes.get('/coaches', async (c) => {
   const db = c.env.DB
   const year = c.req.query('year')
-  let query = `SELECT * FROM coach_members WHERE 1=1`
+  let query = `
+    SELECT cms.id, m.chinese_name, m.english_name, cms.current_stage as coach_level, 
+           cms.section_assigned, cms.specialties, cms.year_label, m.id as member_id
+    FROM coach_member_status cms
+    JOIN members m ON m.id = cms.member_id
+    WHERE 1=1
+  `
   const params: any[] = []
-  if (year) { query += ` AND year_label = ?`; params.push(year) }
-  query += ` ORDER BY CASE coach_level WHEN '指導教練' THEN 1 WHEN '助理教練' THEN 2 WHEN '見習教練' THEN 3 WHEN '預備教練' THEN 4 ELSE 5 END, chinese_name`
+  if (year) { query += ` AND cms.year_label = ?`; params.push(year) }
+  query += ` ORDER BY CASE cms.current_stage WHEN '指導教練' THEN 1 WHEN '助理教練' THEN 2 WHEN '見習教練' THEN 3 WHEN '預備教練' THEN 4 ELSE 5 END, m.chinese_name`
   
   const result = await db.prepare(query).bind(...params).all()
   return c.json({ success: true, data: result.results })
@@ -1250,12 +1308,13 @@ apiRoutes.put('/coaches/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { chinese_name, english_name, coach_level, specialties, year_label, section_assigned, notes } = body
+  const { coach_level, specialties, year_label, section_assigned, notes } = body
   
   await db.prepare(`
-    UPDATE coach_members SET chinese_name=?, english_name=?, coach_level=?, specialties=?, year_label=?, section_assigned=?, notes=?
+    UPDATE coach_member_status 
+    SET current_stage=?, specialties=?, year_label=?, section_assigned=?
     WHERE id=?
-  `).bind(chinese_name, english_name || null, coach_level || '預備教練', specialties || null, year_label || null, section_assigned || null, notes || null, id).run()
+  `).bind(coach_level || '預備教練', specialties || null, year_label || null, section_assigned || null, id).run()
   
   return c.json({ success: true })
 })
@@ -1263,7 +1322,7 @@ apiRoutes.put('/coaches/:id', async (c) => {
 apiRoutes.delete('/coaches/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
-  await db.prepare(`DELETE FROM coach_members WHERE id=?`).bind(id).run()
+  await db.prepare(`DELETE FROM coach_member_status WHERE id=?`).bind(id).run()
   return c.json({ success: true })
 })
 
@@ -1364,7 +1423,7 @@ apiRoutes.get('/stats', async (c) => {
   
   // 教練團統計
   const coaches = await db.prepare(`
-    SELECT coach_level, COUNT(*) as count FROM coach_members GROUP BY coach_level
+    SELECT current_stage as coach_level, COUNT(*) as count FROM coach_member_status GROUP BY current_stage
   `).all()
   
   // 最近進程
@@ -1871,7 +1930,7 @@ apiRoutes.put('/admin/leaves/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { status, admin_note } = body
+  const { status, admin_note, send_email } = body
   if (!['approved','rejected','pending'].includes(status)) {
     return c.json({ success: false, error: '無效的狀態' }, 400)
   }
@@ -1882,6 +1941,25 @@ apiRoutes.put('/admin/leaves/:id', async (c) => {
       approved_by = ?
     WHERE id = ?
   `).bind(status, admin_note || null, status, 'admin', id).run()
+
+  // Send Email Notification
+  if (send_email) {
+    try {
+      const info = await db.prepare(`
+        SELECT m.email, m.chinese_name, lr.date 
+        FROM leave_requests lr 
+        JOIN members m ON lr.member_id = m.id 
+        WHERE lr.id = ?
+      `).bind(id).first() as any
+      if (info && info.email) {
+        await sendEmail(c.env, info.email, `【請假通知】${info.date} 請假審核結果`, 
+          `親愛的 ${info.chinese_name} 您好：<br><br>您於 ${info.date} 的請假申請，審核結果為：<b>${translateStatus(status)}</b>。<br><br>${admin_note ? `備註：${admin_note}<br><br>` : ''}請隨時登入系統查看詳情。`)
+      }
+    } catch (e) {
+      console.error('Email failed:', e)
+    }
+  }
+
   return c.json({ success: true })
 })
 
@@ -1908,7 +1986,7 @@ apiRoutes.put('/admin/advancement/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { status, admin_notes } = body
+  const { status, admin_notes, send_email } = body
   if (!['pending','reviewing','approved','rejected'].includes(status)) {
     return c.json({ success: false, error: '無效的狀態' }, 400)
   }
@@ -1927,6 +2005,25 @@ apiRoutes.put('/admin/advancement/:id', async (c) => {
       await db.prepare(`UPDATE members SET rank_level = ? WHERE id = ?`).bind(app.rank_to, app.member_id).run()
     }
   }
+  
+  // Send Email Notification
+  if (send_email) {
+    try {
+    const info = await db.prepare(`
+      SELECT m.email, m.chinese_name, aa.rank_to 
+      FROM advancement_applications aa 
+      JOIN members m ON aa.member_id = m.id 
+      WHERE aa.id = ?
+    `).bind(id).first() as any
+    if (info && info.email) {
+      await sendEmail(c.env, info.email, `【晉級通知】晉升審核結果更新`, 
+        `親愛的 ${info.chinese_name} 您好：<br><br>您提交晉升「${info.rank_to}」的申請，審核狀態已更新為：<b>${translateStatus(status)}</b>。<br><br>${admin_notes ? `審核備註：${admin_notes}<br><br>` : ''}請登入系統查看詳情與最新榮譽狀態。`)
+    }
+  } catch (e) {
+      console.error('Email failed:', e)
+    }
+  }
+
   return c.json({ success: true })
 })
 
@@ -2552,7 +2649,7 @@ apiRoutes.put('/admin/official-leave/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { status, admin_note } = body
+  const { status, admin_note, send_email } = body
   if (!['approved','rejected','uploaded'].includes(status)) {
     return c.json({ success: false, error: '無效的狀態值' }, 400)
   }
@@ -2561,6 +2658,25 @@ apiRoutes.put('/admin/official-leave/:id', async (c) => {
     SET status = ?, admin_note = ?, reviewed_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).bind(status, admin_note || null, id).run()
+
+  // Send Email Notification
+  if (send_email) {
+    try {
+    const info = await db.prepare(`
+      SELECT m.email, m.chinese_name, ola.leave_date 
+      FROM official_leave_applications ola 
+      JOIN members m ON ola.member_id = m.id 
+      WHERE ola.id = ?
+    `).bind(id).first() as any
+    if (info && info.email) {
+      await sendEmail(c.env, info.email, `【公假通知】${info.leave_date} 公假審核結果`, 
+        `親愛的 ${info.chinese_name} 您好：<br><br>您申請的 ${info.leave_date} 公假，審核結果為：<b>${translateStatus(status)}</b>。<br><br>${admin_note ? `備註：${admin_note}<br><br>` : ''}請登入系統查看詳情。`)
+    }
+  } catch (e) {
+      console.error('Email failed:', e)
+    }
+  }
+
   return c.json({ success: true })
 })
 
@@ -2937,6 +3053,16 @@ apiRoutes.delete('/admin/group-alumni/:id', async (c) => {
   return c.json({ success: true })
 })
 
+apiRoutes.delete('/admin/group-alumni/year', async (c) => {
+  const db = c.env.DB
+  const groupId = c.req.query('groupId')
+  const year = c.req.query('year')
+  if (!groupId || !year) return c.json({ error: 'Missing parameters' }, 400)
+  
+  await db.prepare(`DELETE FROM group_alumni WHERE group_id=? AND year_label=?`).bind(groupId, year).run()
+  return c.json({ success: true })
+})
+
 // API: 預覽可匯入的歷屆成員（從 member_year_records + member_enrollments）
 apiRoutes.get('/admin/group-alumni-import-preview/:groupId', async (c) => {
   const db = c.env.DB
@@ -3134,3 +3260,61 @@ apiRoutes.delete('/admin/group-honors/:id', async (c) => {
   await db.prepare('DELETE FROM group_honors WHERE id = ?').bind(id).run();
   return c.json({ success: true });
 });
+
+// ===================== 檔案上傳 API =====================
+apiRoutes.post('/upload', async (c) => {
+  const body = await c.req.parseBody()
+  const file = body['file'] as File
+
+  if (!file || !(file instanceof File)) {
+    return c.json({ success: false, error: '請選擇檔案' }, 400)
+  }
+
+  // 限制檔案大小 (10MB)
+  if (file.size > 10 * 1024 * 1024) {
+    return c.json({ success: false, error: '檔案大小不能超過 10MB' }, 400)
+  }
+
+  try {
+    const r2 = c.env.R2
+    if (!r2) {
+      return c.json({ success: false, error: '尚未設定 R2 儲存空間' }, 500)
+    }
+
+    const timestamp = Date.now()
+    const ext = file.name.split('.').pop() || 'tmp'
+    const fileName = `${timestamp}-${Math.random().toString(36).substring(2, 8)}.${ext}`
+    
+    // Store in R2
+    const arrayBuffer = await file.arrayBuffer()
+    await r2.put(fileName, arrayBuffer, {
+      httpMetadata: { contentType: file.type }
+    })
+
+    // Return the file access URL
+    return c.json({ 
+      success: true, 
+      file_url: `/api/files/${fileName}`,
+      file_name: file.name
+    })
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500)
+  }
+})
+
+// 讀取 R2 檔案
+apiRoutes.get('/files/:key', async (c) => {
+  const r2 = c.env.R2
+  if (!r2) return c.text('R2 not configured', 500)
+  
+  const key = c.req.param('key')
+  const object = await r2.get(key)
+  
+  if (!object) return c.notFound()
+  
+  const headers = new Headers()
+  object.writeHttpMetadata(headers as any)
+  headers.set('etag', object.httpEtag)
+  
+  return new Response(object.body, { headers })
+})

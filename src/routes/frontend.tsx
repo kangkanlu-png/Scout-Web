@@ -252,8 +252,8 @@ frontendRoutes.get('/', async (c) => {
     FROM activities a
     LEFT JOIN activity_images ai ON ai.activity_id = a.id
     WHERE a.is_published = 1 AND (a.show_in_highlights = 1 OR a.activity_status = 'completed')
-    HAVING images IS NOT NULL OR a.cover_image IS NOT NULL
     GROUP BY a.id
+    HAVING images IS NOT NULL OR a.cover_image IS NOT NULL
     ORDER BY a.display_order ASC, a.activity_date DESC
     LIMIT 6
   `).all()
@@ -570,10 +570,90 @@ frontendRoutes.get('/honor', async (c) => {
 </body></html>`)
 })
 
-// ===================== 教練團總覽頁（公開）→ 重定向至行義團教練團頁 =====================
+// ===================== 教練團總覽頁 =====================
 frontendRoutes.get('/coaches', async (c) => {
-  // 重定向到行義團教練團頁面（服務員＋指導教練）
-  return c.redirect('/group/senior-scout/coaches-list', 302)
+  const db = c.env.DB
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+
+  const coaches = await db.prepare(`SELECT * FROM coach_members ORDER BY chinese_name ASC`).all()
+  
+  const levels = ['指導教練', '助理教練', '見習教練', '預備教練']
+  const grouped = {
+    '指導教練': [],
+    '助理教練': [],
+    '見習教練': [],
+    '預備教練': [],
+    '其他': []
+  }
+  
+  coaches.results.forEach((c: any) => {
+    if (grouped[c.coach_level]) {
+      grouped[c.coach_level].push(c)
+    } else {
+      grouped['其他'].push(c)
+    }
+  })
+
+  let html = `${pageHead('教練團組織 - 林口康橋童軍團')}
+<body class="bg-gray-50 font-sans">
+  ${navBar(settings)}
+  
+  <div class="hero-gradient text-white py-16 px-4">
+    <div class="max-w-5xl mx-auto text-center">
+      <div class="text-5xl mb-4">🧗‍♂️</div>
+      <h1 class="text-4xl font-bold mb-4 drop-shadow-md">教練團組織</h1>
+      <p class="text-lg text-green-100 max-w-2xl mx-auto leading-relaxed drop-shadow">
+        林口康橋童軍團專業教練群，帶領各階段進程與戶外技能訓練。
+      </p>
+    </div>
+  </div>
+
+  <div class="max-w-6xl mx-auto px-4 py-12 min-h-[50vh]">
+  `
+
+  levels.forEach(level => {
+    const list = grouped[level]
+    if (list.length > 0) {
+      html += `
+        <div class="mb-12">
+          <div class="flex items-center gap-3 mb-6 border-b-2 border-green-700 pb-2">
+            <h2 class="text-2xl font-bold text-gray-800">${level}</h2>
+            <span class="bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded-full">${list.length} 人</span>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            ${list.map((c: any) => `
+              <div class="bg-white border border-gray-200 rounded-xl p-4 text-center hover:shadow-md transition-shadow">
+                <div class="w-16 h-16 bg-gradient-to-br from-green-100 to-emerald-100 text-green-700 rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-3">
+                  ${c.chinese_name.substring(0, 1)}
+                </div>
+                <h3 class="font-bold text-gray-900">${c.chinese_name}</h3>
+                ${c.english_name ? `<div class="text-xs text-gray-500 mb-2">${c.english_name}</div>` : ''}
+                ${c.specialties ? `
+                  <div class="mt-2 flex flex-wrap justify-center gap-1">
+                    ${c.specialties.split(',').map((s:string) => `<span class="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">${s.trim()}</span>`).join('')}
+                  </div>
+                ` : ''}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `
+    }
+  })
+
+  // 如果完全沒有資料
+  if (coaches.results.length === 0) {
+    html += `<div class="text-center py-16 text-gray-500">目前尚無教練團資料</div>`
+  }
+
+  html += `
+  </div>
+  ${pageFooter(settings)}
+</body></html>`
+
+  return c.html(html)
 })
 
 // ===================== 教練團舊版（保留路由備用）=====================
@@ -2360,14 +2440,17 @@ function navBar(settings: Record<string, string>, groups: any[] = []) {
         
         <!-- 桌面版選單 -->
         <div class="hidden lg:flex items-center gap-4 text-sm">
-          <a href="/#about" class="hover:text-amber-300 transition-colors">關於我們</a>
-          <a href="/#groups" class="hover:text-amber-300 transition-colors">分組</a>
-          <a href="/announcements" class="hover:text-amber-300 transition-colors">📢 公告</a>
+          <div class="relative group">
+            <a href="/#about" class="hover:text-amber-300 transition-colors flex items-center gap-1 py-2">關於我們 ▾</a>
+            <div class="absolute left-0 mt-0 w-32 bg-white rounded-md shadow-lg py-1 hidden group-hover:block text-gray-800 border border-gray-100">
+              <a href="/about/scout" class="block px-4 py-2 hover:bg-green-50 hover:text-green-700 transition-colors">認識童軍</a>
+              <a href="/about/leaders" class="block px-4 py-2 hover:bg-green-50 hover:text-green-700 transition-colors">服務員介紹</a>
+            </div>
+          </div>
           <a href="/activities" class="hover:text-amber-300 transition-colors">📅 活動報名</a>
-          <a href="/highlights" class="hover:text-amber-300 transition-colors">📸 精彩回顧</a>
           <a href="/honor" class="hover:text-amber-300 transition-colors">🏅 榮譽榜</a>
-          <a href="/group/senior-scout/coaches-list" class="hover:text-amber-300 transition-colors">🧢 教練團</a>
-          <a href="/stats" class="hover:text-amber-300 transition-colors">📊 統計</a>
+          <a href="/highlights" class="hover:text-amber-300 transition-colors">📸 精彩回顧</a>
+          <a href="/stats" class="hover:text-amber-300 transition-colors">📊 統計資料</a>
           <a href="/links" class="hover:text-amber-300 transition-colors">🔗 相關網頁</a>
           <div class="flex gap-2 ml-2">
             <a href="/member" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">👤 會員入口</a>
@@ -2388,13 +2471,13 @@ function navBar(settings: Record<string, string>, groups: any[] = []) {
       <!-- 手機版下拉選單 (預設隱藏) -->
       <div id="mobile-menu" class="hidden lg:hidden mt-3 pb-2 border-t border-[#2d6a4f] pt-3">
         <div class="flex flex-col space-y-3 text-sm">
-          <a href="/#about" class="hover:text-amber-300 transition-colors px-2">關於我們</a>
-          <a href="/#groups" class="hover:text-amber-300 transition-colors px-2">分組</a>
-          <a href="/#activities" class="hover:text-amber-300 transition-colors px-2">活動</a>
-          <a href="/highlights" class="hover:text-amber-300 transition-colors px-2">📸 精彩回顧</a>
+          <div class="px-2 font-bold text-amber-300">關於我們</div>
+          <a href="/about/scout" class="hover:text-amber-300 transition-colors pl-6">認識童軍</a>
+          <a href="/about/leaders" class="hover:text-amber-300 transition-colors pl-6">服務員介紹</a>
+          <a href="/activities" class="hover:text-amber-300 transition-colors px-2">📅 活動報名</a>
           <a href="/honor" class="hover:text-amber-300 transition-colors px-2">🏅 榮譽榜</a>
-          <a href="/group/senior-scout/coaches-list" class="hover:text-amber-300 transition-colors px-2">🧢 教練團</a>
-          <a href="/stats" class="hover:text-amber-300 transition-colors px-2">📊 統計</a>
+          <a href="/highlights" class="hover:text-amber-300 transition-colors px-2">📸 精彩回顧</a>
+          <a href="/stats" class="hover:text-amber-300 transition-colors px-2">📊 統計資料</a>
           <a href="/links" class="hover:text-amber-300 transition-colors px-2">🔗 相關網頁</a>
         </div>
       </div>
@@ -2757,7 +2840,6 @@ function renderHomePage(activities: any[], groups: any[], settings: Record<strin
   </div>
 
   <div class="max-w-6xl mx-auto px-4 py-10">
-    ${announcementsHtml}
 
     <!-- 關於我們（移至最上方，讓訪客第一眼認識童軍團） -->
     <section id="about" class="mb-14">
@@ -2768,13 +2850,18 @@ function renderHomePage(activities: any[], groups: any[], settings: Record<strin
       <div class="bg-white rounded-xl shadow-md p-8">
         <p class="text-gray-700 leading-relaxed mb-4">${settings.about_text_zh || ''}</p>
         <p class="text-gray-500 leading-relaxed text-sm italic">${settings.about_text_en || ''}</p>
-        ${settings.facebook_url ? `
-          <div class="mt-6">
+        <div class="mt-6 flex flex-wrap gap-4">
+          ${settings.facebook_url ? `
             <a href="${settings.facebook_url}" target="_blank" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg transition-colors">
               <i class="fab fa-facebook"></i> 追蹤我們的 Facebook
             </a>
-          </div>
-        ` : ''}
+          ` : ''}
+          ${settings.instagram_url ? `
+            <a href="${settings.instagram_url}" target="_blank" class="inline-flex items-center gap-2 bg-gradient-to-r from-pink-500 via-red-500 to-yellow-500 hover:from-pink-600 hover:via-red-600 hover:to-yellow-600 text-white px-5 py-2.5 rounded-lg transition-colors">
+              <i class="fab fa-instagram"></i> 追蹤我們的 Instagram
+            </a>
+          ` : ''}
+        </div>
       </div>
     </section>
 
@@ -2789,10 +2876,13 @@ function renderHomePage(activities: any[], groups: any[], settings: Record<strin
       </div>
     </section>
 
+
+    ${announcementsHtml}
+
     <!-- 活動記錄 -->
     <section id="activities" class="mb-14">
       <h2 class="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
-        <i class="fas fa-campground text-[#1a472a]"></i> 活動記錄
+        <i class="fas fa-campground text-[#1a472a]"></i> 活動報名
       </h2>
       <p class="text-gray-500 mb-6">Activities & Events</p>
       ${activities.length === 0
@@ -2800,6 +2890,10 @@ function renderHomePage(activities: any[], groups: any[], settings: Record<strin
         : `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${activitiesHtml}</div>`
       }
     </section>
+
+
+
+
 
     <!-- 精彩回顧相冊入口（仿原站） -->
     ${highlights.length > 0 ? `
@@ -3114,7 +3208,7 @@ function renderSubPage(group: any, pageType: string, data: any, settings: Record
           <div class="mb-6">
             <h3 class="text-lg font-bold text-green-800 mb-3 flex items-center gap-2">
               <span class="w-8 h-8 bg-green-700 text-white rounded-full flex items-center justify-center text-sm font-bold">${year.slice(-2)}</span>
-              民國 ${year} 學年度
+              第 ${parseInt(year) - 107} 屆 (第 ${parseInt(year) - 107} 屆 (民國 ${year} 學年度))
             </h3>
             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">${memberCards}</div>
           </div>`
@@ -3762,3 +3856,44 @@ function renderCoachesList(group: any, leaders: any[], instructors: any[], setti
   ${pageFooter(settings)}
 `
 }
+
+
+// ===================== 認識童軍 / 服務員介紹 =====================
+frontendRoutes.get('/about/scout', async (c) => {
+  const db = c.env.DB
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+  
+  return c.html(`${pageHead('認識童軍 - 林口康橋童軍團')}
+<body class="bg-gray-50 font-sans">
+  ${navBar(settings)}
+  <div class="max-w-4xl mx-auto px-4 py-10 min-h-[60vh]">
+    <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">認識童軍</h1>
+    <div class="bg-white rounded-xl shadow-md p-8 prose max-w-none text-gray-700 leading-relaxed">
+      ${settings.about_scout_content || '<p class="text-gray-500 text-center">內容建置中...</p>'}
+    </div>
+  </div>
+  ${pageFooter(settings)}
+</body></html>`)
+})
+
+frontendRoutes.get('/about/leaders', async (c) => {
+  const db = c.env.DB
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
+  const settings: Record<string, string> = {}
+  settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
+  
+  return c.html(`${pageHead('服務員介紹 - 林口康橋童軍團')}
+<body class="bg-gray-50 font-sans">
+  ${navBar(settings)}
+  <div class="max-w-4xl mx-auto px-4 py-10 min-h-[60vh]">
+    <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">服務員介紹</h1>
+    <div class="bg-white rounded-xl shadow-md p-8 prose max-w-none text-gray-700 leading-relaxed">
+      ${settings.about_leaders_content || '<p class="text-gray-500 text-center">內容建置中...</p>'}
+    </div>
+  </div>
+  ${pageFooter(settings)}
+</body></html>`)
+})
+

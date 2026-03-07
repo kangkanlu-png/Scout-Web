@@ -1491,7 +1491,7 @@ memberRoutes.get('/activities', memberAuthMiddleware, async (c) => {
     SELECT a.*, 
       (SELECT status FROM activity_registrations WHERE activity_id = a.id AND member_id = ?) as my_status
     FROM activities a
-    WHERE a.is_published = 1
+    WHERE a.is_published = 1 AND (a.activity_type = 'registration' OR a.activity_type = 'general' OR a.activity_type IS NULL)
     ORDER BY a.activity_date DESC
   `).bind(memberId).all()
 
@@ -1501,7 +1501,14 @@ memberRoutes.get('/activities', memberAuthMiddleware, async (c) => {
   const today = new Date().toISOString().substring(0, 10)
 
   activities.results.forEach((a: any) => {
-    if (a.activity_date >= today) upcoming.push(a)
+    const isUpcoming = 
+      (a.activity_date && a.activity_date >= today) || 
+      (a.activity_end_date && a.activity_end_date >= today) ||
+      (!a.activity_date && !a.activity_end_date && a.is_registration_open === 1) || 
+      (a.is_registration_open === 1 && a.registration_end && new Date(a.registration_end) >= new Date()) ||
+      a.activity_status === 'active';
+      
+    if (isUpcoming) upcoming.push(a)
     else past.push(a)
   })
 
@@ -1514,8 +1521,17 @@ memberRoutes.get('/activities', memberAuthMiddleware, async (c) => {
     cancelled: '<span class="px-2 py-1 rounded bg-gray-100 text-gray-600 text-xs">已取消</span>'
   }
 
+  
+  const categoryLabel: Record<string, string> = {
+    general: '一般活動',
+    tecc: 'TECC 急救',
+    camping: '大露營',
+    training: '訓練課程',
+    service: '服務活動'
+  };
+
   const renderActivityCard = (a: any) => {
-    const isRegOpen = a.is_registration_open && 
+    const isRegOpen = (a.is_registration_open === 1 || a.is_registration_open === true || a.is_registration_open === "1") && 
       (!a.registration_start || new Date(a.registration_start) <= new Date()) &&
       (!a.registration_end || new Date(a.registration_end) >= new Date())
     
@@ -1529,7 +1545,7 @@ memberRoutes.get('/activities', memberAuthMiddleware, async (c) => {
         <div class="p-5 md:w-2/3 flex flex-col justify-between">
           <div>
             <div class="flex justify-between items-start">
-              <span class="text-xs font-bold text-green-600 mb-1 block">${a.category}</span>
+              <span class="text-xs font-bold text-green-600 mb-1 block">${categoryLabel[a.category] || a.category}</span>
               ${a.cost ? `<span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">${a.cost}</span>` : ''}
             </div>
             <h3 class="text-lg font-bold text-gray-800 mb-2">${a.title}</h3>
@@ -1791,9 +1807,9 @@ memberRoutes.get('/attendance', memberAuthMiddleware, async (c) => {
     SELECT ola.leave_date, ola.timeslots, m.chinese_name, m.section
     FROM official_leave_applications ola
     JOIN members m ON m.id = ola.member_id
-    WHERE ola.status='approved' AND ola.leave_date>=? AND ola.leave_date<=?
+    WHERE ola.status='approved' AND ola.leave_date>=? AND ola.leave_date<=? AND ola.member_id=?
     ORDER BY ola.leave_date
-  `).bind(wStart, wEnd).all()
+  `).bind(wStart, wEnd, memberId).all()
   const semEvents = semStart ? await db.prepare(`SELECT * FROM leave_calendar_events WHERE date>=? AND date<=? ORDER BY date`).bind(semStart, semEnd).all() : { results: [] }
 
   const blockedDates = new Set(weekEvents.results.filter((e:any)=>e.type==='blocked').map((e:any)=>e.date))

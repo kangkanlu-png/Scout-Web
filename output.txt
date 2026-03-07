@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>歷屆名單 - 童軍團 - 後台管理</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <!-- 側邊欄 -->
+  <div class="flex min-h-screen">
+    <aside class="w-56 bg-[#1a472a] text-white flex-shrink-0 flex flex-col">
+      <div class="p-5 border-b border-green-700">
+        <div class="flex items-center gap-2">
+          <span class="text-2xl">⚜️</span>
+          <div>
+            <div class="font-bold text-sm">童軍團後台</div>
+            <div class="text-xs text-green-300">管理系統</div>
+          </div>
+        </div>
+      </div>
+      <nav class="flex-1 p-3 space-y-1">
+        <a href="/admin" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <span>🏠</span> 儀表板
+        </a>
+        <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-1 mt-2">網站內容</div>
+        <a href="/admin/activities" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <span>📋</span> 活動/公告管理
+        </a>
+        <a href="/admin/groups" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <span>👥</span> 童軍分組
+        </a>
+        <!-- 分組子選單（組織/幹部/名單快速入口）-->
+        <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
+          <a href="/admin/groups/1/subpages" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs bg-green-700">
+            🏕️ 童軍團
+          </a>
+          <a href="/admin/groups/2/subpages" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs text-green-200">
+            ⛺ 行義童軍團
+          </a>
+          <a href="/admin/groups/3/subpages" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs text-green-200">
+            🧭 羅浮童軍群
+          </a>
+        </div>
+        <a href="/admin/announcements" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <!-- <span>📢</span> 公告管理 (已整合) -->
+        </a>
+        <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-1 mt-2">人員管理</div>
+        <a href="/admin/members" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <span>🪖</span> 成員管理
+        </a>
+        <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
+          <a href="/admin/members/import" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs text-green-200">
+            📥 批次匯入
+          </a>
+        </div>
+        <a href="/admin/attendance" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <span>📅</span> 考勤管理
+        </a>
+        <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
+          <a href="/admin/attendance" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs text-green-200">
+            📝 出席管理
+          </a>
+          <a href="/admin/leaves" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs text-green-200">
+            ✅ 請假審核
+          </a>
+          <a href="/admin/official-leave" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs text-green-200">
+            📋 公假管理
+          </a>
+        </div>
+        <a href="/admin/advancement" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <span>🏅</span> 進程/榮譽
+        </a>
+        <!-- 進程子選單 -->
+        <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
+          <a href="/admin/advancement" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs text-green-200">
+            📊 總覽與審核
+          </a>
+          <a href="/admin/advancement/badges" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs text-green-200">
+            📛 專科章設定
+          </a>
+          <a href="/admin/progress" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs text-green-200">
+            📏 標準設定
+          </a>
+          <a href="/admin/group-honors" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs text-green-200">
+            🏆 榮譽榜管理
+          </a>
+        </div>
+        <a href="/admin/member-accounts" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <span>🔑</span> 會員帳號
+        </a>
+        <a href="/admin/coaches" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <span>🧢</span> 教練團
+        </a>
+        <a href="/admin/leaders" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <span>👮</span> 服務員管理
+        </a>
+        <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-1 mt-2">系統</div>
+        <a href="/admin/stats" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <span>📊</span> 統計報表
+        </a>
+        <a href="/admin/rover-map" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <span>🌍</span> 羅浮分佈圖
+        </a>
+        <a href="/admin/settings" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <span>⚙️</span> 網站設定
+        </a>
+        <a href="/admin/links" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ">
+          <span>🔗</span> 相關網頁
+        </a>
+      </nav>
+      <div class="p-3 border-t border-green-700">
+        <a href="/" target="_blank" class="flex items-center gap-2 px-3 py-2 text-xs text-green-300 hover:text-white transition-colors">
+          <span>🌐</span> 查看前台
+        </a>
+        <a href="/admin/logout" class="flex items-center gap-2 px-3 py-2 text-xs text-green-300 hover:text-white transition-colors">
+          <span>🚪</span> 登出
+        </a>
+      </div>
+    </aside>
+
+    <!-- 主內容 -->
+    <main class="flex-1 p-6 overflow-auto">
+      <div class="max-w-5xl mx-auto">
+        <div class="mb-6">
+          <h1 class="text-2xl font-bold text-gray-800">歷屆名單 - 童軍團</h1>
+        </div>
+        
+    <div class="mb-6 flex items-center justify-between">
+      <div>
+        <a href="/admin/groups/1/subpages" class="text-gray-500 hover:text-gray-700 text-sm">← 返回子頁面管理</a>
+        <h2 class="text-xl font-bold text-gray-800 mt-2">童軍團 · 歷屆名單管理</h2>
+        <p class="text-sm text-gray-400 mt-1">共 66 筆記錄</p>
+      </div>
+      <div class="flex gap-2">
+        
+        <button onclick="openImportModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+          📥 從成員管理匯入
+        </button>
+        <button onclick="openAddAlumni()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium">➕ 新增成員</button>
+      </div>
+    </div>
+
+    
+    <div class="bg-white rounded-xl shadow overflow-hidden mb-6">
+      <div class="bg-gray-100 border-b px-4 py-3 font-bold text-gray-800 flex justify-between items-center">
+        <span>第 8 屆 (115 學年度)</span>
+        <button onclick="deleteYear(1, '115')" class="text-xs text-red-500 font-normal hover:text-red-700">刪除此屆</button>
+      </div>
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b text-xs text-gray-500">
+          <tr>
+            <th class="py-2 px-3 text-left w-20">學年度</th>
+            <th class="py-2 px-3 text-left">姓名</th>
+            <th class="py-2 px-3 text-left">英文名</th>
+            <th class="py-2 px-3 text-left">小隊</th>
+            <th class="py-2 px-3 text-left">職位</th>
+            <th class="py-2 px-3 text-left">級別</th>
+            <th class="py-2 px-3 text-left w-24">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">張淯媞</td>
+      <td class="py-2 px-3 text-gray-500">CHANG, YU-TI</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">未分配</span></td>
+      <td class="py-2 px-3 text-gray-500">隊員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":3,"group_id":1,"year_label":"115","member_name":"張淯媞","english_name":"CHANG, YU-TI","unit_name":"未分配","role_name":"隊員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(3)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">許雅媛</td>
+      <td class="py-2 px-3 text-gray-500">HSU, YA-YUAN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">未分配</span></td>
+      <td class="py-2 px-3 text-gray-500">隊員</td>
+      <td class="py-2 px-3 text-gray-500">高級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":4,"group_id":1,"year_label":"115","member_name":"許雅媛","english_name":"HSU, YA-YUAN","unit_name":"未分配","role_name":"隊員","rank_level":"高級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(4)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">何采庭</td>
+      <td class="py-2 px-3 text-gray-500">HO, TSAI-TING</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":5,"group_id":1,"year_label":"115","member_name":"何采庭","english_name":"HO, TSAI-TING","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(5)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">劉宥緗</td>
+      <td class="py-2 px-3 text-gray-500">LIU, YU-HSIANG</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">未入團</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":6,"group_id":1,"year_label":"115","member_name":"劉宥緗","english_name":"LIU, YU-HSIANG","unit_name":null,"role_name":"團員","rank_level":"未入團","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(6)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">劉文歆</td>
+      <td class="py-2 px-3 text-gray-500">LIU, WEN-XIN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">小隊長</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":7,"group_id":1,"year_label":"115","member_name":"劉文歆","english_name":"LIU, WEN-XIN","unit_name":null,"role_name":"小隊長","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(7)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">劉文諺</td>
+      <td class="py-2 px-3 text-gray-500">LIU, WEN-YAN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">器材長</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":8,"group_id":1,"year_label":"115","member_name":"劉文諺","english_name":"LIU, WEN-YAN","unit_name":null,"role_name":"器材長","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(8)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">劉玟馨</td>
+      <td class="py-2 px-3 text-gray-500">LIU, WEN-HSIN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":9,"group_id":1,"year_label":"115","member_name":"劉玟馨","english_name":"LIU, WEN-HSIN","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(9)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">劉綵潔</td>
+      <td class="py-2 px-3 text-gray-500">LIU, TSAI-JIE</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":10,"group_id":1,"year_label":"115","member_name":"劉綵潔","english_name":"LIU, TSAI-JIE","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(10)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">吳宜寧</td>
+      <td class="py-2 px-3 text-gray-500">WU, YI-NING</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":11,"group_id":1,"year_label":"115","member_name":"吳宜寧","english_name":"WU, YI-NING","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(11)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">吳羿璇</td>
+      <td class="py-2 px-3 text-gray-500">WU, YI-XUAN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":12,"group_id":1,"year_label":"115","member_name":"吳羿璇","english_name":"WU, YI-XUAN","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(12)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">呂東滜</td>
+      <td class="py-2 px-3 text-gray-500">LU, DONG-GAO</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":13,"group_id":1,"year_label":"115","member_name":"呂東滜","english_name":"LU, DONG-GAO","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(13)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">周凱琳</td>
+      <td class="py-2 px-3 text-gray-500">CHOU, KAI-LIN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":14,"group_id":1,"year_label":"115","member_name":"周凱琳","english_name":"CHOU, KAI-LIN","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(14)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">廖柏沅</td>
+      <td class="py-2 px-3 text-gray-500">LIAO, BO-YUAN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":15,"group_id":1,"year_label":"115","member_name":"廖柏沅","english_name":"LIAO, BO-YUAN","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(15)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">張心妮</td>
+      <td class="py-2 px-3 text-gray-500">CHANG, HSIN-NI</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":16,"group_id":1,"year_label":"115","member_name":"張心妮","english_name":"CHANG, HSIN-NI","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(16)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">張涵晴</td>
+      <td class="py-2 px-3 text-gray-500">CHANG, HAN-CHING</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":17,"group_id":1,"year_label":"115","member_name":"張涵晴","english_name":"CHANG, HAN-CHING","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(17)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">張維珊</td>
+      <td class="py-2 px-3 text-gray-500">CHANG, WEI-SHAN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":18,"group_id":1,"year_label":"115","member_name":"張維珊","english_name":"CHANG, WEI-SHAN","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(18)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">張羽安</td>
+      <td class="py-2 px-3 text-gray-500">CHANG, YU-AN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":19,"group_id":1,"year_label":"115","member_name":"張羽安","english_name":"CHANG, YU-AN","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(19)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">徐詠綺</td>
+      <td class="py-2 px-3 text-gray-500">HSU, YUNG-CHI</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">未入團</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":20,"group_id":1,"year_label":"115","member_name":"徐詠綺","english_name":"HSU, YUNG-CHI","unit_name":null,"role_name":"團員","rank_level":"未入團","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(20)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">曾宥華</td>
+      <td class="py-2 px-3 text-gray-500">TSENG, YOU-HUA</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":21,"group_id":1,"year_label":"115","member_name":"曾宥華","english_name":"TSENG, YOU-HUA","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(21)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">李嘉容</td>
+      <td class="py-2 px-3 text-gray-500">LEE, JIA-RONG</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":22,"group_id":1,"year_label":"115","member_name":"李嘉容","english_name":"LEE, JIA-RONG","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(22)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">李晨瑀</td>
+      <td class="py-2 px-3 text-gray-500">LEE, CHEN-YU</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":23,"group_id":1,"year_label":"115","member_name":"李晨瑀","english_name":"LEE, CHEN-YU","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(23)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">林佳臻</td>
+      <td class="py-2 px-3 text-gray-500">LIN, JIA-JHEN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">未入團</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":24,"group_id":1,"year_label":"115","member_name":"林佳臻","english_name":"LIN, JIA-JHEN","unit_name":null,"role_name":"團員","rank_level":"未入團","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(24)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">林汶錡</td>
+      <td class="py-2 px-3 text-gray-500">LIN, WEN-CHI</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":25,"group_id":1,"year_label":"115","member_name":"林汶錡","english_name":"LIN, WEN-CHI","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(25)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">林沛霓</td>
+      <td class="py-2 px-3 text-gray-500">LIN, PEI-NI</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":26,"group_id":1,"year_label":"115","member_name":"林沛霓","english_name":"LIN, PEI-NI","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(26)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">林炤玹</td>
+      <td class="py-2 px-3 text-gray-500">LIN, ZHAO-XUAN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">未入團</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":27,"group_id":1,"year_label":"115","member_name":"林炤玹","english_name":"LIN, ZHAO-XUAN","unit_name":null,"role_name":"團員","rank_level":"未入團","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(27)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">林秉毅</td>
+      <td class="py-2 px-3 text-gray-500">LIN, BING-YI</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":28,"group_id":1,"year_label":"115","member_name":"林秉毅","english_name":"LIN, BING-YI","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(28)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">林貞豪</td>
+      <td class="py-2 px-3 text-gray-500">LIN, CASPAR</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":29,"group_id":1,"year_label":"115","member_name":"林貞豪","english_name":"LIN, CASPAR","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(29)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">林辰恩</td>
+      <td class="py-2 px-3 text-gray-500">LIN, CHEN-EN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":30,"group_id":1,"year_label":"115","member_name":"林辰恩","english_name":"LIN, CHEN-EN","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(30)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">楊凱淇</td>
+      <td class="py-2 px-3 text-gray-500">YANG, KAI CHI CATHY</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":31,"group_id":1,"year_label":"115","member_name":"楊凱淇","english_name":"YANG, KAI CHI CATHY","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(31)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">楊巾瑩</td>
+      <td class="py-2 px-3 text-gray-500">YANG, JIN-YING</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":32,"group_id":1,"year_label":"115","member_name":"楊巾瑩","english_name":"YANG, JIN-YING","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(32)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">楊方晴</td>
+      <td class="py-2 px-3 text-gray-500">YANG, FANG-CING</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":33,"group_id":1,"year_label":"115","member_name":"楊方晴","english_name":"YANG, FANG-CING","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(33)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">殷宇崴</td>
+      <td class="py-2 px-3 text-gray-500">YIN, YU WEI ANDREW</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":34,"group_id":1,"year_label":"115","member_name":"殷宇崴","english_name":"YIN, YU WEI ANDREW","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(34)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">江紫晴</td>
+      <td class="py-2 px-3 text-gray-500">CHIANG, TZU-CHING</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":35,"group_id":1,"year_label":"115","member_name":"江紫晴","english_name":"CHIANG, TZU-CHING","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(35)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">沈禧琳</td>
+      <td class="py-2 px-3 text-gray-500">SHEN, HSI-LIN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":36,"group_id":1,"year_label":"115","member_name":"沈禧琳","english_name":"SHEN, HSI-LIN","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(36)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">洪梓涵</td>
+      <td class="py-2 px-3 text-gray-500">HUNG, TZU-HAN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":37,"group_id":1,"year_label":"115","member_name":"洪梓涵","english_name":"HUNG, TZU-HAN","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(37)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">涂宏語</td>
+      <td class="py-2 px-3 text-gray-500">TU, MURRAY</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":38,"group_id":1,"year_label":"115","member_name":"涂宏語","english_name":"TU, MURRAY","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(38)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">測試115</td>
+      <td class="py-2 px-3 text-gray-500">Test 115</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">隊員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":39,"group_id":1,"year_label":"115","member_name":"測試115","english_name":"Test 115","unit_name":null,"role_name":"隊員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(39)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">練彤彤</td>
+      <td class="py-2 px-3 text-gray-500">LIEN, TUNG-TUNG</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":40,"group_id":1,"year_label":"115","member_name":"練彤彤","english_name":"LIEN, TUNG-TUNG","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(40)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">范姜士騏</td>
+      <td class="py-2 px-3 text-gray-500">FAN CHIANG, SHIH-CHI</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":41,"group_id":1,"year_label":"115","member_name":"范姜士騏","english_name":"FAN CHIANG, SHIH-CHI","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(41)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">葉詠欣</td>
+      <td class="py-2 px-3 text-gray-500">YEH, YUNG-HSIN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">未入團</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":42,"group_id":1,"year_label":"115","member_name":"葉詠欣","english_name":"YEH, YUNG-HSIN","unit_name":null,"role_name":"團員","rank_level":"未入團","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(42)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">葉貞言</td>
+      <td class="py-2 px-3 text-gray-500">YIP, CHING YIN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">未入團</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":43,"group_id":1,"year_label":"115","member_name":"葉貞言","english_name":"YIP, CHING YIN","unit_name":null,"role_name":"團員","rank_level":"未入團","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(43)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">蔡靜琝</td>
+      <td class="py-2 px-3 text-gray-500">TSAI, CHING-WEN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">小隊長</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":44,"group_id":1,"year_label":"115","member_name":"蔡靜琝","english_name":"TSAI, CHING-WEN","unit_name":null,"role_name":"小隊長","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(44)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">蕭上竣</td>
+      <td class="py-2 px-3 text-gray-500">HSIAO, SHANG-JUN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">未入團</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":45,"group_id":1,"year_label":"115","member_name":"蕭上竣","english_name":"HSIAO, SHANG-JUN","unit_name":null,"role_name":"團員","rank_level":"未入團","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(45)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">許若彤</td>
+      <td class="py-2 px-3 text-gray-500">HSU, RUO-TONG</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":46,"group_id":1,"year_label":"115","member_name":"許若彤","english_name":"HSU, RUO-TONG","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(46)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">許語安</td>
+      <td class="py-2 px-3 text-gray-500">HSU, YU-AN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":47,"group_id":1,"year_label":"115","member_name":"許語安","english_name":"HSU, YU-AN","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(47)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">謝汮彤</td>
+      <td class="py-2 px-3 text-gray-500">HSIEH, JUN TONG</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":48,"group_id":1,"year_label":"115","member_name":"謝汮彤","english_name":"HSIEH, JUN TONG","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(48)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">謝雨潔</td>
+      <td class="py-2 px-3 text-gray-500">HSIEH, YU-JIE</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":49,"group_id":1,"year_label":"115","member_name":"謝雨潔","english_name":"HSIEH, YU-JIE","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(49)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">賴立原</td>
+      <td class="py-2 px-3 text-gray-500">LAI, LI-YUAN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">未入團</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":50,"group_id":1,"year_label":"115","member_name":"賴立原","english_name":"LAI, LI-YUAN","unit_name":null,"role_name":"團員","rank_level":"未入團","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(50)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">邱媛媛</td>
+      <td class="py-2 px-3 text-gray-500">CHIU, YUAN YUAN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":51,"group_id":1,"year_label":"115","member_name":"邱媛媛","english_name":"CHIU, YUAN YUAN","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(51)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">郭宥緗</td>
+      <td class="py-2 px-3 text-gray-500">KUO, YOU-SHIANG</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":52,"group_id":1,"year_label":"115","member_name":"郭宥緗","english_name":"KUO, YOU-SHIANG","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(52)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">闕紫宸</td>
+      <td class="py-2 px-3 text-gray-500">CHUEH, TZU-CHEN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":53,"group_id":1,"year_label":"115","member_name":"闕紫宸","english_name":"CHUEH, TZU-CHEN","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(53)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">陳乃安</td>
+      <td class="py-2 px-3 text-gray-500">CHEN, NAI-AN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">未入團</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":54,"group_id":1,"year_label":"115","member_name":"陳乃安","english_name":"CHEN, NAI-AN","unit_name":null,"role_name":"團員","rank_level":"未入團","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(54)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">陳奕涵</td>
+      <td class="py-2 px-3 text-gray-500">CHEN, YI-HAN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":55,"group_id":1,"year_label":"115","member_name":"陳奕涵","english_name":"CHEN, YI-HAN","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(55)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">陳宥勝</td>
+      <td class="py-2 px-3 text-gray-500">CHEN, YOU-SHENG</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":56,"group_id":1,"year_label":"115","member_name":"陳宥勝","english_name":"CHEN, YOU-SHENG","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(56)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">陳宥君</td>
+      <td class="py-2 px-3 text-gray-500">CHEN, YU-CHUN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">未入團</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":57,"group_id":1,"year_label":"115","member_name":"陳宥君","english_name":"CHEN, YU-CHUN","unit_name":null,"role_name":"團員","rank_level":"未入團","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(57)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">陳怡文</td>
+      <td class="py-2 px-3 text-gray-500">CHEN, NATALIE</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":58,"group_id":1,"year_label":"115","member_name":"陳怡文","english_name":"CHEN, NATALIE","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(58)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">陳曉瑢</td>
+      <td class="py-2 px-3 text-gray-500">CHEN, HSIAO-JUNG</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":59,"group_id":1,"year_label":"115","member_name":"陳曉瑢","english_name":"CHEN, HSIAO-JUNG","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(59)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">陳柏瑜</td>
+      <td class="py-2 px-3 text-gray-500">CHEN, BO-YU</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":60,"group_id":1,"year_label":"115","member_name":"陳柏瑜","english_name":"CHEN, BO-YU","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(60)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">陳瑀涵</td>
+      <td class="py-2 px-3 text-gray-500">CHEN, YU-HAN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":61,"group_id":1,"year_label":"115","member_name":"陳瑀涵","english_name":"CHEN, YU-HAN","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(61)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">陳芃妘</td>
+      <td class="py-2 px-3 text-gray-500">CHEN, PENG-YUN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":62,"group_id":1,"year_label":"115","member_name":"陳芃妘","english_name":"CHEN, PENG-YUN","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(62)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">陳詠昕</td>
+      <td class="py-2 px-3 text-gray-500">CHEN, YUNG-HSIN</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":63,"group_id":1,"year_label":"115","member_name":"陳詠昕","english_name":"CHEN, YUNG-HSIN","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(63)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">陳雨彤</td>
+      <td class="py-2 px-3 text-gray-500">CHEN, YUTONG</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":64,"group_id":1,"year_label":"115","member_name":"陳雨彤","english_name":"CHEN, YUTONG","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(64)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">黃以慈</td>
+      <td class="py-2 px-3 text-gray-500">HUANG, YI-TZU</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":65,"group_id":1,"year_label":"115","member_name":"黃以慈","english_name":"HUANG, YI-TZU","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(65)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">黃學心</td>
+      <td class="py-2 px-3 text-gray-500">WONG, HOK SUM</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":66,"group_id":1,"year_label":"115","member_name":"黃學心","english_name":"WONG, HOK SUM","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(66)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">黃琦崴</td>
+      <td class="py-2 px-3 text-gray-500">HUANG, CHI-WEI</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">初級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":67,"group_id":1,"year_label":"115","member_name":"黃琦崴","english_name":"HUANG, CHI-WEI","unit_name":null,"role_name":"團員","rank_level":"初級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(67)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+    <tr class="border-b hover:bg-gray-50 text-sm">
+      <td class="py-2 px-3 text-gray-500">115</td>
+      <td class="py-2 px-3 font-medium">黃詠庭</td>
+      <td class="py-2 px-3 text-gray-500">HUANG, YONG-TING</td>
+      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">-</span></td>
+      <td class="py-2 px-3 text-gray-500">團員</td>
+      <td class="py-2 px-3 text-gray-500">中級童軍</td>
+      <td class="py-2 px-3">
+        <button onclick='editAlumni({"id":68,"group_id":1,"year_label":"115","member_name":"黃詠庭","english_name":"HUANG, YONG-TING","unit_name":null,"role_name":"團員","rank_level":"中級童軍","notes":null,"display_order":0})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+        <button onclick="deleteAlumni(68)" class="text-red-500 hover:text-red-700">刪除</button>
+      </td>
+    </tr>
+    
+        </tbody>
+      </table>
+    </div>
+    
+
+    <!-- 從成員管理匯入 Modal -->
+    <div id="import-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div class="p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-gray-800">📥 從成員管理匯入歷屆名單</h3>
+            <button onclick="document.getElementById('import-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">✕</button>
+          </div>
+
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm text-blue-700">
+            <p>依學年度從成員管理資料（年度記錄）匯入成員到歷屆名單。</p>
+            <p class="mt-1 text-xs text-blue-500">已存在於歷屆名單的同學（同年度同姓名）會標記為灰色，不重複匯入。</p>
+          </div>
+
+          <div class="flex gap-3 mb-4">
+            <select id="import-year" class="flex-1 border rounded-lg px-3 py-2 text-sm" onchange="loadImportPreview()">
+              <option value="">選擇學年度...</option>
+              <option value="115">115 學年度</option><option value="114">114 學年度</option><option value="113">113 學年度</option><option value="112">112 學年度</option><option value="111">111 學年度</option><option value="110">110 學年度</option><option value="109">109 學年度</option><option value="108">108 學年度</option>
+            </select>
+            <button onclick="loadImportPreview()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">查看名單</button>
+          </div>
+
+          <div id="import-preview" class="hidden">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-sm text-gray-600">
+                <span id="import-count">0</span> 位成員（<span id="import-new-count" class="text-green-600 font-medium">0</span> 位新成員，<span id="import-dup-count" class="text-gray-400">0</span> 位已存在）
+              </p>
+              <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                <input type="checkbox" id="select-all-import" onchange="toggleSelectAll(this.checked)">
+                全選新成員
+              </label>
+            </div>
+            <div id="import-list" class="border rounded-lg divide-y max-h-64 overflow-y-auto"></div>
+          </div>
+
+          <div id="import-msg" class="hidden mt-3 p-3 rounded-lg text-sm"></div>
+
+          <div class="flex gap-3 mt-4">
+            <button onclick="execImport(1)" id="exec-import-btn" class="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+              ✅ 匯入選取成員
+            </button>
+            <button onclick="document.getElementById('import-modal').classList.add('hidden')" class="px-4 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新增/編輯 Modal -->
+    <div id="alumni-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div class="p-6">
+          <h3 id="alumni-modal-title" class="text-lg font-bold text-gray-800 mb-4">新增成員</h3>
+          <input type="hidden" id="alumni-id">
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">姓名 *</label>
+              <input type="text" id="alumni-member_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">英文名</label>
+              <input type="text" id="alumni-english_name" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">學年度 *</label>
+              <input type="text" id="alumni-year_label" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="115">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">小隊</label>
+              <input type="text" id="alumni-unit_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="美西小隊">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">職位</label>
+              <input type="text" id="alumni-role_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="團員、隊長...">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">級別</label>
+              <input type="text" id="alumni-rank_level" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="初級、中級、高級...">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="block text-xs font-medium text-gray-700 mb-1">備注</label>
+            <input type="text" id="alumni-notes" class="w-full border rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div id="alumni-msg" class="hidden mb-3 p-3 rounded-lg text-sm"></div>
+          <div class="flex gap-3">
+            <button type="button" onclick="saveAlumni(1)" class="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-2 rounded-lg text-sm font-medium">💾 儲存</button>
+            <button type="button" onclick="document.getElementById('alumni-modal').classList.add('hidden')" class="px-4 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    function openAddAlumni() {
+      document.getElementById('alumni-modal-title').textContent = '新增成員'
+      document.getElementById('alumni-id').value = ''
+      document.getElementById('alumni-member_name').value = ''
+      document.getElementById('alumni-english_name').value = ''
+      document.getElementById('alumni-year_label').value = ''
+      document.getElementById('alumni-unit_name').value = ''
+      document.getElementById('alumni-role_name').value = ''
+      document.getElementById('alumni-rank_level').value = ''
+      document.getElementById('alumni-notes').value = ''
+      document.getElementById('alumni-msg').classList.add('hidden')
+      document.getElementById('alumni-modal').classList.remove('hidden')
+    }
+    function editAlumni(data) {
+      document.getElementById('alumni-modal-title').textContent = '編輯成員'
+      document.getElementById('alumni-id').value = data.id
+      document.getElementById('alumni-member_name').value = data.member_name || ''
+      document.getElementById('alumni-english_name').value = data.english_name || ''
+      document.getElementById('alumni-year_label').value = data.year_label || ''
+      document.getElementById('alumni-unit_name').value = data.unit_name || ''
+      document.getElementById('alumni-role_name').value = data.role_name || ''
+      document.getElementById('alumni-rank_level').value = data.rank_level || ''
+      document.getElementById('alumni-notes').value = data.notes || ''
+      document.getElementById('alumni-msg').classList.add('hidden')
+      document.getElementById('alumni-modal').classList.remove('hidden')
+    }
+    async function saveAlumni(groupId) {
+      const alumniId = document.getElementById('alumni-id').value
+      const msg = document.getElementById('alumni-msg')
+      const payload = {
+        group_id: groupId,
+        member_name: document.getElementById('alumni-member_name').value.trim(),
+        english_name: document.getElementById('alumni-english_name').value.trim(),
+        year_label: document.getElementById('alumni-year_label').value.trim(),
+        unit_name: document.getElementById('alumni-unit_name').value.trim(),
+        role_name: document.getElementById('alumni-role_name').value.trim(),
+        rank_level: document.getElementById('alumni-rank_level').value.trim(),
+        notes: document.getElementById('alumni-notes').value.trim()
+      }
+      if (!payload.member_name || !payload.year_label) {
+        msg.className = 'mb-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
+        msg.textContent = '❌ 請填寫姓名和學年度'
+        msg.classList.remove('hidden')
+        return
+      }
+      const url = alumniId ? '/api/admin/group-alumni/' + alumniId : '/api/admin/group-alumni'
+      const method = alumniId ? 'PUT' : 'POST'
+      const res = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+      const data = await res.json()
+      if (data.success) {
+        location.reload()
+      } else {
+        msg.className = 'mb-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
+        msg.textContent = '❌ ' + (data.error || '儲存失敗')
+        msg.classList.remove('hidden')
+      }
+    }
+    async function deleteYear(groupId, year) {
+        if (!confirm('確定要刪除 ' + year + ' 學年度的所有名單嗎？此操作無法復原。')) return;
+        const res = await fetch('/api/groups/' + groupId + '/alumni/' + year, { method: 'DELETE' });
+        if (res.ok) location.reload();
+        else alert('刪除失敗');
+      }
+      async function deleteAlumni(id) {
+      if (!confirm('確定刪除這筆記錄？')) return
+      await fetch('/api/admin/group-alumni/' + id, { method: 'DELETE' })
+      location.reload()
+    }
+
+    // ---- 匯入功能 ----
+    const IMPORTED_KEYS = new Set(["115__張淯媞","115__許雅媛","115__何采庭","115__劉宥緗","115__劉文歆","115__劉文諺","115__劉玟馨","115__劉綵潔","115__吳宜寧","115__吳羿璇","115__呂東滜","115__周凱琳","115__廖柏沅","115__張心妮","115__張涵晴","115__張維珊","115__張羽安","115__徐詠綺","115__曾宥華","115__李嘉容","115__李晨瑀","115__林佳臻","115__林汶錡","115__林沛霓","115__林炤玹","115__林秉毅","115__林貞豪","115__林辰恩","115__楊凱淇","115__楊巾瑩","115__楊方晴","115__殷宇崴","115__江紫晴","115__沈禧琳","115__洪梓涵","115__涂宏語","115__測試115","115__練彤彤","115__范姜士騏","115__葉詠欣","115__葉貞言","115__蔡靜琝","115__蕭上竣","115__許若彤","115__許語安","115__謝汮彤","115__謝雨潔","115__賴立原","115__邱媛媛","115__郭宥緗","115__闕紫宸","115__陳乃安","115__陳奕涵","115__陳宥勝","115__陳宥君","115__陳怡文","115__陳曉瑢","115__陳柏瑜","115__陳瑀涵","115__陳芃妘","115__陳詠昕","115__陳雨彤","115__黃以慈","115__黃學心","115__黃琦崴","115__黃詠庭"])
+    let previewData = []
+
+    function openImportModal() {
+      document.getElementById('import-modal').classList.remove('hidden')
+      document.getElementById('import-preview').classList.add('hidden')
+      document.getElementById('import-msg').classList.add('hidden')
+      document.getElementById('import-year').value = ''
+    }
+
+    async function loadImportPreview() {
+      const year = document.getElementById('import-year').value
+      if (!year) return
+      const res = await fetch('/api/admin/group-alumni-import-preview/1?year=' + encodeURIComponent(year))
+      const data = await res.json()
+      if (!data.success) {
+        alert('載入失敗：' + data.error)
+        return
+      }
+      previewData = data.members
+      const newMembers = previewData.filter(m => !IMPORTED_KEYS.has(year + '__' + m.name))
+      const dupMembers = previewData.filter(m => IMPORTED_KEYS.has(year + '__' + m.name))
+
+      document.getElementById('import-count').textContent = previewData.length
+      document.getElementById('import-new-count').textContent = newMembers.length
+      document.getElementById('import-dup-count').textContent = dupMembers.length
+
+      const listEl = document.getElementById('import-list')
+      if (previewData.length === 0) {
+        listEl.innerHTML = '<p class="p-4 text-center text-gray-400 text-sm">此年度無可匯入的成員資料</p>'
+      } else {
+        listEl.innerHTML = previewData.map((m, i) => {
+          const key = year + '__' + m.name
+          const isDup = IMPORTED_KEYS.has(key)
+          return `<div class="flex items-center gap-3 px-4 py-2.5 ${isDup ? 'bg-gray-50 opacity-60' : 'hover:bg-blue-50'}">
+            <input type="checkbox" id="imp-${i}" ${isDup ? 'disabled' : 'checked'}
+              class="rounded" value="${i}">
+            <div class="flex-1 min-w-0">
+              <span class="text-sm font-medium text-gray-800">${m.name}</span>
+              ${m.english_name ? `<span class="text-xs text-gray-400 ml-2">${m.english_name}</span>` : ''}
+              <span class="text-xs text-gray-400 ml-2">/ ${m.unit || '-'} / ${m.rank || '-'} / ${m.role || '-'}</span>
+            </div>
+            ${isDup ? '<span class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">已存在</span>' : ''}
+          </div>`
+        }).join('')
+      }
+
+      document.getElementById('import-preview').classList.remove('hidden')
+      document.getElementById('select-all-import').checked = true
+    }
+
+    function toggleSelectAll(checked) {
+      const year = document.getElementById('import-year').value
+      previewData.forEach((m, i) => {
+        const key = year + '__' + m.name
+        if (!IMPORTED_KEYS.has(key)) {
+          const cb = document.getElementById('imp-' + i)
+          if (cb) cb.checked = checked
+        }
+      })
+    }
+
+    async function execImport(groupId) {
+      const year = document.getElementById('import-year').value
+      if (!year) { alert('請先選擇學年度'); return }
+      const selected = previewData.filter((m, i) => {
+        const cb = document.getElementById('imp-' + i)
+        return cb && cb.checked && !cb.disabled
+      })
+      if (selected.length === 0) { alert('請選擇要匯入的成員'); return }
+      if (!confirm('確定匯入 ' + selected.length + ' 位成員到 ' + year + ' 學年度歷屆名單？')) return
+
+      const btn = document.getElementById('exec-import-btn')
+      btn.disabled = true; btn.textContent = '匯入中...'
+      const msg = document.getElementById('import-msg')
+      try {
+        const res = await fetch('/api/admin/group-alumni-import/' + groupId, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ year_label: year, members: selected })
+        })
+        const data = await res.json()
+        msg.className = 'mt-3 p-3 rounded-lg text-sm ' + (data.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200')
+        msg.textContent = data.success ? '✅ 成功匯入 ' + data.imported + ' 筆記錄！' : '❌ 匯入失敗：' + (data.error || '')
+        msg.classList.remove('hidden')
+        if (data.success) setTimeout(() => location.reload(), 1500)
+      } catch(e) {
+        msg.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200'
+        msg.textContent = '❌ 網路錯誤'
+        msg.classList.remove('hidden')
+      }
+      btn.disabled = false; btn.textContent = '✅ 匯入選取成員'
+    }
+
+    document.getElementById('import-modal').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.add('hidden')
+    })
+    </script>
+  
+      </div>
+    </main>
+  </div>
+</body>
+</html>

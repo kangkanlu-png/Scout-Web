@@ -247,23 +247,7 @@ adminRoutes.get('/activities', authMiddleware, async (c) => {
       <h2 class="text-xl font-bold text-gray-800">活動與公告管理</h2>
       <a href="/admin/activities/new" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">➕ 新增項目</a>
     </div>
-    <div class="bg-white rounded-xl shadow overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="bg-gray-50 border-b">
-          <tr>
-            <th class="py-3 px-4 text-left text-gray-600">屬性/狀態</th>
-            <th class="py-3 px-4 text-left text-gray-600">標題</th>
-            <th class="py-3 px-4 text-left text-gray-600">分類</th>
-            <th class="py-3 px-4 text-left text-gray-600">日期</th>
-            <th class="py-3 px-4 text-left text-gray-600">圖片</th>
-            <th class="py-3 px-4 text-left text-gray-600">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows || '<tr><td colspan="6" class="py-8 text-center text-gray-400">尚無資料</td></tr>'}
-        </tbody>
-      </table>
-    </div>
+    ${tablesHTML}
     <script>
       async function closeAndHighlight(id) {
         if (!confirm('確定要結案此活動並將其移至「精彩活動」展示嗎？\n(系統將自動關閉報名功能並設定為精彩活動)')) return;
@@ -1654,6 +1638,9 @@ function adminLayout(title: string, content: string) {
         <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-1 mt-2">系統</div>
         <a href="/admin/stats" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('統計') ? 'bg-green-700' : ''}">
           <span>📊</span> 統計報表
+        </a>
+        <a href="/admin/rover-map" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('羅浮分佈') ? 'bg-green-700' : ''}">
+          <span>🌍</span> 羅浮分佈圖
         </a>
         <a href="/admin/settings" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '網站設定' ? 'bg-green-700' : ''}">
           <span>⚙️</span> 網站設定
@@ -4004,10 +3991,16 @@ adminRoutes.get('/coaches', authMiddleware, async (c) => {
   const db = c.env.DB
   const year = c.req.query('year') || ''
 
-  let query = `SELECT * FROM coach_members WHERE 1=1`
+  let query = `
+    SELECT cms.id, m.chinese_name, m.english_name, cms.current_stage as coach_level, 
+           cms.section_assigned, cms.specialties, cms.year_label, m.id as member_id
+    FROM coach_member_status cms
+    JOIN members m ON m.id = cms.member_id
+    WHERE 1=1
+  `
   const params: any[] = []
-  if (year) { query += ` AND year_label = ?`; params.push(year) }
-  query += ` ORDER BY CASE coach_level WHEN '指導教練' THEN 1 WHEN '助理教練' THEN 2 WHEN '見習教練' THEN 3 WHEN '預備教練' THEN 4 ELSE 5 END, chinese_name`
+  if (year) { query += ` AND cms.year_label = ?`; params.push(year) }
+  query += ` ORDER BY CASE cms.current_stage WHEN '指導教練' THEN 1 WHEN '助理教練' THEN 2 WHEN '見習教練' THEN 3 WHEN '預備教練' THEN 4 ELSE 5 END, m.chinese_name`
   const coaches = await db.prepare(query).bind(...params).all()
 
   const levelCounts: Record<string,number> = {}
@@ -4080,8 +4073,7 @@ adminRoutes.get('/coaches', authMiddleware, async (c) => {
           <option value="113" ${year==='113'?'selected':''}>113學年</option>
         </select>
       </form>
-      <button onclick="document.getElementById('add-coach-modal').classList.remove('hidden')"
-        class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">＋ 新增教練</button>
+      <!-- button removed, use advancement page instead -->
     </div>
 
     <div class="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -7250,19 +7242,8 @@ adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
   const groupSections = sectionMap[id] || []
   const sectionPlaceholders = groupSections.map(() => '?').join(',')
 
-  let availableYears: string[] = []
-  if (groupSections.length > 0) {
-    const pyrRows = await db.prepare(
-      `SELECT DISTINCT year_label FROM member_year_records WHERE section IN (${sectionPlaceholders}) ORDER BY year_label DESC`
-    ).bind(...groupSections).all()
-    const penRows = await db.prepare(
-      `SELECT DISTINCT year_label FROM member_enrollments WHERE section IN (${sectionPlaceholders}) ORDER BY year_label DESC`
-    ).bind(...groupSections).all()
-    const yearSet = new Set<string>()
-    ;(pyrRows.results as any[]).forEach((r: any) => yearSet.add(r.year_label))
-    ;(penRows.results as any[]).forEach((r: any) => yearSet.add(r.year_label))
-    availableYears = Array.from(yearSet).sort((a, b) => b.localeCompare(a))
-  }
+  const maxYear = Math.max(parseInt(currentYear) || 115, 115)
+  let availableYears = Array.from({length: maxYear - 108 + 1}, (_, i) => String(108 + i)).reverse()
 
   // 已匯入的（學年度 + 姓名）組合，用於前端去重提示
   const importedSet = new Set<string>((alumni.results as any[]).map((a: any) => `${a.year_label}__${a.member_name}`))
@@ -7275,7 +7256,8 @@ adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
   }
   const sortedYears = Object.keys(yearGroups).sort((a, b) => b.localeCompare(a))
 
-  const tableRows = (alumni.results as any[]).map((a: any) => `
+  const tablesHTML = sortedYears.length === 0 ? '<div class="bg-white rounded-xl shadow p-8 text-center text-gray-400">尚無歷屆名單資料</div>' : sortedYears.map(year => {
+    const rows = yearGroups[year].map((a: any) => `
     <tr class="border-b hover:bg-gray-50 text-sm">
       <td class="py-2 px-3 text-gray-500">${a.year_label}</td>
       <td class="py-2 px-3 font-medium">${a.member_name}</td>
@@ -7288,7 +7270,33 @@ adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
         <button onclick="deleteAlumni(${a.id})" class="text-red-500 hover:text-red-700">刪除</button>
       </td>
     </tr>
-  `).join('')
+    `).join('')
+    
+    return `
+    <div class="bg-white rounded-xl shadow overflow-hidden mb-6">
+      <div class="bg-gray-100 border-b px-4 py-3 font-bold text-gray-800 flex justify-between items-center">
+        <span>第 ${parseInt(year) - 107} 屆 (${year} 學年度)</span>
+        <button onclick="deleteYear(${id}, '${year}')" class="text-xs text-red-500 font-normal hover:text-red-700">刪除此屆</button>
+      </div>
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b text-xs text-gray-500">
+          <tr>
+            <th class="py-2 px-3 text-left w-20">學年度</th>
+            <th class="py-2 px-3 text-left">姓名</th>
+            <th class="py-2 px-3 text-left">英文名</th>
+            <th class="py-2 px-3 text-left">小隊</th>
+            <th class="py-2 px-3 text-left">職位</th>
+            <th class="py-2 px-3 text-left">級別</th>
+            <th class="py-2 px-3 text-left w-24">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    </div>
+    `
+  }).join('')
 
   const yearOptions = availableYears.map(y => `<option value="${y}">${y} 學年度</option>`).join('')
 
@@ -7308,24 +7316,7 @@ adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
       </div>
     </div>
 
-    <div class="bg-white rounded-xl shadow overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="bg-gray-50 border-b text-xs text-gray-500">
-          <tr>
-            <th class="py-2 px-3 text-left">學年度</th>
-            <th class="py-2 px-3 text-left">姓名</th>
-            <th class="py-2 px-3 text-left">英文名</th>
-            <th class="py-2 px-3 text-left">小隊</th>
-            <th class="py-2 px-3 text-left">職位</th>
-            <th class="py-2 px-3 text-left">級別</th>
-            <th class="py-2 px-3 text-left">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${tableRows || '<tr><td colspan="7" class="py-8 text-center text-gray-400">尚無歷屆名單資料</td></tr>'}
-        </tbody>
-      </table>
-    </div>
+    ${tablesHTML}
 
     <!-- 從成員管理匯入 Modal -->
     <div id="import-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -7481,7 +7472,13 @@ adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
         msg.classList.remove('hidden')
       }
     }
-    async function deleteAlumni(id) {
+    async function deleteYear(groupId, year) {
+        if (!confirm('確定要刪除 ' + year + ' 學年度的所有名單嗎？此操作無法復原。')) return;
+        const res = await fetch('/api/groups/' + groupId + '/alumni/' + year, { method: 'DELETE' });
+        if (res.ok) location.reload();
+        else alert('刪除失敗');
+      }
+      async function deleteAlumni(id) {
       if (!confirm('確定刪除這筆記錄？')) return
       await fetch('/api/admin/group-alumni/' + id, { method: 'DELETE' })
       location.reload()
@@ -9602,11 +9599,12 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
 
   // 各年度晉級統計
   const yearRankData = await db.prepare(`
-    SELECT pr.year_label, pr.award_name, COUNT(*) as count
+    SELECT pr.year_label, m.section, pr.award_name, COUNT(*) as count
     FROM progress_records pr
+    JOIN members m ON m.id = pr.member_id
     WHERE pr.record_type = 'rank' AND pr.year_label IS NOT NULL
-    GROUP BY pr.year_label, pr.award_name
-    ORDER BY pr.year_label ASC
+    GROUP BY pr.year_label, m.section, pr.award_name
+    ORDER BY pr.year_label ASC, m.section, count DESC
   `).all()
 
   // 近期活動出席率（最近10場）
@@ -9632,7 +9630,7 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
   `).all()
 
   // 教練人數
-  const coachTotal = await db.prepare(`SELECT COUNT(*) as c FROM coach_members`).first() as any
+  const coachTotal = await db.prepare(`SELECT COUNT(*) as c FROM coach_member_status`).first() as any
 
   // ── 整理趨勢資料 ──
   const yearsAsc = [...new Set((yearTotals.results as any[]).map((r: any) => r.year_label))].sort()
@@ -9653,31 +9651,49 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
     rankYearMap[r.award_name][r.year_label] = (rankYearMap[r.award_name][r.year_label] || 0) + r.count
   })
 
+  // 依年度整理晉級（section 層）
+  const yearRankMap: Record<string, Record<string, Record<string, number>>> = {}
+  ;(yearRankData.results as any[]).forEach((r: any) => {
+    if (!yearRankMap[r.year_label]) yearRankMap[r.year_label] = {}
+    if (!yearRankMap[r.year_label][r.section]) yearRankMap[r.year_label][r.section] = {}
+    yearRankMap[r.year_label][r.section][r.award_name] = r.count
+  })
+
   const mainSections = ['童軍','行義童軍','羅浮童軍','服務員']
   const sectionColors: Record<string, string> = {
     '童軍': '#22c55e', '行義童軍': '#3b82f6', '羅浮童軍': '#a855f7', '服務員': '#f59e0b'
   }
 
   
-  // ── 羅浮童軍資料 ──
-  const roverMembers = await db.prepare(`
-    SELECT chinese_name, country, university
-    FROM members
-    WHERE UPPER(membership_status) = 'ACTIVE' AND section = '羅浮童軍'
-    ORDER BY country, chinese_name
-  `).all()
+  // ── 歷年詳細資料卡片 ──
+  const yearDetailCards = [...yearsAsc].reverse().map((yr: any) => {
+    const secs = yearSectionMap[yr] || {}
+    const total = yearTotalMap[yr] || 0
+    const yearRanks = yearRankMap[yr] || {}
+    const hasRanks = Object.keys(yearRanks).length > 0
 
-  const roverCountryMap: Record<string, {count: number, members: string[]}> = {}
-  ;(roverMembers.results as any[]).forEach((r: any) => {
-    const country = r.country || '台灣'
-    if (!roverCountryMap[country]) roverCountryMap[country] = { count: 0, members: [] }
-    roverCountryMap[country].count++
-    const uni = (r.university && r.university !== 'null' && r.university.trim()) ? ` (${r.university})` : ''
-    roverCountryMap[country].members.push(r.chinese_name + uni)
-  })
-  const roverCountries = Object.keys(roverCountryMap).sort((a,b) => roverCountryMap[b].count - roverCountryMap[a].count)
+    const secTags = Object.entries(secs).filter(([,v]) => v > 0).map(([sec, cnt]) =>
+      `<span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background:${sectionColors[sec] || '#888'}22;color:${sectionColors[sec] || '#888'}">${sec}: ${cnt}</span>`
+    ).join('')
+    const rankTags = hasRanks ? Object.entries(yearRanks).flatMap(([, awards]) =>
+      Object.entries(awards).map(([award, cnt]) =>
+        `<span class="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">${award}: ${cnt}</span>`
+      )
+    ).join('') : ''
 
-  const roverMapHtml = generateRoverMapHtml(roverCountries, roverCountryMap, sectionColors)
+    return `
+    <div class="bg-white border border-gray-100 rounded-2xl overflow-hidden mb-3 shadow-sm">
+      <div class="px-5 py-3 flex items-center justify-between" style="background:${yr === latestYear ? '#1e3a5f' : '#374151'}">
+        <h3 class="font-bold text-white">${yr} 年度</h3>
+        <span class="text-xs text-white/80 bg-white/20 px-3 py-1 rounded-full">總計 ${total} 人</span>
+      </div>
+      <div class="p-4 space-y-3">
+        ${secTags ? `<div><div class="text-xs text-gray-500 mb-1.5 font-medium">依階段分類</div><div class="flex flex-wrap gap-1.5">${secTags}</div></div>` : ''}
+        ${rankTags ? `<div><div class="text-xs text-gray-500 mb-1.5 font-medium">晉級紀錄</div><div class="flex flex-wrap gap-1.5">${rankTags}</div></div>` : ''}
+        ${!secTags && !rankTags ? `<p class="text-xs text-gray-400">尚無詳細資料</p>` : ''}
+      </div>
+    </div>`
+  }).join('')
 
   // Chart.js 資料
   const totalChartData = {
@@ -9817,6 +9833,9 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
             })()}
           </div>
           <canvas id="admin-chart-total" height="60"></canvas>` : `<p class="text-gray-400 text-center py-8">需要至少兩個年度才能顯示趨勢</p>`}
+          
+          <h3 class="font-semibold text-gray-700 mb-3 mt-8">年度統計詳情</h3>
+          <div class="space-y-3">${yearDetailCards}</div>
         </div>
         <div id="apane-asection" class="admin-tab-pane hidden">
           ${yearsAsc.length >= 2 ? `<canvas id="admin-chart-section" height="70"></canvas>` : `<p class="text-gray-400 text-center py-8">需要至少兩個年度才能顯示趨勢</p>`}
@@ -9875,10 +9894,7 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
     </div>
 
     
-    <!-- 羅浮分佈圖 -->
-    <div class="mt-6">
-      ${roverMapHtml}
-    </div>
+
 
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"><\/script>
@@ -9887,11 +9903,7 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
       const SECTION_DATA = ${JSON.stringify(sectionChartData)};
       const RANK_DATA = ${JSON.stringify(rankChartData)};
 
-      const ROVER_COUNTRY_MAP = ${JSON.stringify(roverCountryMap)};
-      const COUNTRY_FLAGS = ${JSON.stringify(countryFlags)};
-      const GOOGLE_MAPS_QUERY = ${JSON.stringify(googleMapsQuery)};
-      
-      ${mapScript}
+
 
       let adminCharts = {};
 
@@ -9997,6 +10009,7 @@ adminRoutes.get('/leaves', authMiddleware, async (c) => {
       <table class="w-full">
         <thead class="bg-gray-50 border-b">
           <tr>
+            <th class="px-4 py-3 text-left w-10"><input type="checkbox" id="selectAll" class="rounded border-gray-300 w-4 h-4" onclick="toggleAll(this.checked)"></th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">成員</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">例會/日期</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">假別</th>
@@ -10085,7 +10098,7 @@ adminRoutes.get('/advancement', authMiddleware, async (c) => {
     
     // 取得所有學員
     let query = `SELECT m.id, m.chinese_name, m.section, m.unit_name, m.rank_level,
-                 (SELECT award_name FROM progress_records WHERE member_id = m.id AND record_type = 'rank' ORDER BY awarded_at DESC LIMIT 1) as current_rank
+                 m.rank_level as current_rank
                  FROM members m WHERE m.membership_status = 'ACTIVE'`
     const params = []
     if (sectionFilter !== 'all') {
@@ -10123,7 +10136,7 @@ adminRoutes.get('/advancement', authMiddleware, async (c) => {
             <tr>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">姓名</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">階段 / 小隊</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">最高晉級紀錄</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">目前進程</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">操作</th>
             </tr>
           </thead>
@@ -11337,6 +11350,7 @@ adminRoutes.get('/official-leave', authMiddleware, async (c) => {
     const ts: string[] = (() => { try{return JSON.parse(a.timeslots)}catch{return[]} })()
     return `
     <tr class="hover:bg-gray-50" id="app-${a.id}">
+      <td class="px-4 py-3"><input type="checkbox" class="chk-app rounded border-gray-300 w-4 h-4" value="${a.id}"></td>
       <td class="px-4 py-3">
         <div class="font-medium text-sm text-gray-900">${a.chinese_name}</div>
         <div class="text-xs text-gray-400">${a.section} · ${a.unit_name||'-'}</div>
@@ -11392,6 +11406,15 @@ adminRoutes.get('/official-leave', authMiddleware, async (c) => {
   `).bind(wStart, wEnd).all()
   const blockedSet = new Set(weekEvents.results.filter((e:any)=>e.type==='blocked').map((e:any)=>e.date as string))
 
+  const weekLeaveCounts = await db.prepare(`
+    SELECT leave_date, COUNT(*) as cnt 
+    FROM official_leave_applications 
+    WHERE leave_date>=? AND leave_date<=? AND status='approved'
+    GROUP BY leave_date
+  `).bind(wStart, wEnd).all()
+  const leaveCountMap: Record<string,number> = {}
+  weekLeaveCounts.results.forEach((r:any) => { leaveCountMap[r.leave_date] = r.cnt })
+
   const dowLabel = ['日','一','二','三','四','五','六']
 
   const weekGrid = weekDays.map(d => {
@@ -11405,7 +11428,8 @@ adminRoutes.get('/official-leave', authMiddleware, async (c) => {
       </div>
       <div class="p-2 min-h-[80px]">
         ${dayEv.map((e:any)=>`<div class="text-xs text-gray-600 mb-1">📌 ${e.title}</div>`).join('')}
-        ${isBlocked ? '<div class="text-xs text-red-600 mb-1">⛔ 已封鎖</div>' : '<div class="text-xs text-gray-300 mb-1">無</div>'}
+        ${isBlocked ? '<div class="text-xs text-red-600 mb-1">⛔ 已封鎖</div>' : ''}
+        ${leaveCountMap[dStr] ? `<div class="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded mb-1 font-medium text-center">${leaveCountMap[dStr]} 人公假</div>` : '<div class="text-xs text-gray-300 mb-1 text-center">無公假</div>'}
         <button onclick="toggleBlock('${dStr}', ${!isBlocked})"
           class="${isBlocked ? 'bg-green-500 hover:bg-green-400' : 'bg-red-500 hover:bg-red-400'} text-white text-xs px-2 py-1 rounded w-full mt-1">
           ${isBlocked ? '🔓 解除封鎖' : '🔒 封鎖此日'}
@@ -12960,6 +12984,47 @@ adminRoutes.get('/group-honors', async (c) => {
           alert('發生錯誤');
         }
       }
+    </script>
+  `))
+})
+
+// ===================== 羅浮群全球分佈頁面 =====================
+adminRoutes.get('/rover-map', authMiddleware, async (c) => {
+  const db = c.env.DB
+  
+  const sectionColors: Record<string, string> = {
+    '童軍': '#22c55e', '行義童軍': '#3b82f6', '羅浮童軍': '#a855f7', '服務員': '#f59e0b'
+  }
+
+  const roverMembers = await db.prepare(`
+    SELECT chinese_name, country, university
+    FROM members
+    WHERE UPPER(membership_status) = 'ACTIVE' AND section = '羅浮童軍'
+    ORDER BY country, chinese_name
+  `).all()
+
+  const roverCountryMap: Record<string, {count: number, members: string[]}> = {}
+  ;(roverMembers.results as any[]).forEach((r: any) => {
+    const country = r.country || '台灣'
+    if (!roverCountryMap[country]) roverCountryMap[country] = { count: 0, members: [] }
+    roverCountryMap[country].count++
+    const uni = (r.university && r.university !== 'null' && r.university.trim()) ? ` (${r.university})` : ''
+    roverCountryMap[country].members.push(r.chinese_name + uni)
+  })
+  const roverCountries = Object.keys(roverCountryMap).sort((a,b) => roverCountryMap[b].count - roverCountryMap[a].count)
+
+  const roverMapHtml = generateRoverMapHtml(roverCountries, roverCountryMap, sectionColors)
+
+  return c.html(adminLayout('羅浮分佈圖', `
+    <div class="bg-white p-6 rounded-xl shadow-sm">
+      ${roverMapHtml}
+    </div>
+    <script>
+      const ROVER_COUNTRY_MAP = ${JSON.stringify(roverCountryMap)};
+      const COUNTRY_FLAGS = ${JSON.stringify(countryFlags)};
+      const GOOGLE_MAPS_QUERY = ${JSON.stringify(googleMapsQuery)};
+      
+      ${mapScript}
     </script>
   `))
 })
