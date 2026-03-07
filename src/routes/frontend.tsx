@@ -771,31 +771,31 @@ frontendRoutes.get('/stats', async (c) => {
   // ── Google Simple Map SVG 世界分佈圖 ──────────────────────
   // 國家座標（對應 viewBox="0 0 1010 530" 的精確座標）
   const countryCoords: Record<string, [number,number]> = {
-    // 東亞
-    '台灣': [870, 248], '中國': [820, 215], '日本': [895, 205], '韓國': [873, 215],
-    '香港': [847, 248],
+        // 東亞
+    '台灣': [835, 195], '中國': [780, 160], '日本': [870, 160], '韓國': [840, 155],
+    '香港': [815, 195],
     // 東南亞
-    '新加坡': [832, 300], '馬來西亞': [824, 290], '泰國': [808, 272],
-    '菲律賓': [862, 270], '越南': [838, 262], '印尼': [848, 318],
+    '新加坡': [795, 235], '馬來西亞': [785, 225], '泰國': [780, 210],
+    '菲律賓': [840, 210], '越南': [800, 205], '印尼': [810, 250],
     // 南亞
-    '印度': [762, 252],
+    '印度': [720, 200],
     // 中東
-    '以色列': [608, 230], '伊朗': [652, 218], '沙烏地阿拉伯': [635, 252], '土耳其': [591, 202],
+    '以色列': [565, 175], '伊朗': [610, 165], '沙烏地阿拉伯': [590, 195], '土耳其': [560, 150],
     // 中亞/俄羅斯
-    '俄羅斯': [695, 155],
+    '俄羅斯': [670, 100],
     // 歐洲
-    '英國': [455, 170], '德國': [490, 174], '法國': [472, 185],
-    '荷蘭': [480, 165], '瑞典': [498, 145], '丹麥': [487, 158],
-    '波蘭': [510, 168], '奧地利': [502, 180], '瑞士': [485, 182],
-    '比利時': [476, 172], '義大利': [495, 198], '西班牙': [455, 198],
+    '英國': [475, 115], '德國': [500, 120], '法國': [485, 130],
+    '荷蘭': [490, 115], '瑞典': [510, 95], '丹麥': [500, 105],
+    '波蘭': [515, 115], '奧地利': [510, 125], '瑞士': [495, 130],
+    '比利時': [485, 120], '義大利': [505, 140], '西班牙': [470, 145],
     // 非洲
-    '埃及': [585, 232], '南非': [565, 382],
+    '埃及': [550, 180], '南非': [540, 310],
     // 北美洲
-    '美國': [185, 220], '加拿大': [175, 170], '墨西哥': [158, 262],
+    '美國': [200, 145], '加拿大': [200, 100], '墨西哥': [190, 190],
     // 南美洲
-    '巴西': [272, 318], '阿根廷': [245, 385],
+    '巴西': [320, 270], '阿根廷': [300, 330],
     // 大洋洲
-    '澳洲': [872, 362], '紐西蘭': [932, 402]
+    '澳洲': [850, 320], '紐西蘭': [920, 350]
   }
 
   // 產生 SVG 標記點
@@ -1063,123 +1063,10 @@ frontendRoutes.get('/stats', async (c) => {
           </div>
         </div>
         <!-- SVG 精確世界地圖 -->
-        <div class="relative" style="padding-bottom:52.5%;background:#f0f4f8">
-          <svg id="world-svg" viewBox="0 0 1010 530" class="absolute inset-0 w-full h-full"
-               style="background:#e8f0f8">
-            <defs>
-              <filter id="map-shadow" x="-5%" y="-5%" width="110%" height="110%">
-                <feDropShadow dx="1" dy="1" stdDeviation="2" flood-opacity="0.15"/>
-              </filter>
-            </defs>
-
-            <!-- ===== 北美洲 ===== -->
-            <!-- 格陵蘭 -->
-            <path d="M390,20 L435,18 L460,28 L468,45 L462,65 L448,78 L430,82 L412,78 L398,65 L390,48 Z"
-                  fill="#bfdbfe" stroke="#3b82f6" stroke-width="1.2" opacity="0.85" filter="url(#map-shadow)"/>
-            <!-- 加拿大+美國本土 -->
-            <path d="M105,58 L175,52 L220,55 L255,62 L278,72 L285,88 L272,102 L260,115
-                     L268,130 L262,148 L248,158 L240,172 L228,185 L215,195 L200,202
-                     L185,212 L175,225 L168,242 L158,255 L148,262 L138,268
-                     L125,262 L112,252 L100,238 L88,220 L80,202 L78,182
-                     L82,162 L85,142 L88,122 L90,100 L95,78 Z"
-                  fill="#bfdbfe" stroke="#3b82f6" stroke-width="1.5" opacity="0.85" filter="url(#map-shadow)"/>
-            <!-- 알래스카 -->
-            <path d="M52,68 L90,62 L98,72 L92,88 L78,95 L62,92 L48,82 Z"
-                  fill="#bfdbfe" stroke="#3b82f6" stroke-width="1" opacity="0.8"/>
-            <!-- 멕시코+중앙아메리카 -->
-            <path d="M138,268 L158,255 L172,262 L185,272 L192,285 L188,298 L178,308
-                     L168,312 L158,305 L145,295 L138,282 Z"
-                  fill="#bfdbfe" stroke="#3b82f6" stroke-width="1" opacity="0.75"/>
-            <!-- 쿠바 등 카리브해 -->
-            <path d="M198,282 L215,278 L222,285 L218,292 L205,294 L196,290 Z"
-                  fill="#bfdbfe" stroke="#3b82f6" stroke-width="0.8" opacity="0.7"/>
-
-            <!-- ===== 남미 ===== -->
-            <path d="M195,305 L215,298 L238,302 L258,312 L272,328 L280,348 L282,370
-                     L275,392 L262,412 L245,428 L228,435 L210,432 L195,418
-                     L182,400 L175,378 L175,355 L180,332 L188,318 Z"
-                  fill="#bbf7d0" stroke="#22c55e" stroke-width="1.5" opacity="0.85" filter="url(#map-shadow)"/>
-
-            <!-- ===== 歐洲 ===== -->
-            <!-- 메인 유럽 -->
-            <path d="M430,128 L458,122 L478,118 L498,120 L518,125 L535,132 L542,145
-                     L538,158 L525,168 L510,175 L495,180 L478,182 L462,178
-                     L445,172 L432,162 L425,148 Z"
-                  fill="#fef9c3" stroke="#ca8a04" stroke-width="1.2" opacity="0.85" filter="url(#map-shadow)"/>
-            <!-- 스칸디나비아 -->
-            <path d="M462,88 L490,82 L510,90 L518,108 L512,122 L498,120 L478,118 L462,110 Z"
-                  fill="#fef9c3" stroke="#ca8a04" stroke-width="1" opacity="0.8"/>
-            <!-- 영국 -->
-            <path d="M432,138 L445,132 L448,145 L442,155 L432,155 L428,145 Z"
-                  fill="#fef9c3" stroke="#ca8a04" stroke-width="0.8" opacity="0.8"/>
-            <!-- 이베리아 -->
-            <path d="M425,175 L445,172 L452,182 L448,198 L435,205 L422,200 L418,188 Z"
-                  fill="#fef9c3" stroke="#ca8a04" stroke-width="1" opacity="0.8"/>
-            <!-- 이탈리아 -->
-            <path d="M478,182 L492,178 L498,190 L495,205 L485,212 L475,208 L472,195 Z"
-                  fill="#fef9c3" stroke="#ca8a04" stroke-width="0.8" opacity="0.8"/>
-
-            <!-- ===== 非洲 ===== -->
-            <path d="M448,202 L468,195 L492,192 L515,192 L532,198 L545,212 L552,232
-                     L552,255 L545,278 L532,300 L515,320 L498,338 L480,348
-                     L462,348 L445,335 L432,315 L425,292 L425,268
-                     L428,245 L432,222 L438,210 Z"
-                  fill="#fed7aa" stroke="#ea580c" stroke-width="1.5" opacity="0.85" filter="url(#map-shadow)"/>
-            <!-- 마다가스카르 -->
-            <path d="M572,318 L582,312 L588,325 L585,342 L575,348 L568,338 L568,325 Z"
-                  fill="#fed7aa" stroke="#ea580c" stroke-width="0.8" opacity="0.75"/>
-
-            <!-- ===== 亞洲+中東 ===== -->
-            <!-- 메인 아시아 -->
-            <path d="M542,118 L590,108 L638,102 L690,100 L742,105 L782,112 L812,122
-                     L838,135 L852,152 L848,168 L835,180 L818,190 L798,198
-                     L775,205 L752,208 L728,205 L705,200 L682,198 L658,200
-                     L638,205 L618,212 L600,218 L582,215 L565,208 L550,195
-                     L540,178 L535,158 L538,138 Z"
-                  fill="#fecdd3" stroke="#dc2626" stroke-width="1.5" opacity="0.85" filter="url(#map-shadow)"/>
-            <!-- 아나톨리아(터키) -->
-            <path d="M535,185 L560,178 L582,182 L595,192 L592,205 L575,212 L555,210 L540,200 Z"
-                  fill="#fecdd3" stroke="#dc2626" stroke-width="1" opacity="0.8"/>
-            <!-- 아라비아 반도 -->
-            <path d="M582,215 L605,208 L628,215 L642,228 L648,248 L638,268 L620,278
-                     L602,272 L585,255 L578,238 Z"
-                  fill="#fecdd3" stroke="#dc2626" stroke-width="1" opacity="0.78"/>
-            <!-- 인도 아대륙 -->
-            <path d="M728,205 L752,208 L768,222 L775,242 L770,262 L758,278 L742,285
-                     L725,280 L712,265 L708,245 L712,225 Z"
-                  fill="#fecdd3" stroke="#dc2626" stroke-width="1" opacity="0.8"/>
-            <!-- 인도차이나 + 동남아 -->
-            <path d="M818,218 L840,212 L860,218 L872,232 L875,250 L865,268 L848,278
-                     L830,275 L815,262 L810,245 L812,230 Z"
-                  fill="#fecdd3" stroke="#dc2626" stroke-width="1" opacity="0.78"/>
-            <!-- 일본 -->
-            <path d="M888,182 L902,178 L908,190 L905,202 L895,208 L885,202 L882,192 Z"
-                  fill="#fecdd3" stroke="#dc2626" stroke-width="0.8" opacity="0.8"/>
-            <!-- 대만 -->
-            <path d="M868,240 L876,238 L878,248 L872,255 L864,252 Z"
-                  fill="#fecdd3" stroke="#dc2626" stroke-width="0.8" opacity="0.8"/>
-            <!-- 인도네시아 섬들 -->
-            <path d="M822,298 L845,292 L858,298 L858,310 L842,315 L822,310 Z"
-                  fill="#fecdd3" stroke="#dc2626" stroke-width="0.8" opacity="0.72"/>
-            <path d="M862,308 L882,302 L892,312 L888,322 L870,322 Z"
-                  fill="#fecdd3" stroke="#dc2626" stroke-width="0.8" opacity="0.72"/>
-
-            <!-- ===== 大洋洲 ===== -->
-            <!-- 호주 -->
-            <path d="M828,332 L868,322 L905,325 L930,338 L942,358 L942,382 L930,402
-                     L908,415 L882,418 L855,412 L832,398 L818,378 L815,358 L820,342 Z"
-                  fill="#e9d5ff" stroke="#7c3aed" stroke-width="1.5" opacity="0.85" filter="url(#map-shadow)"/>
-            <!-- 뉴질랜드 -->
-            <path d="M945,392 L958,385 L965,398 L960,412 L948,415 L942,405 Z"
-                  fill="#e9d5ff" stroke="#7c3aed" stroke-width="1" opacity="0.8"/>
-            <path d="M950,418 L960,415 L965,428 L958,438 L948,432 Z"
-                  fill="#e9d5ff" stroke="#7c3aed" stroke-width="0.8" opacity="0.75"/>
-
-            <!-- ===== 남극 ===== -->
-            <path d="M150,490 L400,478 L650,478 L870,485 L980,495 L1010,510 L1010,530
-                     L0,530 L0,510 Z"
-                  fill="#dbeafe" stroke="#93c5fd" stroke-width="1" opacity="0.6"/>
-
+        <div class="relative" style="padding-bottom:42.87%;background:#000">
+          <svg id="world-svg" viewBox="0 0 1024 439" class="absolute inset-0 w-full h-full" style="background:#000">
+            <image href="/static/8Wyfoby3.jpg" x="0" y="0" width="1024" height="439" />
+            
             <!-- ===== 標記點（人員位置）===== -->
             ${mapDots}
           </svg>
@@ -2169,28 +2056,68 @@ frontendRoutes.get('/group/:slug/:semester', async (c) => {
 function navBar(settings: Record<string, string>, groups: any[] = []) {
   return `
   <nav class="bg-[#1a472a] text-white shadow-lg sticky top-0 z-50">
-    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-      <a href="/" class="flex items-center gap-3 hover:opacity-90 transition-opacity">
-        <span class="text-2xl">⚜️</span>
-        <div>
-          <div class="font-bold text-base leading-tight">林口康橋圓桌武士童軍團</div>
-          <div class="text-xs text-green-200">KCISLK Excalibur Knights Scout Groups</div>
+    <div class="max-w-6xl mx-auto px-4 py-3">
+      <div class="flex items-center justify-between">
+        <a href="/" class="flex items-center gap-3 hover:opacity-90 transition-opacity">
+          <span class="text-2xl">⚜️</span>
+          <div>
+            <div class="font-bold text-base leading-tight">林口康橋圓桌武士童軍團</div>
+            <div class="text-xs text-green-200">KCISLK Excalibur Knights Scout Groups</div>
+          </div>
+        </a>
+        
+        <!-- 桌面版選單 -->
+        <div class="hidden lg:flex items-center gap-4 text-sm">
+          <a href="/#about" class="hover:text-amber-300 transition-colors">關於我們</a>
+          <a href="/#groups" class="hover:text-amber-300 transition-colors">分組</a>
+          <a href="/#activities" class="hover:text-amber-300 transition-colors">活動</a>
+          <a href="/highlights" class="hover:text-amber-300 transition-colors">📸 精彩回顧</a>
+          <a href="/honor" class="hover:text-amber-300 transition-colors">🏅 榮譽榜</a>
+          <a href="/group/senior-scout/coaches-list" class="hover:text-amber-300 transition-colors">🧢 教練團</a>
+          <a href="/stats" class="hover:text-amber-300 transition-colors">📊 統計</a>
+          <a href="/links" class="hover:text-amber-300 transition-colors">🔗 相關網頁</a>
+          <div class="flex gap-2 ml-2">
+            <a href="/member" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">👤 會員入口</a>
+            <a href="/admin" class="bg-amber-500 hover:bg-amber-400 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">⚙ 後台管理</a>
+          </div>
         </div>
-      </a>
-      <div class="flex items-center gap-4 text-sm">
-        <a href="/#about" class="hover:text-amber-300 transition-colors hidden md:inline">關於我們</a>
-        <a href="/#groups" class="hover:text-amber-300 transition-colors hidden md:inline">分組</a>
-        <a href="/#activities" class="hover:text-amber-300 transition-colors hidden md:inline">活動</a>
-        <a href="/highlights" class="hover:text-amber-300 transition-colors hidden md:inline">📸 精彩回顧</a>
-        <a href="/honor" class="hover:text-amber-300 transition-colors hidden md:inline">🏅 榮譽榜</a>
-        <a href="/group/senior-scout/coaches-list" class="hover:text-amber-300 transition-colors hidden md:inline">🧢 教練團</a>
-        <a href="/stats" class="hover:text-amber-300 transition-colors hidden md:inline">📊 統計</a>
-        <a href="/links" class="hover:text-amber-300 transition-colors hidden md:inline">🔗 相關網頁</a>
-        <a href="/member" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">👤 會員入口</a>
-        <a href="/admin" class="bg-amber-500 hover:bg-amber-400 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">⚙ 後台管理</a>
+
+        <!-- 手機版選單按鈕與主要入口 (隱藏於桌面版) -->
+        <div class="flex lg:hidden items-center gap-2">
+          <a href="/member" class="bg-blue-600 hover:bg-blue-500 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">會員入口</a>
+          <a href="/admin" class="bg-amber-500 hover:bg-amber-400 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">後台</a>
+          <button id="mobile-menu-btn" class="p-2 ml-1 text-white hover:bg-[#2d6a4f] rounded-lg transition-colors focus:outline-none">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+          </button>
+        </div>
+      </div>
+      
+      <!-- 手機版下拉選單 (預設隱藏) -->
+      <div id="mobile-menu" class="hidden lg:hidden mt-3 pb-2 border-t border-[#2d6a4f] pt-3">
+        <div class="flex flex-col space-y-3 text-sm">
+          <a href="/#about" class="hover:text-amber-300 transition-colors px-2">關於我們</a>
+          <a href="/#groups" class="hover:text-amber-300 transition-colors px-2">分組</a>
+          <a href="/#activities" class="hover:text-amber-300 transition-colors px-2">活動</a>
+          <a href="/highlights" class="hover:text-amber-300 transition-colors px-2">📸 精彩回顧</a>
+          <a href="/honor" class="hover:text-amber-300 transition-colors px-2">🏅 榮譽榜</a>
+          <a href="/group/senior-scout/coaches-list" class="hover:text-amber-300 transition-colors px-2">🧢 教練團</a>
+          <a href="/stats" class="hover:text-amber-300 transition-colors px-2">📊 統計</a>
+          <a href="/links" class="hover:text-amber-300 transition-colors px-2">🔗 相關網頁</a>
+        </div>
       </div>
     </div>
-  </nav>`
+  </nav>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const btn = document.getElementById('mobile-menu-btn');
+      const menu = document.getElementById('mobile-menu');
+      if (btn && menu) {
+        btn.addEventListener('click', () => {
+          menu.classList.toggle('hidden');
+        });
+      }
+    });
+  </script>`
 }
 
 function pageHead(title: string) {

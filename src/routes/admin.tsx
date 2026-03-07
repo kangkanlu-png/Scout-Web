@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { generateRoverMapHtml, mapScript, countryCoords, countryFlags, googleMapsQuery } from './map-data'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 
 type Bindings = {
@@ -9597,6 +9598,27 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
     '童軍': '#22c55e', '行義童軍': '#3b82f6', '羅浮童軍': '#a855f7', '服務員': '#f59e0b'
   }
 
+  
+  // ── 羅浮童軍資料 ──
+  const roverMembers = await db.prepare(`
+    SELECT chinese_name, country, university
+    FROM members
+    WHERE UPPER(membership_status) = 'ACTIVE' AND section = '羅浮童軍'
+    ORDER BY country, chinese_name
+  `).all()
+
+  const roverCountryMap: Record<string, {count: number, members: string[]}> = {}
+  ;(roverMembers.results as any[]).forEach((r: any) => {
+    const country = r.country || '台灣'
+    if (!roverCountryMap[country]) roverCountryMap[country] = { count: 0, members: [] }
+    roverCountryMap[country].count++
+    const uni = (r.university && r.university !== 'null' && r.university.trim()) ? ` (${r.university})` : ''
+    roverCountryMap[country].members.push(r.chinese_name + uni)
+  })
+  const roverCountries = Object.keys(roverCountryMap).sort((a,b) => roverCountryMap[b].count - roverCountryMap[a].count)
+
+  const roverMapHtml = generateRoverMapHtml(roverCountries, roverCountryMap, sectionColors)
+
   // Chart.js 資料
   const totalChartData = {
     labels: yearsAsc.map(y => y + '年'),
@@ -9792,12 +9814,25 @@ adminRoutes.get('/stats', authMiddleware, async (c) => {
       </div>
     </div>
 
+    
+    <!-- 羅浮分佈圖 -->
+    <div class="mt-6">
+      ${roverMapHtml}
+    </div>
+
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"><\/script>
     <script>
       const TOTAL_DATA = ${JSON.stringify(totalChartData)};
       const SECTION_DATA = ${JSON.stringify(sectionChartData)};
       const RANK_DATA = ${JSON.stringify(rankChartData)};
+
+      const ROVER_COUNTRY_MAP = ${JSON.stringify(roverCountryMap)};
+      const COUNTRY_FLAGS = ${JSON.stringify(countryFlags)};
+      const GOOGLE_MAPS_QUERY = ${JSON.stringify(googleMapsQuery)};
+      
+      ${mapScript}
+
       let adminCharts = {};
 
       const CHART_OPTS = {
@@ -10745,10 +10780,16 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
   return c.html(adminLayout('會員帳號管理', `
     <div class="flex items-center justify-between mb-6">
       <h1 class="text-2xl font-bold text-gray-800">會員帳號管理</h1>
-      <button onclick="document.getElementById('newAccountForm').classList.toggle('hidden')"
-        class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
-        <i class="fas fa-plus"></i>建立新帳號
-      </button>
+      <div class="flex gap-2">
+        <button onclick="document.getElementById('csvImportModal').classList.remove('hidden')"
+          class="bg-orange-500 hover:bg-orange-400 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+          <i class="fas fa-file-csv"></i>CSV 批次匯入
+        </button>
+        <button onclick="document.getElementById('newAccountForm').classList.toggle('hidden')"
+          class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+          <i class="fas fa-plus"></i>單筆建立
+        </button>
+      </div>
     </div>
 
     <!-- 新建帳號表單 -->
@@ -10776,6 +10817,40 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
         <button onclick="createAccount()" class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-lg">建立</button>
         <button onclick="document.getElementById('newAccountForm').classList.add('hidden')"
           class="bg-gray-100 text-gray-700 text-sm px-4 py-2 rounded-lg">取消</button>
+      </div>
+    </div>
+
+
+    <!-- CSV 匯入 Modal -->
+    <div id="csvImportModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 flex">
+      <div class="bg-white rounded-2xl w-full max-w-lg mx-4 overflow-hidden shadow-xl">
+        <div class="bg-orange-500 px-4 py-3 flex justify-between items-center text-white">
+          <h3 class="font-bold"><i class="fas fa-file-csv mr-2"></i>批次建立會員帳號 (CSV)</h3>
+          <button onclick="document.getElementById('csvImportModal').classList.add('hidden')" class="hover:text-orange-200">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="p-5">
+          <p class="text-sm text-gray-600 mb-4">
+            請上傳包含以下欄位的 CSV 檔案（包含標題列）：<br>
+            <code class="bg-gray-100 px-1 py-0.5 rounded text-xs text-purple-700">member_id,username,password</code>
+          </p>
+          <div class="mb-4 text-xs text-gray-500 bg-blue-50 p-3 rounded-lg border border-blue-100">
+            <p class="font-bold text-blue-700 mb-1">提示：如何取得 member_id？</p>
+            可以在「成員管理」列表查看，或是使用尚未建立帳號名單中的 ID。
+          </div>
+          
+          <input type="file" id="csvFileInput" accept=".csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 mb-4"/>
+          
+          <div id="csvPreview" class="hidden max-h-40 overflow-y-auto bg-gray-50 p-2 rounded border text-xs mb-4"></div>
+          
+          <div id="csvMsg" class="text-sm font-medium hidden mb-4"></div>
+          
+          <div class="flex justify-end gap-2">
+            <button onclick="document.getElementById('csvImportModal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm">取消</button>
+            <button id="csvSubmitBtn" onclick="submitCSVImport()" class="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-bold hover:bg-orange-600" disabled>確認匯入</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -10831,6 +10906,103 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
     </div>` : ''}
 
     <script>
+
+    let csvDataToImport = [];
+
+    document.getElementById('csvFileInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const text = e.target.result;
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+        if (lines.length < 2) {
+          alert('CSV 格式錯誤或無資料');
+          return;
+        }
+        
+        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+        const idIdx = headers.indexOf('member_id');
+        const userIdx = headers.indexOf('username');
+        const pwIdx = headers.indexOf('password');
+        
+        if (idIdx === -1 || userIdx === -1 || pwIdx === -1) {
+          alert('找不到必要的欄位，請確保包含 member_id, username, password');
+          return;
+        }
+
+        csvDataToImport = [];
+        let previewHtml = '<table class="w-full text-left"><thead><tr class="border-b"><th>ID</th><th>帳號</th><th>密碼</th></tr></thead><tbody>';
+        
+        for (let i = 1; i < lines.length; i++) {
+          // Simple CSV parse handling quotes
+          const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+          if (cols.length < 3) continue;
+          
+          const record = {
+            member_id: cols[idIdx],
+            username: cols[userIdx],
+            password: cols[pwIdx]
+          };
+          csvDataToImport.push(record);
+          if (i <= 5) {
+            previewHtml += '<tr><td>' + record.member_id + '</td><td>' + record.username + '</td><td>***</td></tr>';
+          }
+        }
+        if (csvDataToImport.length > 5) {
+          previewHtml += '<tr><td colspan="3" class="text-gray-400">...共 ' + csvDataToImport.length + ' 筆資料</td></tr>';
+        }
+        previewHtml += '</tbody></table>';
+        
+        const previewEl = document.getElementById('csvPreview');
+        previewEl.innerHTML = previewHtml;
+        previewEl.classList.remove('hidden');
+        document.getElementById('csvSubmitBtn').disabled = false;
+      };
+      reader.readAsText(file);
+    });
+
+    async function submitCSVImport() {
+      if (csvDataToImport.length === 0) return;
+      
+      const btn = document.getElementById('csvSubmitBtn');
+      const msg = document.getElementById('csvMsg');
+      btn.disabled = true;
+      btn.textContent = '匯入中...';
+      msg.className = 'text-sm font-medium text-blue-600 block mb-4';
+      msg.textContent = '正在處理資料，請稍候...';
+      
+      try {
+        const res = await fetch('/api/admin/member-accounts/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accounts: csvDataToImport })
+        });
+        const result = await res.json();
+        
+        if (result.success) {
+          msg.className = 'text-sm font-medium text-green-600 block mb-4';
+          let txt = '成功匯入 ' + result.successCount + ' 筆帳號。';
+          if (result.errorCount > 0) {
+            txt += '<br><span class="text-red-500">有 ' + result.errorCount + ' 筆失敗：<br>' + result.errors.join('<br>') + '</span>';
+          }
+          msg.innerHTML = txt;
+          setTimeout(() => location.reload(), 3000);
+        } else {
+          msg.className = 'text-sm font-medium text-red-600 block mb-4';
+          msg.textContent = '匯入失敗: ' + (result.error || '未知錯誤');
+          btn.disabled = false;
+          btn.textContent = '確認匯入';
+        }
+      } catch (err) {
+        msg.className = 'text-sm font-medium text-red-600 block mb-4';
+        msg.textContent = '網路錯誤: ' + err.message;
+        btn.disabled = false;
+        btn.textContent = '確認匯入';
+      }
+    }
+
     async function createAccount() {
       const msg = document.getElementById('newAccMsg')
       const data = {
