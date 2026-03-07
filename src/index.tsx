@@ -8,6 +8,7 @@ import { memberRoutes } from './routes/member'
 
 type Bindings = {
   DB: D1Database
+  R2: any
 }
 
 const app = new Hono<{ Bindings: Bindings }>()

@@ -3,6 +3,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 
 type Bindings = {
   DB: D1Database
+  R2: any
 }
 
 export const memberRoutes = new Hono<{ Bindings: Bindings }>()
@@ -1036,10 +1037,17 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
             </select>
           </div>
         </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">申請日期</label>
-          <input type="date" name="apply_date" value="${new Date().toISOString().slice(0,10)}" required
-            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500 text-sm">
+        <div class="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">申請日期</label>
+            <input type="date" name="apply_date" id="adv_apply_date" value="${new Date().toISOString().slice(0,10)}" required
+              class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500 text-sm">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">佐證資料 (可選)</label>
+            <input type="file" id="adv_evidence_file" accept=".pdf,.jpg,.jpeg,.png"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 text-sm bg-white">
+          </div>
         </div>
         <div id="advFormMsg"></div>
         <button type="submit"
@@ -1405,9 +1413,67 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
     }
   }
 
+
   document.getElementById('reportModal').addEventListener('click', function(e) {
     if (e.target === this) this.classList.add('hidden');
   });
+
+  // 晉升申請表單處理
+  const advForm = document.getElementById('advForm');
+  if (advForm) {
+    advForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById('advFormMsg');
+      const rankToSel = advForm.querySelector('select[name="rank_to"]');
+      const rankToOpt = rankToSel.selectedOptions[0];
+      const rank_from = rankToOpt.dataset.from;
+      const rank_to = rankToOpt.value;
+      const apply_date = document.getElementById('adv_apply_date').value;
+      const fileInput = document.getElementById('adv_evidence_file');
+      
+      msg.innerHTML = '<p class="text-blue-500 text-sm">處理中...</p>';
+      
+      try {
+        let evidence_file = null;
+        // 處理檔案上傳
+        if (fileInput && fileInput.files.length > 0) {
+          msg.innerHTML = '<p class="text-blue-500 text-sm">上傳檔案中...</p>';
+          const formData = new FormData();
+          formData.append('file', fileInput.files[0]);
+          
+          const uploadRes = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData
+          });
+          const uploadData = await uploadRes.json();
+          if (!uploadData.success) {
+            msg.innerHTML = '<p class="text-red-500 text-sm">檔案上傳失敗：' + (uploadData.error || '') + '</p>';
+            return;
+          }
+          evidence_file = uploadData.file_url;
+        }
+
+        // 送出申請
+        msg.innerHTML = '<p class="text-blue-500 text-sm">送出申請中...</p>';
+        const res = await fetch('/api/member/advancement', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rank_from, rank_to, apply_date, evidence_file })
+        });
+        
+        const data = await res.json();
+        if (data.success) {
+          msg.innerHTML = '<p class="text-green-600 text-sm">✅ 申請已送出！</p>';
+          setTimeout(() => location.reload(), 1500);
+        } else {
+          msg.innerHTML = '<p class="text-red-500 text-sm">❌ 申請失敗：' + (data.error || '') + '</p>';
+        }
+      } catch (err) {
+        msg.innerHTML = '<p class="text-red-500 text-sm">❌ 網路錯誤</p>';
+      }
+    });
+  }
+
   </script>
 </body></html>`)
 })
@@ -1533,7 +1599,12 @@ memberRoutes.get('/activities', memberAuthMiddleware, async (c) => {
           <input type="hidden" id="regActivityId">
           <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 mb-1">備註 (飲食習慣、特殊需求等)</label>
-            <textarea id="regNotes" rows="3" class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 outline-none"></textarea>
+            <textarea id="regNotes" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 outline-none"></textarea>
+          </div>
+          <div class="mb-5">
+            <label class="block text-sm font-medium text-gray-700 mb-1">家長同意書 / 報名附件 (可選)</label>
+            <input type="file" id="regFile" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none bg-gray-50">
+            <p class="text-xs text-gray-500 mt-1">支援上傳圖檔或PDF文件，大小不超過10MB</p>
           </div>
           <div class="flex gap-3">
             <button onclick="submitRegistration()" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg text-sm font-medium">確認報名</button>
@@ -1559,14 +1630,45 @@ memberRoutes.get('/activities', memberAuthMiddleware, async (c) => {
       async function submitRegistration() {
         const id = document.getElementById('regActivityId').value;
         const notes = document.getElementById('regNotes').value;
+        const fileInput = document.getElementById('regFile');
+        const submitBtn = document.querySelector('#regModal button[onclick="submitRegistration()"]');
         
         if (!confirm('確定要報名此活動嗎？')) return;
 
         try {
+          let file_url = null;
+          
+          if (fileInput && fileInput.files.length > 0) {
+            submitBtn.textContent = '上傳檔案中...';
+            submitBtn.disabled = true;
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            
+            const uploadRes = await fetch('/api/upload', {
+              method: 'POST',
+              body: formData
+            });
+            const uploadData = await uploadRes.json();
+            if (!uploadData.success) {
+              alert('檔案上傳失敗：' + (uploadData.error || ''));
+              submitBtn.textContent = '確認報名';
+              submitBtn.disabled = false;
+              return;
+            }
+            file_url = uploadData.file_url;
+          }
+          
+          submitBtn.textContent = '送出報名中...';
+          
+          // 將檔案連結放入 user_notes 中，或如果是 JSON，可以放到 registration_data (後端需要處理)
+          // 為了簡單起見，我們將附檔連結接在 user_notes 中
+          const finalNotes = file_url ? (notes ? notes + '\n\n[附件]: ' + file_url : '[附件]: ' + file_url) : notes;
+
           const res = await fetch('/api/activities/' + id + '/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_notes: notes })
+            body: JSON.stringify({ user_notes: finalNotes })
           });
           
           const result = await res.json();

@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 
 type Bindings = {
   DB: D1Database
+  R2: any
 }
 
 export const apiRoutes = new Hono<{ Bindings: Bindings }>()
@@ -54,7 +55,7 @@ apiRoutes.post('/activities', async (c) => {
   const { 
     title, title_en, description, description_en, activity_date, date_display, category, 
     youtube_url, display_order, is_published, cover_image, show_in_highlights, activity_type,
-    location, cost, content, registration_start, registration_end, max_participants, is_registration_open, activity_end_date
+    location, cost, content, registration_start, registration_end, max_participants, is_registration_open, activity_end_date, activity_status
   } = body
   if (!title) return c.json({ success: false, error: '標題為必填' }, 400)
 
@@ -62,9 +63,9 @@ apiRoutes.post('/activities', async (c) => {
     INSERT INTO activities (
       title, title_en, description, description_en, activity_date, date_display, category, 
       youtube_url, display_order, is_published, cover_image, show_in_highlights, activity_type,
-      location, cost, content, registration_start, registration_end, max_participants, is_registration_open, activity_end_date
+      location, cost, content, registration_start, registration_end, max_participants, is_registration_open, activity_end_date, activity_status
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     title, title_en || null, description || null, description_en || null,
     activity_date || null, date_display || null,
@@ -73,7 +74,7 @@ apiRoutes.post('/activities', async (c) => {
     cover_image || null, show_in_highlights ? 1 : 0, activity_type || 'general',
     location || null, cost || null, content || null, 
     registration_start || null, registration_end || null, 
-    max_participants || null, is_registration_open ? 1 : 0, activity_end_date || null
+    max_participants || null, is_registration_open ? 1 : 0, activity_end_date || null, activity_status || 'active'
   ).run()
 
   return c.json({ success: true, id: result.meta.last_row_id })
@@ -87,7 +88,7 @@ apiRoutes.put('/activities/:id', async (c) => {
   const { 
     title, title_en, description, description_en, activity_date, date_display, category, 
     youtube_url, display_order, is_published, cover_image, show_in_highlights, activity_type,
-    location, cost, content, registration_start, registration_end, max_participants, is_registration_open, activity_end_date
+    location, cost, content, registration_start, registration_end, max_participants, is_registration_open, activity_end_date, activity_status
   } = body
 
   await db.prepare(`
@@ -96,7 +97,7 @@ apiRoutes.put('/activities/:id', async (c) => {
       activity_date = ?, date_display = ?, category = ?, youtube_url = ?,
       display_order = ?, is_published = ?, cover_image = ?, show_in_highlights = ?, activity_type = ?,
       location = ?, cost = ?, content = ?, registration_start = ?, registration_end = ?, 
-      max_participants = ?, is_registration_open = ?, activity_end_date = ?,
+      max_participants = ?, is_registration_open = ?, activity_end_date = ?, activity_status = ?,
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).bind(
@@ -107,7 +108,7 @@ apiRoutes.put('/activities/:id', async (c) => {
     cover_image || null, show_in_highlights ? 1 : 0, activity_type || 'general',
     location || null, cost || null, content || null, 
     registration_start || null, registration_end || null, 
-    max_participants || null, is_registration_open ? 1 : 0, activity_end_date || null,
+    max_participants || null, is_registration_open ? 1 : 0, activity_end_date || null, activity_status || 'active',
     id
   ).run()
 
@@ -1800,7 +1801,7 @@ apiRoutes.post('/member/advancement', async (c) => {
   if (!memberId) return c.json({ success: false, error: '未登入' }, 401)
 
   const body = await c.req.json()
-  const { rank_from, rank_to, apply_date } = body
+  const { rank_from, rank_to, apply_date, evidence_file } = body
   if (!rank_from || !rank_to) return c.json({ success: false, error: '請填寫晉升資訊' }, 400)
 
   const member = await db.prepare(`SELECT section FROM members WHERE id = ?`).bind(memberId).first() as any
@@ -1814,9 +1815,9 @@ apiRoutes.post('/member/advancement', async (c) => {
 
   const id = `adv-${Date.now()}-${Math.random().toString(36).substring(2,7)}`
   await db.prepare(`
-    INSERT INTO advancement_applications (id, member_id, section, rank_from, rank_to, apply_date, status)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending')
-  `).bind(id, memberId, member.section, rank_from, rank_to, apply_date || new Date().toISOString().slice(0,10)).run()
+    INSERT INTO advancement_applications (id, member_id, section, rank_from, rank_to, apply_date, evidence_file, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+  `).bind(id, memberId, member.section, rank_from, rank_to, apply_date || new Date().toISOString().slice(0,10), evidence_file || null).run()
 
   return c.json({ success: true, id })
 })
