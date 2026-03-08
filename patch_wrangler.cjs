@@ -1,8 +1,7 @@
 const fs = require('fs');
 let code = fs.readFileSync('wrangler.jsonc', 'utf-8');
 
-if (!code.includes('r2_buckets')) {
-  code = code.replace(`
+code = code.replace(`
   "d1_databases": [
     {
       "binding": "DB",
@@ -25,6 +24,6 @@ if (!code.includes('r2_buckets')) {
     }
   ]
 }`);
-  fs.writeFileSync('wrangler.jsonc', code);
-  console.log('Restored r2_buckets to wrangler.jsonc');
-}
+
+fs.writeFileSync('wrangler.jsonc', code);
+console.log('Restored R2 to wrangler.jsonc');

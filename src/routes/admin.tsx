@@ -651,19 +651,22 @@ adminRoutes.get('/activities/:id/images', authMiddleware, async (c) => {
             const uploadData = await uploadRes.json();
             
             if (uploadData.success && uploadData.file_url) {
-            } else {
-              console.error("Upload failed:", uploadData);
-              alert('上傳失敗: ' + (uploadData.error || '未知錯誤'));
-              failCount++;
-            }
               const saveRes = await fetch('/api/admin/activities/' + activityId + '/images', {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
                 body: JSON.stringify({ image_url: uploadData.file_url, caption: caption || null, display_order: startOrder++ })
               });
-              if (saveRes.ok) successCount++;
-              else failCount++;
+              if (saveRes.ok) {
+                successCount++;
+              } else {
+                const saveError = await saveRes.json().catch(()=>({}));
+                console.error("Save to DB failed:", saveError);
+                alert('圖片資料庫儲存失敗');
+                failCount++;
+              }
             } else {
+              console.error("Upload failed:", uploadData);
+              alert('上傳失敗: ' + (uploadData.error || '未知錯誤'));
               failCount++;
             }
           } catch(e) {
