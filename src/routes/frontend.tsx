@@ -577,7 +577,7 @@ frontendRoutes.get('/coaches', async (c) => {
   const settings: Record<string, string> = {}
   settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
 
-  const coaches = await db.prepare(`SELECT * FROM coach_members ORDER BY chinese_name ASC`).all()
+  const coaches = await db.prepare(`SELECT cms.id, m.chinese_name, m.english_name, cms.current_stage as coach_level, cms.section_assigned, cms.specialties, cms.year_label, m.id as member_id FROM coach_member_status cms JOIN members m ON m.id = cms.member_id ORDER BY m.chinese_name ASC`).all()
   
   const levels = ['指導教練', '助理教練', '見習教練', '預備教練']
   const grouped = {
@@ -665,17 +665,18 @@ frontendRoutes.get('/coaches-legacy', async (c) => {
   settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
 
   const coaches = await db.prepare(`
-    SELECT cm.*, sg.name as group_name, sg.slug as group_slug
-    FROM coach_members cm
+    SELECT cms.id, m.chinese_name, m.english_name, cms.current_stage as coach_level, cms.section_assigned, cms.specialties, cms.year_label, m.id as member_id, sg.name as group_name, sg.slug as group_slug
+    FROM coach_member_status cms
+    JOIN members m ON m.id = cms.member_id
     LEFT JOIN scout_groups sg ON sg.id = (
-      CASE cm.section_assigned
+      CASE cms.section_assigned
         WHEN '童軍' THEN (SELECT id FROM scout_groups WHERE slug='scout-troop' LIMIT 1)
         WHEN '行義童軍' THEN (SELECT id FROM scout_groups WHERE slug='senior-scout' LIMIT 1)
         WHEN '羅浮童軍' THEN (SELECT id FROM scout_groups WHERE slug='rover-scout' LIMIT 1)
         ELSE NULL
       END
     )
-    ORDER BY cm.year_label DESC, cm.coach_level, cm.chinese_name
+    ORDER BY cms.year_label DESC, cms.current_stage, m.chinese_name
   `).all()
 
   // 按年度分組
@@ -2378,9 +2379,11 @@ frontendRoutes.get('/group/:slug/coaches-list', async (c) => {
 
   // 指導教練：從教練團資料取得 coach_level='指導教練' 的人員
   const instructors = await db.prepare(`
-    SELECT * FROM coach_members
-    WHERE coach_level = '指導教練'
-    ORDER BY chinese_name ASC
+    SELECT cms.id, m.chinese_name, m.english_name, cms.current_stage as coach_level, cms.section_assigned, cms.specialties, cms.year_label, m.id as member_id 
+    FROM coach_member_status cms 
+    JOIN members m ON m.id = cms.member_id
+    WHERE cms.current_stage = '指導教練'
+    ORDER BY m.chinese_name ASC
   `).all()
 
   const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
