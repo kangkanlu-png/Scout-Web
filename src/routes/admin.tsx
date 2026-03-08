@@ -207,7 +207,7 @@ adminRoutes.get('/activities', authMiddleware, async (c) => {
   `).all()
 
   const categoryLabel: Record<string, string> = {
-    general: '一般活動', tecc: 'TECC 急救', camping: '大露營', training: '訓練課程', service: '服務活動'
+    general: '一般活動', tecc: 'TECC 急救', camping: '大露營', training: '訓練課程', service: '服務活動', national_day: '國慶服務活動'
   }
   const typeLabel: Record<string, string> = {
     general: '<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">一般活動</span>',
@@ -1288,6 +1288,7 @@ function activityForm(activity: any) {
     { value: 'tecc', label: 'TECC 急救訓練' },
     { value: 'training', label: '訓練課程' },
     { value: 'service', label: '服務活動' },
+    { value: 'national_day', label: '國慶服務活動' },
   ]
   const catOptions = categories.map(c =>
     `<option value="${c.value}" ${activity?.category === c.value ? 'selected' : ''}>${c.label}</option>`

@@ -1887,7 +1887,8 @@ frontendRoutes.get('/highlights', async (c) => {
     { id: 'tecc', name: 'TECC急救', icon: '🚑' },
     { id: 'service', name: '服務', icon: '🤝' },
     { id: 'training', name: '訓練', icon: '📚' },
-    { id: 'general', name: '一般活動', icon: '⚜️' }
+    { id: 'general', name: '一般活動', icon: '⚜️' },
+    { id: 'national_day', name: '國慶服務', icon: '🇹🇼' }
   ];
   
   const filterHtml = `
@@ -2754,6 +2755,7 @@ function renderHomePage(activities: any[], groups: any[], settings: Record<strin
     camping: '大露營',
     training: '訓練課程',
     service: '服務活動',
+    national_day: '國慶服務活動',
   }
   const categoryColor: Record<string, string> = {
     general: 'bg-blue-100 text-blue-800',
@@ -2761,6 +2763,7 @@ function renderHomePage(activities: any[], groups: any[], settings: Record<strin
     camping: 'bg-green-100 text-green-800',
     training: 'bg-yellow-100 text-yellow-800',
     service: 'bg-purple-100 text-purple-800',
+    national_day: 'bg-indigo-100 text-indigo-800',
   }
 
   const activitiesHtml = activities.map((act: any) => {

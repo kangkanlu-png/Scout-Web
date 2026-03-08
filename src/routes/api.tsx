@@ -8,6 +8,51 @@ type Bindings = {
 
 export const apiRoutes = new Hono<{ Bindings: Bindings }>()
 
+apiRoutes.get('/debug', async (c) => {
+  try {
+    const db = c.env.DB;
+    await db.prepare("SELECT * FROM members LIMIT 1").all();
+    
+    // Test the stats query
+    const sectionCounts = await db.prepare(`
+      SELECT section, COUNT(*) as count
+      FROM members
+      WHERE UPPER(membership_status) = 'ACTIVE'
+      GROUP BY section
+      ORDER BY CASE section
+        WHEN '服務員' THEN 1 WHEN '羅浮童軍' THEN 2
+        WHEN '行義童軍' THEN 3 WHEN '童軍' THEN 4
+        WHEN '幼童軍' THEN 5 ELSE 6 END
+    `).all()
+    
+    const yearRankData = await db.prepare(`
+      SELECT pr.year_label, m.section, pr.award_name, COUNT(*) as count
+      FROM progress_records pr
+      JOIN members m ON m.id = pr.member_id
+      WHERE pr.record_type = 'rank' AND pr.year_label IS NOT NULL
+      GROUP BY pr.year_label, m.section, pr.award_name
+      ORDER BY pr.year_label ASC, m.section, count DESC
+    `).all()
+
+    const roverMembers = await db.prepare(`
+      SELECT chinese_name, country, university
+      FROM members
+      WHERE UPPER(membership_status) = 'ACTIVE' AND section = '羅浮童軍'
+      ORDER BY country, chinese_name
+    `).all()
+
+    const memRoles = await db.prepare("SELECT * FROM member_roles LIMIT 1").all();
+
+    const coachStatuses = await db.prepare(`SELECT * FROM coach_member_status LIMIT 1`).all();
+    const groupAlumni = await db.prepare("SELECT * FROM group_alumni LIMIT 1").all();
+    
+    return c.json({ success: true, memRoles, coachStatuses });
+  } catch (err) {
+    return c.json({ success: false, error: err.message, stack: err.stack });
+  }
+});
+
+
 function translateStatus(s: string) {
   const map: Record<string, string> = {
     pending: '待審核',
