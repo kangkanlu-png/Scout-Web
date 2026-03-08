@@ -651,7 +651,7 @@ adminRoutes.get('/activities/:id/images', authMiddleware, async (c) => {
             const uploadData = await uploadRes.json();
             
             if (uploadData.success && uploadData.file_url) {
-              const saveRes = await fetch('/api/admin/activities/' + activityId + '/images', {
+              const saveRes = await fetch('/api/activities/' + activityId + '/images', {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
                 body: JSON.stringify({ image_url: uploadData.file_url, caption: caption || null, display_order: startOrder++ })
