@@ -651,6 +651,11 @@ adminRoutes.get('/activities/:id/images', authMiddleware, async (c) => {
             const uploadData = await uploadRes.json();
             
             if (uploadData.success && uploadData.file_url) {
+            } else {
+              console.error("Upload failed:", uploadData);
+              alert('上傳失敗: ' + (uploadData.error || '未知錯誤'));
+              failCount++;
+            }
               const saveRes = await fetch('/api/admin/activities/' + activityId + '/images', {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
