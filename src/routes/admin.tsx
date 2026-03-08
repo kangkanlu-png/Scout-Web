@@ -198,6 +198,7 @@ adminRoutes.get('/', authMiddleware, async (c) => {
 // ===================== 活動管理 =====================
 adminRoutes.get('/activities', authMiddleware, async (c) => {
   const db = c.env.DB
+  // 取得活動列表，包含圖片數量
   const activities = await db.prepare(`
     SELECT a.*, COUNT(ai.id) as image_count
     FROM activities a
@@ -215,7 +216,7 @@ adminRoutes.get('/activities', authMiddleware, async (c) => {
     announcement: '<span class="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-xs">最新公告</span>'
   }
   
-  const rows = activities.results.map((a: any) => `
+  const generateRow = (a: any) => `
     <tr class="border-b hover:bg-gray-50">
       <td class="py-3 px-4">
         ${typeLabel[a.activity_type || 'general'] || typeLabel.general}
@@ -234,37 +235,146 @@ adminRoutes.get('/activities', authMiddleware, async (c) => {
           <a href="/admin/activities/${a.id}/edit" class="text-blue-600 hover:text-blue-800 text-sm font-medium">編輯</a>
           ${a.activity_type !== 'announcement' ? `<a href="/admin/activities/${a.id}/images" class="text-purple-600 hover:text-purple-800 text-sm font-medium">圖片</a>` : ''}
           ${a.activity_type === 'registration' ? `<a href="/admin/activities/${a.id}/registrations" class="text-orange-600 hover:text-orange-800 text-sm font-medium flex items-center gap-1">報名${a.is_registration_open ? '<span class="w-2 h-2 rounded-full bg-green-500"></span>' : ''}</a>` : ''}
-          ${a.activity_type !== 'announcement' && !a.show_in_highlights && a.image_count > 0 ? `<button onclick="closeAndHighlight(${a.id})" class="text-green-600 hover:text-green-800 text-sm font-medium" title="結案並移至精彩活動">結案</button>` : ''}
-          ${a.show_in_highlights ? '<span class="text-yellow-600 text-xs font-bold" title="已在精彩活動展示">★</span>' : ''}
+          ${a.activity_type !== 'announcement' && !a.show_in_highlights ? `<button onclick="closeAndHighlight(${a.id})" class="text-green-600 hover:text-green-800 text-sm font-medium" title="結案並移至精彩活動">結案</button>` : ''}
+          ${a.show_in_highlights ? '<span class="text-yellow-600 text-xs font-bold" title="已在精彩活動展示">★ 精彩活動</span>' : ''}
           <button onclick="deleteActivity(${a.id})" class="text-red-500 hover:text-red-700 text-sm font-medium">刪除</button>
         </div>
       </td>
     </tr>
-  `).join('')
+  `
+
+  const latestActivities = activities.results.filter((a: any) => a.activity_type !== 'announcement' && !a.show_in_highlights)
+  const announcements = activities.results.filter((a: any) => a.activity_type === 'announcement')
+  const highlights = activities.results.filter((a: any) => a.show_in_highlights)
+
+  // 精彩回顧分類 Tabs
+  const renderHighlightsByCategory = () => {
+    let html = '<div class="mt-4 border-b border-gray-200 mb-4"><nav class="-mb-px flex space-x-6 overflow-x-auto">';
+    const cats = [{id: 'all', name: '全部'}, {id: 'general', name: '一般活動'}, {id: 'tecc', name: 'TECC 急救'}, {id: 'camping', name: '大露營'}, {id: 'training', name: '訓練課程'}, {id: 'service', name: '服務活動'}, {id: 'national_day', name: '國慶服務活動'}];
+    
+    cats.forEach((cat, idx) => {
+      html += `<button onclick="switchHighlightTab('${cat.id}')" id="htab-${cat.id}" class="${idx === 0 ? 'border-green-500 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors">${cat.name}</button>`;
+    });
+    html += '</nav></div>';
+
+    cats.forEach(cat => {
+      const filtered = cat.id === 'all' ? highlights : highlights.filter((a: any) => a.category === cat.id);
+      html += `
+        <div id="hcontent-${cat.id}" class="highlight-content ${cat.id === 'all' ? '' : 'hidden'}">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b">
+              <tr>
+                <th class="py-3 px-4 text-left text-gray-600">屬性/狀態</th>
+                <th class="py-3 px-4 text-left text-gray-600">標題</th>
+                <th class="py-3 px-4 text-left text-gray-600">分類</th>
+                <th class="py-3 px-4 text-left text-gray-600">日期</th>
+                <th class="py-3 px-4 text-left text-gray-600">圖片</th>
+                <th class="py-3 px-4 text-left text-gray-600">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.length > 0 ? filtered.map(generateRow).join('') : '<tr><td colspan="6" class="py-8 text-center text-gray-400">尚無資料</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      `;
+    });
+    return html;
+  }
 
   return c.html(adminLayout('活動/公告管理', `
     <div class="flex justify-between items-center mb-6">
       <h2 class="text-xl font-bold text-gray-800">活動與公告管理</h2>
       <a href="/admin/activities/new" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">➕ 新增項目</a>
     </div>
-    <div class="bg-white rounded-xl shadow overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="bg-gray-50 border-b">
-          <tr>
-            <th class="py-3 px-4 text-left text-gray-600">屬性/狀態</th>
-            <th class="py-3 px-4 text-left text-gray-600">標題</th>
-            <th class="py-3 px-4 text-left text-gray-600">分類</th>
-            <th class="py-3 px-4 text-left text-gray-600">日期</th>
-            <th class="py-3 px-4 text-left text-gray-600">圖片</th>
-            <th class="py-3 px-4 text-left text-gray-600">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows || '<tr><td colspan="6" class="py-8 text-center text-gray-400">尚無資料</td></tr>'}
-        </tbody>
-      </table>
+
+    <!-- 主 Tab 切換 -->
+    <div class="border-b border-gray-200 mb-6">
+      <nav class="-mb-px flex space-x-8">
+        <button onclick="switchMainTab('latest')" id="tab-latest" class="border-green-500 text-green-600 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
+          最新活動 (${latestActivities.length})
+        </button>
+        <button onclick="switchMainTab('announcement')" id="tab-announcement" class="border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
+          活動公告 (${announcements.length})
+        </button>
+        <button onclick="switchMainTab('highlights')" id="tab-highlights" class="border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
+          精彩回顧 (${highlights.length})
+        </button>
+      </nav>
     </div>
+
+    <div class="bg-white rounded-xl shadow overflow-hidden p-2">
+      <!-- 最新活動 Content -->
+      <div id="content-latest" class="main-content">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b">
+            <tr>
+              <th class="py-3 px-4 text-left text-gray-600">屬性/狀態</th>
+              <th class="py-3 px-4 text-left text-gray-600">標題</th>
+              <th class="py-3 px-4 text-left text-gray-600">分類</th>
+              <th class="py-3 px-4 text-left text-gray-600">日期</th>
+              <th class="py-3 px-4 text-left text-gray-600">圖片</th>
+              <th class="py-3 px-4 text-left text-gray-600">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${latestActivities.length > 0 ? latestActivities.map(generateRow).join('') : '<tr><td colspan="6" class="py-8 text-center text-gray-400">尚無最新活動</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 活動公告 Content -->
+      <div id="content-announcement" class="main-content hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b">
+            <tr>
+              <th class="py-3 px-4 text-left text-gray-600">屬性/狀態</th>
+              <th class="py-3 px-4 text-left text-gray-600">標題</th>
+              <th class="py-3 px-4 text-left text-gray-600">分類</th>
+              <th class="py-3 px-4 text-left text-gray-600">日期</th>
+              <th class="py-3 px-4 text-left text-gray-600">圖片</th>
+              <th class="py-3 px-4 text-left text-gray-600">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${announcements.length > 0 ? announcements.map(generateRow).join('') : '<tr><td colspan="6" class="py-8 text-center text-gray-400">尚無活動公告</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 精彩回顧 Content -->
+      <div id="content-highlights" class="main-content hidden">
+        ${renderHighlightsByCategory()}
+      </div>
+    </div>
+
     <script>
+      function switchMainTab(tabId) {
+        document.querySelectorAll('.main-content').forEach(el => el.classList.add('hidden'));
+        document.getElementById('content-' + tabId).classList.remove('hidden');
+        
+        document.querySelectorAll('[id^="tab-"]').forEach(el => {
+          el.classList.remove('border-green-500', 'text-green-600');
+          el.classList.add('border-transparent', 'text-gray-500');
+        });
+        const activeTab = document.getElementById('tab-' + tabId);
+        activeTab.classList.remove('border-transparent', 'text-gray-500');
+        activeTab.classList.add('border-green-500', 'text-green-600');
+      }
+
+      function switchHighlightTab(catId) {
+        document.querySelectorAll('.highlight-content').forEach(el => el.classList.add('hidden'));
+        document.getElementById('hcontent-' + catId).classList.remove('hidden');
+
+        document.querySelectorAll('[id^="htab-"]').forEach(el => {
+          el.classList.remove('border-green-500', 'text-green-600');
+          el.classList.add('border-transparent', 'text-gray-500');
+        });
+        const activeTab = document.getElementById('htab-' + catId);
+        activeTab.classList.remove('border-transparent', 'text-gray-500');
+        activeTab.classList.add('border-green-500', 'text-green-600');
+      }
+
       async function closeAndHighlight(id) {
         if (!confirm('確定要結案此活動並將其移至「精彩活動」展示嗎？\\n(系統將自動關閉報名功能並設定為精彩活動)')) return;
         try {
@@ -830,6 +940,10 @@ adminRoutes.get('/settings', authMiddleware, async (c) => {
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Facebook 網址</label>
           <input type="url" name="facebook_url" value="${settings.facebook_url || ''}" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Instagram 網址</label>
+          <input type="url" name="instagram_url" value="${settings.instagram_url || ''}" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">目前學年度 (Global Current Year)</label>
