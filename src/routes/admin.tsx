@@ -409,17 +409,17 @@ adminRoutes.get('/activities/:id/registrations', authMiddleware, async (c) => {
 adminRoutes.get('/activities/:id/images', authMiddleware, async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
-  const activity = await db.prepare(`SELECT * FROM activities WHERE id = ?`).bind(id).first() as any
+  const activity = await db.prepare("SELECT * FROM activities WHERE id = ?").bind(id).first() as any
   if (!activity) return c.redirect('/admin/activities')
-  const images = await db.prepare(`SELECT * FROM activity_images WHERE activity_id = ? ORDER BY display_order`).bind(id).all()
+  const images = await db.prepare("SELECT * FROM activity_images WHERE activity_id = ? ORDER BY display_order").bind(id).all()
 
   const imgCards = images.results.map((img: any) => `
     <div class="bg-white border rounded-xl overflow-hidden shadow-sm" id="img-${img.id}">
       <div class="aspect-video bg-gray-100 overflow-hidden">
-        <img src="${img.image_url}" alt="${img.caption || ''}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<div class=\\'flex items-center justify-center h-full text-gray-400 text-sm\\'>圖片無法顯示</div>'">
+        <img src="${img.image_url}" alt="${img.caption || ''}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<div class=\'flex items-center justify-center h-full text-gray-400 text-sm\'>圖片無法顯示</div>'">
       </div>
       <div class="p-3">
-        <p class="text-xs text-gray-500 truncate mb-1">${img.image_url}</p>
+        <p class="text-xs text-gray-500 break-all mb-1">${img.image_url.length > 60 ? img.image_url.substring(0,60) + '...' : img.image_url}</p>
         <p class="text-xs text-gray-600">${img.caption || '（無說明）'}</p>
         <button onclick="deleteImage(${img.id})" class="mt-2 text-red-500 hover:text-red-700 text-xs font-medium">🗑 刪除</button>
       </div>
@@ -435,33 +435,45 @@ adminRoutes.get('/activities/:id/images', authMiddleware, async (c) => {
       <a href="/admin/activities" class="text-gray-500 hover:text-gray-700 text-sm">← 返回活動列表</a>
     </div>
 
-    <!-- 新增圖片 -->
     <div class="bg-white rounded-xl shadow p-6 mb-6">
-      <h3 class="font-bold text-gray-700 mb-4">➕ 新增圖片</h3>
-      <p class="text-sm text-gray-500 mb-3">請輸入圖片的網址（URL）。建議先將圖片上傳至 Google Drive、Imgur 等圖床，再貼上連結。</p>
+      <h3 class="font-bold text-gray-700 mb-1">➕ 新增相片</h3>
+      <p class="text-sm text-gray-400 mb-4">您可以直接上傳圖片，或貼上外部圖片網址（可一次填入多個網址，每行一個）。</p>
+      
+      <div class="mb-6 p-4 border border-dashed border-gray-300 rounded-lg bg-gray-50">
+        <label class="block text-sm font-medium text-gray-700 mb-2">上傳本機圖片</label>
+        <div class="flex items-center gap-3">
+          <input type="file" id="image-upload-file" accept="image/*" multiple class="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
+          <button onclick="uploadFiles(${id})" id="btn-upload" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">上傳檔案</button>
+        </div>
+        <p id="upload-status" class="text-sm text-gray-500 mt-2 hidden"></p>
+      </div>
+
       <div class="space-y-3">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">圖片網址 *</label>
-          <input type="url" id="new-image-url" placeholder="https://..." class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          <label class="block text-sm font-medium text-gray-700 mb-1">圖片網址（每行一個）</label>
+          <textarea id="bulk-urls" rows="4" class="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="https://example.com/photo1.jpg\nhttps://example.com/photo2.jpg\n..."></textarea>
         </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">圖片說明</label>
-          <input type="text" id="new-image-caption" placeholder="圖片說明（選填）" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">說明（批量時套用相同說明，可留空）</label>
+            <input type="text" id="bulk-caption" placeholder="圖片說明（選填）" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">起始排序</label>
+            <input type="number" id="bulk-order" value="${images.results.length}" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          </div>
         </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">排序（數字越小越前面）</label>
-          <input type="number" id="new-image-order" value="${images.results.length}" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+        <div id="bulk-preview" class="hidden">
+          <p class="text-sm text-gray-600 mb-2">預覽（第一張）：</p>
+          <img id="bulk-preview-img" src="" class="max-h-40 rounded-lg border">
         </div>
-        <div id="preview-area" class="hidden">
-          <p class="text-sm text-gray-600 mb-1">預覽：</p>
-          <img id="preview-img" src="" class="max-h-40 rounded-lg border">
+        <div class="flex gap-2">
+          <button onclick="previewBulk()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm">預覽首張網址</button>
+          <button onclick="addBulkImages(${id})" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">新增網址圖片</button>
         </div>
-        <button onclick="previewImage()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm">預覽圖片</button>
-        <button onclick="addImage(${id})" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium ml-2">新增圖片</button>
       </div>
     </div>
 
-    <!-- 現有圖片 -->
     <div class="bg-white rounded-xl shadow p-6">
       <h3 class="font-bold text-gray-700 mb-4">現有圖片（${images.results.length} 張）</h3>
       <div id="images-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -470,32 +482,94 @@ adminRoutes.get('/activities/:id/images', authMiddleware, async (c) => {
     </div>
 
     <script>
-      function previewImage() {
-        const url = document.getElementById('new-image-url').value;
-        if (!url) return;
-        document.getElementById('preview-img').src = url;
-        document.getElementById('preview-area').classList.remove('hidden');
+      function previewBulk() {
+        const urls = document.getElementById('bulk-urls').value.trim().split('\\\\n').filter(u => u.trim());
+        if (!urls.length) return;
+        document.getElementById('bulk-preview-img').src = urls[0].trim();
+        document.getElementById('bulk-preview').classList.remove('hidden');
       }
 
-      async function addImage(activityId) {
-        const url = document.getElementById('new-image-url').value;
-        const caption = document.getElementById('new-image-caption').value;
-        const order = document.getElementById('new-image-order').value;
-        if (!url) { alert('請輸入圖片網址'); return; }
-        const res = await fetch('/api/activities/' + activityId + '/images', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image_url: url, caption, display_order: parseInt(order) || 0 })
-        });
-        if (res.ok) location.reload();
-        else alert('新增失敗，請檢查網址是否正確');
+      async function addBulkImages(activityId) {
+        const urls = document.getElementById('bulk-urls').value.trim().split('\\\\n').map(u => u.trim()).filter(u => u);
+        const caption = document.getElementById('bulk-caption').value;
+        let startOrder = parseInt(document.getElementById('bulk-order').value) || 0;
+        if (!urls.length) { alert('請輸入至少一個圖片網址'); return; }
+        
+        let success = 0;
+        for (const url of urls) {
+          const res = await fetch('/api/admin/activities/' + activityId + '/images', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ image_url: url, caption: caption || null, display_order: startOrder++ })
+          });
+          if (res.ok) success++;
+        }
+        if (success > 0) {
+          alert('成功新增 ' + success + ' 張相片');
+          location.reload();
+        } else {
+          alert('新增失敗，請檢查網址是否正確');
+        }
+      }
+
+      async function uploadFiles(activityId) {
+        const fileInput = document.getElementById('image-upload-file');
+        const files = fileInput.files;
+        if (files.length === 0) return alert('請選擇檔案');
+        
+        const btn = document.getElementById('btn-upload');
+        const status = document.getElementById('upload-status');
+        btn.disabled = true;
+        btn.textContent = '上傳中...';
+        status.classList.remove('hidden');
+        
+        let successCount = 0;
+        let failCount = 0;
+        let startOrder = parseInt(document.getElementById('bulk-order').value) || 0;
+        const caption = document.getElementById('bulk-caption').value;
+
+        for (let i = 0; i < files.length; i++) {
+          status.textContent = '正在上傳第 ' + (i+1) + ' / ' + files.length + ' 張...';
+          const formData = new FormData();
+          formData.append('file', files[i]);
+          
+          try {
+            const uploadRes = await fetch('/api/upload', {
+              method: 'POST',
+              body: formData
+            });
+            const uploadData = await uploadRes.json();
+            
+            if (uploadData.success && uploadData.file_url) {
+              const saveRes = await fetch('/api/admin/activities/' + activityId + '/images', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ image_url: uploadData.file_url, caption: caption || null, display_order: startOrder++ })
+              });
+              if (saveRes.ok) successCount++;
+              else failCount++;
+            } else {
+              failCount++;
+            }
+          } catch(e) {
+            failCount++;
+          }
+        }
+        
+        btn.textContent = '上傳檔案';
+        btn.disabled = false;
+        alert('上傳完成！成功：' + successCount + ' 張，失敗：' + failCount + ' 張');
+        if (successCount > 0) location.reload();
       }
 
       async function deleteImage(id) {
-        if (!confirm('確定要刪除此圖片嗎？')) return;
+        if (!confirm('確定要刪除這張圖片嗎？')) return;
         const res = await fetch('/api/images/' + id, { method: 'DELETE' });
-        if (res.ok) document.getElementById('img-' + id).remove();
-        else alert('刪除失敗');
+        if (res.ok) {
+          document.getElementById('img-' + id).remove();
+        } else {
+          alert('刪除失敗');
+        }
       }
     </script>
   `))
@@ -1181,7 +1255,7 @@ adminRoutes.get('/semesters/:id/images', authMiddleware, async (c) => {
     <div class="bg-white border rounded-xl overflow-hidden shadow-sm" id="si-${img.id}">
       <div class="aspect-video bg-gray-100 overflow-hidden">
         <img src="${img.image_url}" alt="${img.caption || ''}" class="w-full h-full object-cover"
-          onerror="this.parentElement.innerHTML='<div class=\\'flex items-center justify-center h-full text-gray-400 text-sm\\'>圖片無法顯示</div>'">
+          onerror="this.parentElement.innerHTML='<div class=\'flex items-center justify-center h-full text-gray-400 text-sm\'>圖片無法顯示</div>'">
       </div>
       <div class="p-3">
         <p class="text-xs text-gray-500 break-all mb-1">${img.image_url.length > 60 ? img.image_url.substring(0,60) + '...' : img.image_url}</p>
@@ -1206,11 +1280,22 @@ adminRoutes.get('/semesters/:id/images', authMiddleware, async (c) => {
     <!-- 批量新增 / 單一新增 -->
     <div class="bg-white rounded-xl shadow p-6 mb-6">
       <h3 class="font-bold text-gray-700 mb-1">➕ 新增相片</h3>
-      <p class="text-sm text-gray-400 mb-4">輸入圖片網址（可一次填入多個，每行一個）。建議先上傳至 Google Drive、Imgur 等圖床再貼上連結。</p>
+      <p class="text-sm text-gray-400 mb-4">您可以直接上傳圖片，或貼上外部圖片網址（可一次填入多個網址，每行一個）。</p>
+      
+      <!-- 檔案上傳區 -->
+      <div class="mb-6 p-4 border border-dashed border-gray-300 rounded-lg bg-gray-50">
+        <label class="block text-sm font-medium text-gray-700 mb-2">上傳本機圖片</label>
+        <div class="flex items-center gap-3">
+          <input type="file" id="sem-upload-file" accept="image/*" multiple class="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
+          <button onclick="uploadSemFiles(${semId})" id="btn-sem-upload" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">上傳檔案</button>
+        </div>
+        <p id="sem-upload-status" class="text-sm text-gray-500 mt-2 hidden"></p>
+      </div>
+
       <div class="space-y-3">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">圖片網址（每行一個）</label>
-          <textarea id="bulk-urls" rows="5" class="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="https://example.com/photo1.jpg&#10;https://example.com/photo2.jpg&#10;..."></textarea>
+          <textarea id="bulk-urls" rows="4" class="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="https://example.com/photo1.jpg\nhttps://example.com/photo2.jpg\n..."></textarea>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -1219,7 +1304,7 @@ adminRoutes.get('/semesters/:id/images', authMiddleware, async (c) => {
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">起始排序</label>
-            <input type="number" id="bulk-order" value="${images.results.length}" class="w-full border rounded-lg px-3 py-2 text-sm">
+            <input type="number" id="bulk-order" value="${images.results.length}" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
           </div>
         </div>
         <div id="bulk-preview" class="hidden">
@@ -1227,8 +1312,8 @@ adminRoutes.get('/semesters/:id/images', authMiddleware, async (c) => {
           <img id="bulk-preview-img" src="" class="max-h-40 rounded-lg border">
         </div>
         <div class="flex gap-2">
-          <button onclick="previewBulk()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm">預覽第一張</button>
-          <button onclick="addBulkImages(${semId})" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">新增相片</button>
+          <button onclick="previewBulk()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm">預覽首張網址</button>
+          <button onclick="addBulkImages(${semId})" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">新增網址圖片</button>
         </div>
       </div>
     </div>
@@ -1245,16 +1330,18 @@ adminRoutes.get('/semesters/:id/images', authMiddleware, async (c) => {
 
     <script>
       function previewBulk() {
-        const urls = document.getElementById('bulk-urls').value.trim().split('\\n').filter(u => u.trim());
+        const urls = document.getElementById('bulk-urls').value.trim().split('\\\\n').filter(u => u.trim());
         if (!urls.length) return;
         document.getElementById('bulk-preview-img').src = urls[0].trim();
         document.getElementById('bulk-preview').classList.remove('hidden');
       }
+
       async function addBulkImages(semId) {
-        const urls = document.getElementById('bulk-urls').value.trim().split('\\n').map(u => u.trim()).filter(u => u);
+        const urls = document.getElementById('bulk-urls').value.trim().split('\\\\n').map(u => u.trim()).filter(u => u);
         const caption = document.getElementById('bulk-caption').value;
         let startOrder = parseInt(document.getElementById('bulk-order').value) || 0;
         if (!urls.length) { alert('請輸入至少一個圖片網址'); return; }
+        
         let success = 0;
         for (const url of urls) {
           const res = await fetch('/api/semesters/' + semId + '/images', {
@@ -1267,8 +1354,61 @@ adminRoutes.get('/semesters/:id/images', authMiddleware, async (c) => {
         if (success > 0) {
           alert('成功新增 ' + success + ' 張相片');
           location.reload();
-        } else alert('新增失敗，請檢查網址是否正確');
+        } else {
+          alert('新增失敗，請檢查網址是否正確');
+        }
       }
+
+      async function uploadSemFiles(semId) {
+        const fileInput = document.getElementById('sem-upload-file');
+        const files = fileInput.files;
+        if (files.length === 0) return alert('請選擇檔案');
+        
+        const btn = document.getElementById('btn-sem-upload');
+        const status = document.getElementById('sem-upload-status');
+        btn.disabled = true;
+        btn.textContent = '上傳中...';
+        status.classList.remove('hidden');
+        
+        let successCount = 0;
+        let failCount = 0;
+        let startOrder = parseInt(document.getElementById('bulk-order').value) || 0;
+        const caption = document.getElementById('bulk-caption').value;
+
+        for (let i = 0; i < files.length; i++) {
+          status.textContent = '正在上傳第 ' + (i+1) + ' / ' + files.length + ' 張...';
+          const formData = new FormData();
+          formData.append('file', files[i]);
+          
+          try {
+            const uploadRes = await fetch('/api/upload', {
+              method: 'POST',
+              body: formData
+            });
+            const uploadData = await uploadRes.json();
+            
+            if (uploadData.success && uploadData.file_url) {
+              const saveRes = await fetch('/api/semesters/' + semId + '/images', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ image_url: uploadData.file_url, caption: caption || null, display_order: startOrder++ })
+              });
+              if (saveRes.ok) successCount++;
+              else failCount++;
+            } else {
+              failCount++;
+            }
+          } catch(e) {
+            failCount++;
+          }
+        }
+        
+        btn.textContent = '上傳檔案';
+        btn.disabled = false;
+        alert('上傳完成！成功：' + successCount + ' 張，失敗：' + failCount + ' 張');
+        if (successCount > 0) location.reload();
+      }
+
       async function deleteSemImg(id) {
         if (!confirm('確定要刪除此相片嗎？')) return;
         const res = await fetch('/api/semester-images/' + id, { method: 'DELETE' });
@@ -7286,47 +7426,68 @@ adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
   }
   const sortedYears = Object.keys(yearGroups).sort((a, b) => b.localeCompare(a))
 
-  const tablesHTML = sortedYears.length === 0 ? '<div class="bg-white rounded-xl shadow p-8 text-center text-gray-400">尚無歷屆名單資料</div>' : sortedYears.map(year => {
-    const rows = yearGroups[year].map((a: any) => `
-    <tr class="border-b hover:bg-gray-50 text-sm">
-      <td class="py-2 px-3 text-gray-500">${a.year_label}</td>
-      <td class="py-2 px-3 font-medium">${a.member_name}</td>
-      <td class="py-2 px-3 text-gray-500">${a.english_name || '-'}</td>
-      <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">${a.unit_name || '-'}</span></td>
-      <td class="py-2 px-3 text-gray-500">${a.role_name || '-'}</td>
-      <td class="py-2 px-3 text-gray-500">${a.rank_level || '-'}</td>
-      <td class="py-2 px-3">
-        <button onclick='editAlumni(${JSON.stringify(a).replace(/'/g, "&#39;")})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
-        <button onclick="deleteAlumni(${a.id})" class="text-red-500 hover:text-red-700">刪除</button>
-      </td>
-    </tr>
-    `).join('')
-    
-    return `
-    <div class="bg-white rounded-xl shadow overflow-hidden mb-6">
-      <div class="bg-gray-100 border-b px-4 py-3 font-bold text-gray-800 flex justify-between items-center">
-        <span>第 ${parseInt(year) - 107} 屆 (${year} 學年度)</span>
-        <button onclick="deleteYear(${id}, '${year}')" class="text-xs text-red-500 font-normal hover:text-red-700">刪除此屆</button>
+  
+  let tabsHTML = ''
+  let tablesHTML = ''
+  
+  if (sortedYears.length === 0) {
+    tablesHTML = '<div class="bg-white rounded-xl shadow p-8 text-center text-gray-400">尚無歷屆名單資料</div>'
+  } else {
+    tabsHTML = `
+      <div class="flex flex-wrap gap-2 mb-6 border-b border-gray-200 pb-2">
+        ${sortedYears.map((year, idx) => `
+          <button onclick="switchYearTab('${year}')" id="tab-${year}" class="px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${idx === 0 ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+            第 ${parseInt(year) - 107} 屆 (${year})
+          </button>
+        `).join('')}
       </div>
-      <table class="w-full text-sm">
-        <thead class="bg-gray-50 border-b text-xs text-gray-500">
-          <tr>
-            <th class="py-2 px-3 text-left w-20">學年度</th>
-            <th class="py-2 px-3 text-left">姓名</th>
-            <th class="py-2 px-3 text-left">英文名</th>
-            <th class="py-2 px-3 text-left">小隊</th>
-            <th class="py-2 px-3 text-left">職位</th>
-            <th class="py-2 px-3 text-left">級別</th>
-            <th class="py-2 px-3 text-left w-24">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows}
-        </tbody>
-      </table>
-    </div>
     `
-  }).join('')
+    
+    tablesHTML = sortedYears.map((year, idx) => {
+      const rows = yearGroups[year].map((a: any) => `
+      <tr class="border-b hover:bg-gray-50 text-sm">
+        <td class="py-2 px-3 text-gray-500">${a.year_label}</td>
+        <td class="py-2 px-3 font-medium">${a.member_name}</td>
+        <td class="py-2 px-3 text-gray-500">${a.english_name || '-'}</td>
+        <td class="py-2 px-3"><span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">${a.unit_name || '-'}</span></td>
+        <td class="py-2 px-3 text-gray-500">${a.role_name || '-'}</td>
+        <td class="py-2 px-3 text-gray-500">${a.rank_level || '-'}</td>
+        <td class="py-2 px-3">
+          <button onclick='editAlumni(${JSON.stringify(a).replace(/'/g, "&#39;")})' class="text-blue-600 hover:text-blue-800 mr-2">編輯</button>
+          <button onclick="deleteAlumni(${a.id})" class="text-red-500 hover:text-red-700">刪除</button>
+        </td>
+      </tr>
+      `).join('')
+      
+      return `
+      <div id="pane-${year}" class="alumni-pane ${idx !== 0 ? 'hidden' : ''}">
+        <div class="bg-white rounded-xl shadow overflow-hidden mb-6">
+          <div class="bg-gray-100 border-b px-4 py-3 font-bold text-gray-800 flex justify-between items-center">
+            <span>第 ${parseInt(year) - 107} 屆 (${year} 學年度)</span>
+            <button onclick="deleteYear(${id}, '${year}')" class="text-xs text-red-500 font-normal hover:text-red-700">刪除此屆</button>
+          </div>
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b text-xs text-gray-500">
+              <tr>
+                <th class="py-2 px-3 text-left w-20">學年度</th>
+                <th class="py-2 px-3 text-left">姓名</th>
+                <th class="py-2 px-3 text-left">英文名</th>
+                <th class="py-2 px-3 text-left">小隊</th>
+                <th class="py-2 px-3 text-left">職位</th>
+                <th class="py-2 px-3 text-left">級別</th>
+                <th class="py-2 px-3 text-left w-24">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      `
+    }).join('')
+  }
+
 
   const yearOptions = availableYears.map(y => `<option value="${y}">${y} 學年度</option>`).join('')
 
@@ -7346,6 +7507,7 @@ adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
       </div>
     </div>
 
+    ${tabsHTML}
     ${tablesHTML}
 
     <!-- 從成員管理匯入 Modal -->
@@ -7502,7 +7664,18 @@ adminRoutes.get('/groups/:id/alumni', authMiddleware, async (c) => {
         msg.classList.remove('hidden')
       }
     }
-    async function deleteYear(groupId, year) {
+    function switchYearTab(year) {
+        document.querySelectorAll('.alumni-pane').forEach(el => el.classList.add('hidden'));
+        document.querySelectorAll('[id^="tab-"]').forEach(el => {
+          el.classList.remove('bg-amber-600', 'text-white');
+          el.classList.add('bg-gray-100', 'text-gray-600');
+        });
+        document.getElementById('pane-' + year).classList.remove('hidden');
+        document.getElementById('tab-' + year).classList.remove('bg-gray-100', 'text-gray-600');
+        document.getElementById('tab-' + year).classList.add('bg-amber-600', 'text-white');
+      }
+      
+      async function deleteYear(groupId, year) {
         if (!confirm('確定要刪除 ' + year + ' 學年度的所有名單嗎？此操作無法復原。')) return;
         const res = await fetch('/api/groups/' + groupId + '/alumni/' + year, { method: 'DELETE' });
         if (res.ok) location.reload();
