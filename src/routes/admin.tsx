@@ -250,7 +250,7 @@ adminRoutes.get('/activities', authMiddleware, async (c) => {
     ${tablesHTML}
     <script>
       async function closeAndHighlight(id) {
-        if (!confirm('確定要結案此活動並將其移至「精彩活動」展示嗎？\n(系統將自動關閉報名功能並設定為精彩活動)')) return;
+        if (!confirm('確定要結案此活動並將其移至「精彩活動」展示嗎？\\n(系統將自動關閉報名功能並設定為精彩活動)')) return;
         try {
           const res = await fetch('/api/admin/activities/' + id + '/close-and-highlight', { method: 'POST' });
           if (res.ok) {
@@ -2643,7 +2643,7 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
       async function deleteMemberFromList() {
         const memberId = document.getElementById('edit-enroll-member-id').value;
         const memberName = document.getElementById('edit-enroll-name').textContent;
-        if (!confirm('⚠️ 確定要永久刪除「' + memberName + '」？\n\n此操作將刪除該成員所有資料，包含出席記錄與進程記錄，且不可復原！')) return;
+        if (!confirm('⚠️ 確定要永久刪除「' + memberName + '」？\\n\\n此操作將刪除該成員所有資料，包含出席記錄與進程記錄，且不可復原！')) return;
         const res = await fetch('/api/members/' + memberId, { method: 'DELETE' });
         if (res.ok) {
           alert('✅ 已刪除成員：' + memberName);
@@ -11194,7 +11194,7 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
       const reader = new FileReader();
       reader.onload = function(e) {
         const text = e.target.result;
-        const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+        const lines = text.split('\\n').map(l => l.trim()).filter(l => l);
         if (lines.length < 2) {
           alert('CSV 格式錯誤或無資料');
           return;
