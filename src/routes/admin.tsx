@@ -7733,11 +7733,11 @@ adminRoutes.get('/members/import', authMiddleware, async (c) => {
       <!-- 上傳區域 -->
       <div class="bg-white rounded-xl shadow-sm p-6 mb-6">
         <h3 class="font-semibold text-gray-800 mb-4">📤 上傳 CSV 檔案</h3>
-        <div id="drop-zone" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-green-400 transition-colors cursor-pointer" onclick="document.getElementById('csv-file').click()">
+        <div id="drop-zone" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-green-400 transition-colors cursor-pointer" onclick="document.getElementById('alumni-csv-file').click()">
           <div class="text-4xl mb-3">📁</div>
           <div class="text-gray-600 font-medium">點擊選擇 CSV 檔案</div>
           <div class="text-sm text-gray-400 mt-1">或將檔案拖曳至此</div>
-          <input type="file" id="csv-file" accept=".csv" class="hidden" onchange="previewCSV(event)">
+          <input type="file" id="alumni-csv-file" accept=".csv" class="hidden" onchange="previewCSV(event)">
         </div>
       </div>
 
