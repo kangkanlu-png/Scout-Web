@@ -247,7 +247,23 @@ adminRoutes.get('/activities', authMiddleware, async (c) => {
       <h2 class="text-xl font-bold text-gray-800">活動與公告管理</h2>
       <a href="/admin/activities/new" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">➕ 新增項目</a>
     </div>
-    ${tablesHTML}
+    <div class="bg-white rounded-xl shadow overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="py-3 px-4 text-left text-gray-600">屬性/狀態</th>
+            <th class="py-3 px-4 text-left text-gray-600">標題</th>
+            <th class="py-3 px-4 text-left text-gray-600">分類</th>
+            <th class="py-3 px-4 text-left text-gray-600">日期</th>
+            <th class="py-3 px-4 text-left text-gray-600">圖片</th>
+            <th class="py-3 px-4 text-left text-gray-600">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="6" class="py-8 text-center text-gray-400">尚無資料</td></tr>'}
+        </tbody>
+      </table>
+    </div>
     <script>
       async function closeAndHighlight(id) {
         if (!confirm('確定要結案此活動並將其移至「精彩活動」展示嗎？\\n(系統將自動關閉報名功能並設定為精彩活動)')) return;
