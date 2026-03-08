@@ -1803,7 +1803,10 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
 
   // 取得目前年度設定（優先使用 URL 參數，其次 DB 設定，最後 fallback '114'）
   const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
-  const currentYear = yearParam || yearSetting?.value || '114'
+  const maxYearQuery = await db.prepare(`SELECT MAX(CAST(year_label as INTEGER)) as m FROM member_enrollments`).first() as any
+  const dbMaxYear = maxYearQuery?.m ? String(maxYearQuery.m) : (yearSetting?.value || '114')
+  // We prefer the max year from enrollments to always show the latest data by default
+  const currentYear = yearParam || dbMaxYear
 
   // 取得此年度在籍成員（含歷史參與年度統計）
   let enrollQuery = `
@@ -2654,7 +2657,6 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
       let xlsxLoaded = false;
       async function loadXLSX() {
         if (xlsxLoaded || typeof XLSX !== 'undefined') { xlsxLoaded = true; return; }
-        // 優先從本地靜態資源，避免 CDN 依賴
         const cdns = [
           '/static/xlsx.full.min.js',
           'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
@@ -2665,12 +2667,22 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
             await new Promise((resolve, reject) => {
               const s = document.createElement('script');
               s.src = src;
-              s.onload = () => { xlsxLoaded = true; resolve(); };
+              s.onload = () => { 
+                // Small delay to ensure browser parsed the script
+                setTimeout(() => {
+                  if (typeof XLSX !== 'undefined') {
+                    xlsxLoaded = true; 
+                    resolve(); 
+                  } else {
+                    reject(new Error('XLSX undefined after load'));
+                  }
+                }, 50);
+              };
               s.onerror = reject;
               document.head.appendChild(s);
             });
-            if (typeof XLSX !== 'undefined') return; // 載入成功
-          } catch(e) { /* 嘗試下一個來源 */ }
+            if (typeof XLSX !== 'undefined') return;
+          } catch(e) { /* next */ }
         }
         throw new Error('無法載入 Excel 解析套件，請確認網路連線後重試');
       }
