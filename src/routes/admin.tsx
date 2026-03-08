@@ -832,6 +832,10 @@ adminRoutes.get('/settings', authMiddleware, async (c) => {
           <input type="url" name="facebook_url" value="${settings.facebook_url || ''}" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
         </div>
         <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">目前學年度 (Global Current Year)</label>
+          <input type="text" name="current_year_label" value="${settings.current_year_label || ''}" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+        </div>
+        <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">聯絡信箱</label>
           <input type="email" name="contact_email" value="${settings.contact_email || ''}" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
         </div>
