@@ -2793,14 +2793,15 @@ adminRoutes.get('/members', authMiddleware, async (c) => {
             reader.onload = (e) => {
               try {
                 const data = e.target.result;
-                const wb = XLSX.read(data, { type: 'binary', cellDates: false, raw: false });
+                // 改用 read array buffer，避免 binary string 在部分瀏覽器或檔案格式的相容性問題
+                const wb = XLSX.read(data, { type: 'array', cellDates: false, raw: false });
                 const ws = wb.Sheets[wb.SheetNames[0]];
                 const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
                 resolve(rows);
               } catch(err) { reject(err); }
             };
             reader.onerror = reject;
-            reader.readAsBinaryString(file);
+            reader.readAsArrayBuffer(file);
           }).catch(err => {
             alert('❌ Excel 解析失敗：' + err.message);
             return null;
