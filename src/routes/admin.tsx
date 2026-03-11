@@ -11352,6 +11352,7 @@ function renderReqRow(r: any, reqTypeMap: Record<string, { label: string; icon: 
 
 // ===================== 會員帳號管理 =====================
 adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
+  const adminAccounts = await c.env.DB.prepare('SELECT id, username, created_at FROM admins ORDER BY username').all();
   const db = c.env.DB
 
   const accounts = await db.prepare(`
@@ -11373,7 +11374,16 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
 
   return c.html(adminLayout('會員帳號管理', `
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold text-gray-800">會員帳號管理</h1>
+      <h1 class="text-2xl font-bold text-gray-800">會員與管理員帳號管理</h1>
+      <!-- 主 Tab 切換 -->
+      <div class="flex gap-4 ml-6 items-end pb-1 border-b border-gray-200">
+        <button onclick="document.getElementById('member-section').classList.remove('hidden'); document.getElementById('admin-section').classList.add('hidden'); this.classList.add('text-green-600', 'border-b-2', 'border-green-600'); document.getElementById('tab-admin').classList.remove('text-green-600', 'border-b-2', 'border-green-600');" class="text-green-600 border-b-2 border-green-600 pb-2 px-1 text-sm font-medium transition-colors" id="tab-member">
+          會員帳號
+        </button>
+        <button onclick="document.getElementById('admin-section').classList.remove('hidden'); document.getElementById('member-section').classList.add('hidden'); this.classList.add('text-green-600', 'border-b-2', 'border-green-600'); document.getElementById('tab-member').classList.remove('text-green-600', 'border-b-2', 'border-green-600');" class="text-gray-500 pb-2 px-1 text-sm font-medium hover:text-gray-700 transition-colors" id="tab-admin">
+          後台管理員
+        </button>
+      </div>
       <div class="flex gap-2">
         <button onclick="document.getElementById('csvImportModal').classList.remove('hidden')"
           class="bg-orange-500 hover:bg-orange-400 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
@@ -11386,6 +11396,7 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
       </div>
     </div>
 
+    <div id="member-section">
     <!-- 新建帳號表單 -->
     <div id="newAccountForm" class="hidden bg-white rounded-xl shadow-sm border border-green-200 p-5 mb-4">
       <h3 class="font-semibold text-gray-800 mb-4">建立會員帳號</h3>
