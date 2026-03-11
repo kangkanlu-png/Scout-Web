@@ -1821,6 +1821,97 @@ function annFormFields(prefix: string) {
 }
 
 function adminLayout(title: string, content: string) {
+  // 側邊欄導覽 HTML（桌面版 & 手機版 Drawer 共用）
+  const navHTML = `
+    <div class="p-4 border-b border-green-700 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="text-2xl">⚜️</span>
+        <div>
+          <div class="font-bold text-sm">童軍團後台</div>
+          <div class="text-xs text-green-300">管理系統</div>
+        </div>
+      </div>
+      <!-- 手機版關閉按鈕 -->
+      <button onclick="closeDrawer()" class="lg:hidden text-green-300 hover:text-white p-1 rounded">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <nav class="flex-1 p-3 space-y-0.5 overflow-y-auto">
+      <a href="/admin" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '儀表板' ? 'bg-green-700' : ''}">
+        <span>🏠</span> 儀表板
+      </a>
+
+      <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-2 mt-1">網站內容</div>
+      <a href="/admin/activities" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('活動') ? 'bg-green-700' : ''}">
+        <span>📋</span> 活動/公告管理
+      </a>
+      <a href="/admin/groups" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '分組管理' ? 'bg-green-700' : ''}">
+        <span>👥</span> 童軍分組
+      </a>
+      <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
+        <a href="/admin/groups/1/subpages" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('童軍團') ? 'bg-green-700' : 'text-green-200'}">🏕️ 童軍團</a>
+        <a href="/admin/groups/2/subpages" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('行義') ? 'bg-green-700' : 'text-green-200'}">⛺ 行義童軍團</a>
+        <a href="/admin/groups/3/subpages" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('羅浮') ? 'bg-green-700' : 'text-green-200'}">🧭 羅浮童軍群</a>
+      </div>
+
+      <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-2 mt-1">人員管理</div>
+      <a href="/admin/members" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('成員') ? 'bg-green-700' : ''}">
+        <span>🪖</span> 成員管理
+      </a>
+      <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
+        <a href="/admin/members/import" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('匯入') ? 'bg-green-700' : 'text-green-200'}">📥 批次匯入</a>
+      </div>
+      <a href="/admin/attendance" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('考勤') || title.includes('出席') || title.includes('請假') || title.includes('公假') ? 'bg-green-700' : ''}">
+        <span>📅</span> 考勤管理
+      </a>
+      <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
+        <a href="/admin/attendance" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('出席') ? 'bg-green-700' : 'text-green-200'}">📝 出席管理</a>
+        <a href="/admin/leaves" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('請假') ? 'bg-green-700' : 'text-green-200'}">✅ 請假審核</a>
+        <a href="/admin/official-leave" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('公假') ? 'bg-green-700' : 'text-green-200'}">📋 公假管理</a>
+      </div>
+      <a href="/admin/advancement" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('進程') || title.includes('專科章') ? 'bg-green-700' : ''}">
+        <span>🏅</span> 進程/榮譽
+      </a>
+      <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
+        <a href="/admin/advancement" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '進程管理中心' ? 'bg-green-700' : 'text-green-200'}">📊 總覽與審核</a>
+        <a href="/admin/advancement/badges" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '專科章設定' ? 'bg-green-700' : 'text-green-200'}">📛 專科章設定</a>
+        <a href="/admin/progress" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '進程標準設定' ? 'bg-green-700' : 'text-green-200'}">📏 標準設定</a>
+        <a href="/admin/group-honors" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '榮譽榜管理' ? 'bg-green-700' : 'text-green-200'}">🏆 榮譽榜管理</a>
+      </div>
+      <a href="/admin/member-accounts" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('帳號') ? 'bg-green-700' : ''}">
+        <span>🔑</span> 會員帳號
+      </a>
+      <a href="/admin/coaches" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('教練') ? 'bg-green-700' : ''}">
+        <span>🧢</span> 教練團
+      </a>
+      <a href="/admin/leaders" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('服務員管理') || title.includes('服務員名冊') || title.includes('服務員獎章') || title.includes('訓練設定') ? 'bg-green-700' : ''}">
+        <span>👮</span> 服務員管理
+      </a>
+
+      <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-2 mt-1">系統</div>
+      <a href="/admin/stats" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('統計') ? 'bg-green-700' : ''}">
+        <span>📊</span> 統計報表
+      </a>
+      <a href="/admin/rover-map" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('羅浮分佈') ? 'bg-green-700' : ''}">
+        <span>🌍</span> 羅浮分佈圖
+      </a>
+      <a href="/admin/settings" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '網站設定' ? 'bg-green-700' : ''}">
+        <span>⚙️</span> 網站設定
+      </a>
+      <a href="/admin/links" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '相關網頁管理' ? 'bg-green-700' : ''}">
+        <span>🔗</span> 相關網頁
+      </a>
+    </nav>
+    <div class="p-3 border-t border-green-700 flex gap-1">
+      <a href="/" target="_blank" class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs text-green-300 hover:text-white hover:bg-green-700 rounded-lg transition-colors">
+        <span>🌐</span> 前台
+      </a>
+      <a href="/admin/logout" class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs text-green-300 hover:text-white hover:bg-green-700 rounded-lg transition-colors">
+        <span>🚪</span> 登出
+      </a>
+    </div>
+  `
+
   return `<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -1828,130 +1919,92 @@ function adminLayout(title: string, content: string) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title} - 後台管理</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* 手機 Drawer 滑入動畫 */
+    #mobile-drawer { transition: transform 0.28s cubic-bezier(.4,0,.2,1); }
+    #drawer-overlay { transition: opacity 0.28s ease; }
+    /* 桌面版 sidebar 滾動 */
+    @media (min-width: 1024px) {
+      #desktop-sidebar { position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+    }
+    /* 讓 table 在手機可橫向捲動 */
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
-  <!-- 側邊欄 -->
+
+  <!-- ══ 手機版 Drawer Overlay ══ -->
+  <div id="drawer-overlay"
+    class="fixed inset-0 bg-black/50 z-40 hidden opacity-0 lg:hidden"
+    onclick="closeDrawer()"></div>
+
+  <!-- ══ 手機版 Drawer (從左側滑入) ══ -->
+  <div id="mobile-drawer"
+    class="fixed top-0 left-0 h-full w-72 max-w-[85vw] bg-[#1a472a] text-white z-50 flex flex-col -translate-x-full lg:hidden">
+    ${navHTML}
+  </div>
+
+  <!-- ══ 手機版頂部 Header ══ -->
+  <header class="lg:hidden sticky top-0 z-30 bg-[#1a472a] text-white px-4 py-3 flex items-center gap-3 shadow-lg">
+    <button onclick="openDrawer()" class="p-1.5 rounded-lg hover:bg-green-700 transition-colors flex-shrink-0" aria-label="開啟選單">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+      </svg>
+    </button>
+    <span class="text-lg">⚜️</span>
+    <span class="font-bold text-sm truncate flex-1">${title}</span>
+    <a href="/" target="_blank" class="text-green-300 hover:text-white p-1.5 rounded-lg hover:bg-green-700 transition-colors flex-shrink-0" title="查看前台">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+    </a>
+    <a href="/admin/logout" class="text-green-300 hover:text-white p-1.5 rounded-lg hover:bg-green-700 transition-colors flex-shrink-0" title="登出">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+    </a>
+  </header>
+
+  <!-- ══ 桌面版 Layout ══ -->
   <div class="flex min-h-screen">
-    <aside class="w-56 bg-[#1a472a] text-white flex-shrink-0 flex flex-col">
-      <div class="p-5 border-b border-green-700">
-        <div class="flex items-center gap-2">
-          <span class="text-2xl">⚜️</span>
-          <div>
-            <div class="font-bold text-sm">童軍團後台</div>
-            <div class="text-xs text-green-300">管理系統</div>
-          </div>
-        </div>
-      </div>
-      <nav class="flex-1 p-3 space-y-1">
-        <a href="/admin" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '儀表板' ? 'bg-green-700' : ''}">
-          <span>🏠</span> 儀表板
-        </a>
-        <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-1 mt-2">網站內容</div>
-        <a href="/admin/activities" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('活動') ? 'bg-green-700' : ''}">
-          <span>📋</span> 活動/公告管理
-        </a>
-        <a href="/admin/groups" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '分組管理' ? 'bg-green-700' : ''}">
-          <span>👥</span> 童軍分組
-        </a>
-        <!-- 分組子選單（組織/幹部/名單快速入口）-->
-        <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
-          <a href="/admin/groups/1/subpages" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('童軍團') ? 'bg-green-700' : 'text-green-200'}">
-            🏕️ 童軍團
-          </a>
-          <a href="/admin/groups/2/subpages" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('行義') ? 'bg-green-700' : 'text-green-200'}">
-            ⛺ 行義童軍團
-          </a>
-          <a href="/admin/groups/3/subpages" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('羅浮') ? 'bg-green-700' : 'text-green-200'}">
-            🧭 羅浮童軍群
-          </a>
-        </div>
-        <a href="/admin/announcements" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '公告管理' ? 'bg-green-700' : ''}">
-          <!-- <span>📢</span> 公告管理 (已整合) -->
-        </a>
-        <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-1 mt-2">人員管理</div>
-        <a href="/admin/members" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('成員') ? 'bg-green-700' : ''}">
-          <span>🪖</span> 成員管理
-        </a>
-        <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
-          <a href="/admin/members/import" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('匯入') ? 'bg-green-700' : 'text-green-200'}">
-            📥 批次匯入
-          </a>
-        </div>
-        <a href="/admin/attendance" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('考勤') || title.includes('出席') || title.includes('請假') || title.includes('公假') ? 'bg-green-700' : ''}">
-          <span>📅</span> 考勤管理
-        </a>
-        <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
-          <a href="/admin/attendance" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('出席') ? 'bg-green-700' : 'text-green-200'}">
-            📝 出席管理
-          </a>
-          <a href="/admin/leaves" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('請假') ? 'bg-green-700' : 'text-green-200'}">
-            ✅ 請假審核
-          </a>
-          <a href="/admin/official-leave" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('公假') ? 'bg-green-700' : 'text-green-200'}">
-            📋 公假管理
-          </a>
-        </div>
-        <a href="/admin/advancement" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('進程') || title.includes('專科章') ? 'bg-green-700' : ''}">
-          <span>🏅</span> 進程/榮譽
-        </a>
-        <!-- 進程子選單 -->
-        <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
-          <a href="/admin/advancement" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '進程管理中心' ? 'bg-green-700' : 'text-green-200'}">
-            📊 總覽與審核
-          </a>
-          <a href="/admin/advancement/badges" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '專科章設定' ? 'bg-green-700' : 'text-green-200'}">
-            📛 專科章設定
-          </a>
-          <a href="/admin/progress" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '進程標準設定' ? 'bg-green-700' : 'text-green-200'}">
-            📏 標準設定
-          </a>
-          <a href="/admin/group-honors" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '榮譽榜管理' ? 'bg-green-700' : 'text-green-200'}">
-            🏆 榮譽榜管理
-          </a>
-        </div>
-        <a href="/admin/member-accounts" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('帳號') ? 'bg-green-700' : ''}">
-          <span>🔑</span> 會員帳號
-        </a>
-        <a href="/admin/coaches" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('教練') ? 'bg-green-700' : ''}">
-          <span>🧢</span> 教練團
-        </a>
-        <a href="/admin/leaders" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('服務員管理') || title.includes('服務員名冊') || title.includes('服務員獎章') || title.includes('訓練設定') ? 'bg-green-700' : ''}">
-          <span>👮</span> 服務員管理
-        </a>
-        <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-1 mt-2">系統</div>
-        <a href="/admin/stats" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('統計') ? 'bg-green-700' : ''}">
-          <span>📊</span> 統計報表
-        </a>
-        <a href="/admin/rover-map" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('羅浮分佈') ? 'bg-green-700' : ''}">
-          <span>🌍</span> 羅浮分佈圖
-        </a>
-        <a href="/admin/settings" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '網站設定' ? 'bg-green-700' : ''}">
-          <span>⚙️</span> 網站設定
-        </a>
-        <a href="/admin/links" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '相關網頁管理' ? 'bg-green-700' : ''}">
-          <span>🔗</span> 相關網頁
-        </a>
-      </nav>
-      <div class="p-3 border-t border-green-700">
-        <a href="/" target="_blank" class="flex items-center gap-2 px-3 py-2 text-xs text-green-300 hover:text-white transition-colors">
-          <span>🌐</span> 查看前台
-        </a>
-        <a href="/admin/logout" class="flex items-center gap-2 px-3 py-2 text-xs text-green-300 hover:text-white transition-colors">
-          <span>🚪</span> 登出
-        </a>
-      </div>
+
+    <!-- 桌面版側邊欄 -->
+    <aside id="desktop-sidebar" class="hidden lg:flex w-56 bg-[#1a472a] text-white flex-shrink-0 flex-col">
+      ${navHTML}
     </aside>
 
     <!-- 主內容 -->
-    <main class="flex-1 p-6 overflow-auto">
+    <main class="flex-1 p-4 lg:p-6 overflow-auto min-w-0">
       <div class="max-w-5xl mx-auto">
-        <div class="mb-6">
+        <!-- 桌面版標題 -->
+        <div class="hidden lg:block mb-6">
           <h1 class="text-2xl font-bold text-gray-800">${title}</h1>
         </div>
+        <!-- 手機版小標題間距 -->
+        <div class="lg:hidden mb-4"></div>
         ${content}
       </div>
     </main>
   </div>
+
+  <script>
+    function openDrawer() {
+      const drawer = document.getElementById('mobile-drawer');
+      const overlay = document.getElementById('drawer-overlay');
+      overlay.classList.remove('hidden');
+      requestAnimationFrame(() => {
+        overlay.classList.remove('opacity-0');
+        drawer.classList.remove('-translate-x-full');
+      });
+      document.body.style.overflow = 'hidden';
+    }
+    function closeDrawer() {
+      const drawer = document.getElementById('mobile-drawer');
+      const overlay = document.getElementById('drawer-overlay');
+      drawer.classList.add('-translate-x-full');
+      overlay.classList.add('opacity-0');
+      document.body.style.overflow = '';
+      setTimeout(() => overlay.classList.add('hidden'), 280);
+    }
+    // 按 ESC 關閉
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+  </script>
 </body>
 </html>`
 }
