@@ -2458,14 +2458,14 @@ function navBar(settings: Record<string, string>, groups: any[] = []) {
           <a href="/links" class="hover:text-amber-300 transition-colors">🔗 相關網頁</a>
           <div class="flex gap-2 ml-2">
             <a href="/member" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">👤 會員入口</a>
-            <a href="/admin" class="bg-amber-500 hover:bg-amber-400 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">⚙ 後台管理</a>
+            <a id="nav-admin-btn" href="/admin" class="hidden bg-amber-500 hover:bg-amber-400 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">⚙ 後台管理</a>
           </div>
         </div>
 
         <!-- 手機版選單按鈕與主要入口 (隱藏於桌面版) -->
         <div class="flex lg:hidden items-center gap-2">
           <a href="/member" class="bg-blue-600 hover:bg-blue-500 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">會員入口</a>
-          <a href="/admin" class="bg-amber-500 hover:bg-amber-400 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">後台</a>
+          <a id="nav-admin-btn-mobile" href="/admin" class="hidden bg-amber-500 hover:bg-amber-400 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors">後台</a>
           <button id="mobile-menu-btn" class="p-2 ml-1 text-white hover:bg-[#2d6a4f] rounded-lg transition-colors focus:outline-none">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
           </button>
@@ -2489,13 +2489,24 @@ function navBar(settings: Record<string, string>, groups: any[] = []) {
   </nav>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
+      // 手機版漢堡選單
       const btn = document.getElementById('mobile-menu-btn');
       const menu = document.getElementById('mobile-menu');
       if (btn && menu) {
-        btn.addEventListener('click', () => {
-          menu.classList.toggle('hidden');
-        });
+        btn.addEventListener('click', () => menu.classList.toggle('hidden'));
       }
+      // 判斷是否有管理員 session，有才顯示「後台管理」按鈕
+      fetch('/api/auth/check-admin', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => {
+          if (data.isAdmin) {
+            const d = document.getElementById('nav-admin-btn');
+            const m = document.getElementById('nav-admin-btn-mobile');
+            if (d) d.classList.remove('hidden');
+            if (m) m.classList.remove('hidden');
+          }
+        })
+        .catch(() => {});
     });
   </script>`
 }

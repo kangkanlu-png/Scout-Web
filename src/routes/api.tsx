@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { getCookie } from 'hono/cookie'
 import { sendEmail } from '../utils/email'
 
 type Bindings = {
@@ -7,6 +8,12 @@ type Bindings = {
 }
 
 export const apiRoutes = new Hono<{ Bindings: Bindings }>()
+
+// GET /api/auth/check-admin — 檢查是否有管理員 session（供前台 navbar 使用）
+apiRoutes.get('/auth/check-admin', (c) => {
+  const session = getCookie(c, 'admin_session')
+  return c.json({ isAdmin: session === 'authenticated' })
+})
 
 apiRoutes.get('/debug', async (c) => {
   try {
