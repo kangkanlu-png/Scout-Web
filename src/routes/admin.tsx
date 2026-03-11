@@ -11387,7 +11387,7 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
       <div class="flex gap-2">
         <button onclick="document.getElementById('csvImportModal').classList.remove('hidden')"
           class="bg-orange-500 hover:bg-orange-400 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
-          <i class="fas fa-file-csv"></i>CSV 批次匯入
+          <i class="fas fa-file-excel"></i>Excel/CSV 批次匯入
         </button>
         <button onclick="document.getElementById('newAccountForm').classList.toggle('hidden')"
           class="bg-green-600 hover:bg-green-500 text-white text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
@@ -11426,26 +11426,29 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
     </div>
 
 
-    <!-- CSV 匯入 Modal -->
+    <!-- Excel/CSV 匯入 Modal -->
     <div id="csvImportModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 flex">
       <div class="bg-white rounded-2xl w-full max-w-lg mx-4 overflow-hidden shadow-xl">
         <div class="bg-orange-500 px-4 py-3 flex justify-between items-center text-white">
-          <h3 class="font-bold"><i class="fas fa-file-csv mr-2"></i>批次建立會員帳號 (CSV)</h3>
+          <h3 class="font-bold"><i class="fas fa-file-csv mr-2"></i>批次建立會員帳號 (Excel / CSV)</h3>
           <button onclick="document.getElementById('csvImportModal').classList.add('hidden')" class="hover:text-orange-200">
             <i class="fas fa-times"></i>
           </button>
         </div>
         <div class="p-5">
-          <p class="text-sm text-gray-600 mb-4">
-            請上傳包含以下欄位的 CSV 檔案（包含標題列）：<br>
+          <p class="text-sm text-gray-600 mb-2">
+            請上傳包含以下欄位的 Excel/CSV 檔案（包含標題列）：<br>
             <code class="bg-gray-100 px-1 py-0.5 rounded text-xs text-purple-700">member_id,username,password</code>
           </p>
+          <div class="mb-4">
+            <a href="/static/accounts_import_template.xlsx" download="帳號匯入範例.xlsx" class="text-xs text-blue-600 hover:underline font-medium">📥 下載 Excel 範例檔</a>
+          </div>
           <div class="mb-4 text-xs text-gray-500 bg-blue-50 p-3 rounded-lg border border-blue-100">
             <p class="font-bold text-blue-700 mb-1">提示：如何取得 member_id？</p>
             可以在「成員管理」列表查看，或是使用尚未建立帳號名單中的 ID。
           </div>
           
-          <input type="file" id="csvFileInput" accept=".csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 mb-4"/>
+          <input type="file" id="csvFileInput" accept=".csv,.xlsx,.xls" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 mb-4"/>
           
           <div id="csvPreview" class="hidden max-h-40 overflow-y-auto bg-gray-50 p-2 rounded border text-xs mb-4"></div>
           

@@ -17,7 +17,8 @@
   "dependencies": {
     "cheerio": "^1.2.0",
     "hono": "^4.12.3",
-    "playwright": "^1.58.2"
+    "playwright": "^1.58.2",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@hono/vite-build": "^1.2.0",
