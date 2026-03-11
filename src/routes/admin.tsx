@@ -11037,10 +11037,19 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
             <p class="text-xs text-gray-500">${reqs.length > 0 ? `${reqs.length} 項標準` : '尚未設定標準'}</p>
           </div>
         </div>
-        <button onclick="showInlineAdd('${targetRank}')"
-          class="text-green-600 hover:text-green-800 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-green-50 transition-colors flex items-center gap-1 border border-green-200">
-          <i class="fas fa-plus"></i>新增
-        </button>
+        <div class="flex gap-2">
+          <button
+            data-rename-rank="${targetRank.replace(/"/g,'&quot;')}"
+            data-rename-from="${(rankFromMap[targetRank]||'').replace(/"/g,'&quot;')}"
+            onclick="openRenameStage(this)"
+            class="text-gray-400 hover:text-blue-600 text-xs px-2.5 py-1.5 rounded-lg hover:bg-blue-50 transition-colors flex items-center gap-1 border border-transparent hover:border-blue-200" title="重新命名此階段">
+            <i class="fas fa-pencil-alt"></i><span class="hidden sm:inline">重新命名</span>
+          </button>
+          <button onclick="showInlineAdd('${targetRank}')"
+            class="text-green-600 hover:text-green-800 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-green-50 transition-colors flex items-center gap-1 border border-green-200">
+            <i class="fas fa-plus"></i>新增
+          </button>
+        </div>
       </div>
 
       <!-- 內嵌新增表單（初始隱藏） -->
@@ -11147,6 +11156,46 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       </div>
     </div>
 
+    <!-- 重新命名階段 Modal -->
+    <div id="renameStageModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div class="bg-gradient-to-r from-orange-500 to-amber-500 px-6 py-4 text-white flex items-center justify-between">
+          <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-pencil-alt"></i>重新命名階段</h3>
+          <button onclick="closeRenameStage()" class="text-white/70 hover:text-white"><i class="fas fa-times text-lg"></i></button>
+        </div>
+        <div class="p-6 space-y-4">
+          <p class="text-sm text-gray-500">將此階段所有標準項目的 <strong>目標階段名稱</strong> 一次更新</p>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">目前階段名稱</label>
+            <div id="rename_old_name" class="px-4 py-2.5 bg-gray-100 rounded-xl text-sm text-gray-700 font-medium"></div>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">新階段名稱 <span class="text-red-500">*</span></label>
+            <input id="rename_new_name" type="text"
+              class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 focus:outline-none"
+              placeholder="例：見習羅浮">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">前置階段（可修改）</label>
+            <input id="rename_rank_from" type="text"
+              class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 focus:outline-none"
+              placeholder="例：初中生（留空表示起始階段）">
+          </div>
+          <div id="renameStageMsg"></div>
+          <div class="flex gap-3 pt-1">
+            <button onclick="saveRenameStage()"
+              class="flex-1 bg-orange-500 hover:bg-orange-400 text-white py-2.5 rounded-xl text-sm font-medium transition-colors">
+              <i class="fas fa-check mr-1"></i>確認更名
+            </button>
+            <button onclick="closeRenameStage()"
+              class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl text-sm transition-colors">
+              取消
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script>
     // ===== 資料（Server-rendered）=====
     const SECTION = '${sectionFilter}';
@@ -11237,7 +11286,8 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
         description: document.getElementById('new_desc').value.trim(),
         required_count: parseInt(document.getElementById('new_count').value) || 1,
         unit: document.getElementById('new_unit').value.trim() || '次',
-        is_mandatory: document.getElementById('new_mandatory').checked
+        is_mandatory: document.getElementById('new_mandatory').checked,
+        version_year: CURRENT_VERSION
       };
       if (!rank_to) { showMsg('newFormMsg', '請選擇目標階段', 'red'); return; }
       if (!data.title) { showMsg('newFormMsg', '請填寫標準標題', 'red'); return; }
@@ -11270,7 +11320,8 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
         description: document.getElementById('ia_desc_' + key).value.trim(),
         required_count: parseInt(document.getElementById('ia_count_' + key).value) || 1,
         unit: document.getElementById('ia_unit_' + key).value.trim() || '次',
-        is_mandatory: document.getElementById('ia_mandatory_' + key).checked
+        is_mandatory: document.getElementById('ia_mandatory_' + key).checked,
+        version_year: CURRENT_VERSION
       };
       const res = await fetch('/api/admin/advancement-requirements', {
         method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)
@@ -11304,7 +11355,8 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
         required_count: parseInt(document.getElementById('edit_count').value) || 1,
         unit: document.getElementById('edit_unit').value.trim() || '次',
         is_mandatory: document.getElementById('edit_mandatory').checked,
-        is_active: true
+        is_active: true,
+        version_year: CURRENT_VERSION
       };
       if (!data.title) { showMsg('editMsg', '請填寫標準標題', 'red'); return; }
       showMsg('editMsg', '儲存中...', 'gray');
@@ -11314,6 +11366,62 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       const r = await res.json();
       if (r.success) location.reload();
       else showMsg('editMsg', '失敗：' + r.error, 'red');
+    }
+
+    // ===== 重新命名階段 =====
+    let _renameOldRank = '';
+    function openRenameStage(btn) {
+      _renameOldRank = btn.dataset.renameRank;
+      const rankFrom = btn.dataset.renameFrom || '';
+      document.getElementById('rename_old_name').textContent = _renameOldRank;
+      document.getElementById('rename_new_name').value = _renameOldRank;
+      document.getElementById('rename_rank_from').value = rankFrom;
+      document.getElementById('renameStageMsg').innerHTML = '';
+      document.getElementById('renameStageModal').classList.remove('hidden');
+      setTimeout(() => {
+        const el = document.getElementById('rename_new_name');
+        el.focus(); el.select();
+      }, 80);
+    }
+    function closeRenameStage() { document.getElementById('renameStageModal').classList.add('hidden'); }
+
+    async function saveRenameStage() {
+      const newName = document.getElementById('rename_new_name').value.trim();
+      const rankFrom = document.getElementById('rename_rank_from').value.trim();
+      const msg = document.getElementById('renameStageMsg');
+      if (!newName) { msg.innerHTML = '<p class="text-sm text-red-500">請填寫新階段名稱</p>'; return; }
+      if (newName === _renameOldRank && rankFrom === (document.getElementById('rename_rank_from').defaultValue||'')) {
+        closeRenameStage(); return;
+      }
+      msg.innerHTML = '<p class="text-sm text-gray-400"><i class="fas fa-spinner fa-spin mr-1"></i>更新中...</p>';
+      // 取得此階段所有標準項目 id
+      const res0 = await fetch('/api/admin/advancement-requirements?section=' + encodeURIComponent(SECTION) + '&version=' + encodeURIComponent(CURRENT_VERSION));
+      const d0 = await res0.json();
+      const ids = (d0.data || []).filter(r => r.rank_to === _renameOldRank).map(r => r.id);
+      if (ids.length === 0) { msg.innerHTML = '<p class="text-sm text-red-500">找不到此階段的標準項目</p>'; return; }
+      // 批次更新所有同階段的 rank_to
+      let ok = 0, fail = 0;
+      for (const id of ids) {
+        const r = await fetch('/api/admin/advancement-requirements/' + id, {
+          method: 'PUT', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ title: d0.data.find(x=>x.id===id).title,
+            description: d0.data.find(x=>x.id===id).description,
+            required_count: d0.data.find(x=>x.id===id).required_count,
+            unit: d0.data.find(x=>x.id===id).unit,
+            is_mandatory: d0.data.find(x=>x.id===id).is_mandatory,
+            display_order: d0.data.find(x=>x.id===id).display_order,
+            requirement_type: d0.data.find(x=>x.id===id).requirement_type,
+            is_active: true, version_year: CURRENT_VERSION,
+            rank_to: newName, rank_from: rankFrom })
+        }).then(r=>r.json());
+        if (r.success) ok++; else fail++;
+      }
+      if (fail === 0) {
+        msg.innerHTML = '<p class="text-sm text-green-600">✅ 已更新 ' + ok + ' 項，重新載入中...</p>';
+        setTimeout(() => location.reload(), 600);
+      } else {
+        msg.innerHTML = '<p class="text-sm text-red-500">部分更新失敗（' + ok + ' 成功，' + fail + ' 失敗）</p>';
+      }
     }
 
     // ===== 刪除 =====

@@ -2290,11 +2290,7 @@ apiRoutes.put('/admin/progress-records/:id', async (c) => {
 apiRoutes.get('/admin/advancement-requirements', async (c) => {
   const db = c.env.DB
   const section = c.req.query('section')
-  const version = c.req.query('version_year') // 支援版本篩選
-  
-  // 預設抓最新版本 (如果沒傳 version)
-  // 但為了後台管理方便，如果沒傳 version 應該列出所有？或者預設 113？
-  // 這裡邏輯：如果有傳 version 就篩選，沒傳就抓所有 active 的
+  const version = c.req.query('version_year') || c.req.query('version')
   
   let query = `SELECT * FROM advancement_requirements WHERE is_active = 1`
   const params: any[] = []
@@ -2314,28 +2310,41 @@ apiRoutes.post('/admin/advancement-requirements', async (c) => {
   if (!section || !rank_to || !title) {
     return c.json({ success: false, error: '缺少必填欄位（需要 section, rank_to, title）' }, 400)
   }
+  // 若未提供 version_year，自動取該 section 目前最新版本
+  let finalVersion = version_year
+  if (!finalVersion) {
+    const latestRow = await db.prepare(
+      `SELECT version_year FROM advancement_requirements WHERE section = ? AND is_active = 1 ORDER BY version_year DESC LIMIT 1`
+    ).bind(section).first() as any
+    finalVersion = latestRow?.version_year || '113'
+  }
   const id = `req-${Date.now()}-${Math.random().toString(36).substring(2,7)}`
   await db.prepare(`
     INSERT INTO advancement_requirements (id, section, rank_from, rank_to, requirement_type, title, description, required_count, unit, is_mandatory, display_order, version_year)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(id, section, rank_from, rank_to, requirement_type || 'other', title, description || null,
-    required_count || 1, unit || '次', is_mandatory !== false ? 1 : 0, display_order || 0, version_year || '113').run()
+  `).bind(id, section, rank_from || '', rank_to, requirement_type || 'other', title, description || null,
+    required_count || 1, unit || '次', is_mandatory !== false ? 1 : 0, display_order || 0, finalVersion).run()
   return c.json({ success: true, id })
 })
 
-// 更新晉升條件 (支援版本)
+// 更新晉升條件 (支援版本，含 rank_to/rank_from 更名)
 apiRoutes.put('/admin/advancement-requirements/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { title, description, required_count, unit, is_mandatory, display_order, is_active, version_year } = body
-  await db.prepare(`
-    UPDATE advancement_requirements SET
-      title = ?, description = ?, required_count = ?, unit = ?,
-      is_mandatory = ?, display_order = ?, is_active = ?, version_year = ?
-    WHERE id = ?
-  `).bind(title, description || null, required_count || 1, unit || '次',
-    is_mandatory !== false ? 1 : 0, display_order || 0, is_active !== false ? 1 : 0, version_year || '113', id).run()
+  const { title, description, required_count, unit, is_mandatory, display_order, is_active, version_year, rank_to, rank_from } = body
+  const sets: string[] = [
+    'title = ?', 'description = ?', 'required_count = ?', 'unit = ?',
+    'is_mandatory = ?', 'display_order = ?', 'is_active = ?', 'version_year = ?'
+  ]
+  const params: any[] = [
+    title, description || null, required_count || 1, unit || '次',
+    is_mandatory !== false ? 1 : 0, display_order || 0, is_active !== false ? 1 : 0, version_year || '113'
+  ]
+  if (rank_to !== undefined) { sets.push('rank_to = ?'); params.push(rank_to) }
+  if (rank_from !== undefined) { sets.push('rank_from = ?'); params.push(rank_from) }
+  params.push(id)
+  await db.prepare(`UPDATE advancement_requirements SET ${sets.join(', ')} WHERE id = ?`).bind(...params).run()
   return c.json({ success: true })
 })
 
