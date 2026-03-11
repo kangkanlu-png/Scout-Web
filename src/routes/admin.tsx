@@ -62,7 +62,7 @@ adminRoutes.get('/login', (c) => {
         登入
       </button>
     </form>
-    <p class="text-center text-xs text-gray-400 mt-4">預設帳號: admin / 密碼: admin123</p>
+
   </div>
 </body>
 </html>`)
