@@ -4842,28 +4842,30 @@ adminRoutes.get('/coaches/settings', authMiddleware, async (c) => {
   const columns = stages.map(stage => {
     const items = checklistItems.results.filter((it: any) => it.stage === stage)
     const rows = items.map((it: any) => `
-      <div class="flex items-start gap-2 p-3 bg-white rounded-xl border border-gray-200 shadow-sm group">
+      <div class="flex items-start gap-2 p-3 bg-white rounded-xl border border-gray-200 shadow-sm group hover:border-gray-300 hover:shadow-md transition-all">
         <div class="flex-1">
           <div class="text-sm font-medium text-gray-800">${it.description}</div>
           ${it.required_count > 1 ? `<div class="text-xs text-gray-400 mt-0.5">需完成 ${it.required_count} 次</div>` : ''}
         </div>
-        <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
+        <div class="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 mt-0.5">
           <button
             data-edit-id="${it.id}"
             data-edit-stage="${it.stage.replace(/"/g, '&quot;')}"
             data-edit-desc="${it.description.replace(/"/g, '&quot;').replace(/'/g, '&#39;')}"
             data-edit-count="${it.required_count}"
             onclick="openEditModal(this)"
-            class="text-blue-400 hover:text-blue-600 hover:bg-blue-50 text-xs px-1.5 py-1 rounded transition-colors" title="編輯">
-            <i class="fas fa-pen"></i>
+            class="inline-flex items-center gap-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-sm transition-colors" title="編輯">
+            <i class="fas fa-pen text-xs"></i>
+            <span>編輯</span>
           </button>
           <button
             data-del-id="${it.id}"
             data-del-desc="${it.description.replace(/"/g, '&quot;').replace(/'/g, '&#39;')}"
             data-del-stage="${stage}"
             onclick="deleteChecklistItem(this)"
-            class="text-red-400 hover:text-red-600 hover:bg-red-50 text-xs px-1.5 py-1 rounded transition-colors" title="刪除">
-            <i class="fas fa-trash"></i>
+            class="inline-flex items-center gap-1 bg-red-500 hover:bg-red-600 text-white text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-sm transition-colors" title="刪除">
+            <i class="fas fa-trash text-xs"></i>
+            <span>刪除</span>
           </button>
         </div>
       </div>
