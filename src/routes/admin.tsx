@@ -11428,37 +11428,154 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
 
     <!-- Excel/CSV 匯入 Modal -->
     <div id="csvImportModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 flex">
-      <div class="bg-white rounded-2xl w-full max-w-lg mx-4 overflow-hidden shadow-xl">
-        <div class="bg-orange-500 px-4 py-3 flex justify-between items-center text-white">
-          <h3 class="font-bold"><i class="fas fa-file-csv mr-2"></i>批次建立會員帳號 (Excel / CSV)</h3>
-          <button onclick="document.getElementById('csvImportModal').classList.add('hidden')" class="hover:text-orange-200">
+      <div class="bg-white rounded-2xl w-full max-w-xl mx-4 overflow-hidden shadow-xl">
+        <!-- Header -->
+        <div class="bg-orange-500 px-5 py-3.5 flex justify-between items-center text-white">
+          <h3 class="font-bold text-base"><i class="fas fa-file-excel mr-2"></i>批次建立會員帳號 (Excel / CSV)</h3>
+          <button onclick="closeCsvModal()" class="hover:text-orange-200 transition-colors text-lg">
             <i class="fas fa-times"></i>
           </button>
         </div>
-        <div class="p-5">
-          <p class="text-sm text-gray-600 mb-2">
-            請上傳包含以下欄位的 Excel/CSV 檔案（包含標題列）：
-          </p>
-          <div class="mb-3 text-xs bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-1">
+
+        <!-- Step 1: 選檔 -->
+        <div id="csv-step-select" class="p-5">
+          <p class="text-sm text-gray-600 mb-3">請上傳包含以下欄位的 Excel/CSV 檔案（包含標題列）：</p>
+          <div class="mb-4 text-xs bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-1">
             <p class="font-semibold text-gray-700">✅ 支援兩種格式：</p>
-            <p>格式一：<code class="bg-white px-1 py-0.5 rounded text-purple-700 border">姓名, 登入帳號, 密碼</code> <span class="text-gray-500">（自動比對成員）</span></p>
+            <p>格式一：<code class="bg-white px-1 py-0.5 rounded text-purple-700 border">姓名, 登入帳號, 密碼</code> <span class="text-gray-400">（自動比對成員）</span></p>
             <p>格式二：<code class="bg-white px-1 py-0.5 rounded text-purple-700 border">member_id, username, password</code></p>
           </div>
-          <div class="mb-4">
-            <button onclick="downloadDynamicTemplate()" class="text-xs text-blue-600 hover:underline font-medium flex items-center gap-1"><i class="fas fa-download"></i>📥 下載 Excel 範本（包含所有未開通帳號成員）</button>
+          <button onclick="downloadDynamicTemplate()" class="text-xs text-blue-600 hover:underline font-medium flex items-center gap-1 mb-4">
+            <i class="fas fa-download"></i>📥 下載 Excel 範本（包含所有未開通帳號成員）
+          </button>
+
+          <!-- 檔案選擇區 -->
+          <label for="csvFileInput" id="csv-drop-zone"
+            class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-orange-300 rounded-xl bg-orange-50 hover:bg-orange-100 cursor-pointer transition-colors group">
+            <i class="fas fa-cloud-upload-alt text-3xl text-orange-400 group-hover:text-orange-500 mb-2"></i>
+            <span class="text-sm text-orange-600 font-medium">點擊選擇或拖曳檔案至此</span>
+            <span class="text-xs text-gray-400 mt-1">支援 .xlsx, .xls, .csv</span>
+          </label>
+          <input type="file" id="csvFileInput" accept=".csv,.xlsx,.xls" class="hidden"/>
+          <div id="csv-filename-display" class="hidden mt-2 text-xs text-gray-500 flex items-center gap-1">
+            <i class="fas fa-file-excel text-green-500"></i>
+            <span id="csv-filename-text"></span>
           </div>
-          
-          <input type="file" id="csvFileInput" accept=".csv,.xlsx,.xls" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 mb-4"/>
-          
-          <div id="csvPreview" class="hidden max-h-40 overflow-y-auto bg-gray-50 p-2 rounded border text-xs mb-4"></div>
-          
-          <div id="csvMsg" class="text-sm font-medium hidden mb-4"></div>
-          
-          <div class="flex justify-end gap-2">
-            <button onclick="document.getElementById('csvImportModal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm">取消</button>
-            <button id="csvSubmitBtn" onclick="submitCSVImport()" class="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-bold hover:bg-orange-600" disabled>確認匯入</button>
+
+          <div class="flex justify-end gap-2 mt-4">
+            <button onclick="closeCsvModal()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition-colors">取消</button>
+            <button id="csvNextBtn" onclick="goToPreview()" disabled
+              class="px-5 py-2 bg-orange-500 text-white rounded-lg text-sm font-bold hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+              下一步 →
+            </button>
           </div>
         </div>
+
+        <!-- Step 2: 解析中 -->
+        <div id="csv-step-parsing" class="hidden p-8 flex flex-col items-center justify-center min-h-[220px]">
+          <div class="w-14 h-14 rounded-full border-4 border-orange-200 border-t-orange-500 animate-spin mb-4"></div>
+          <p class="text-gray-700 font-medium mb-1">正在解析檔案...</p>
+          <p id="csv-parsing-filename" class="text-xs text-gray-400"></p>
+        </div>
+
+        <!-- Step 3: 預覽確認 -->
+        <div id="csv-step-preview" class="hidden p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h4 class="font-semibold text-gray-800 flex items-center gap-2">
+              <i class="fas fa-table text-orange-500"></i>資料預覽
+            </h4>
+            <span id="csv-preview-count" class="bg-orange-100 text-orange-700 text-xs font-bold px-2.5 py-1 rounded-full"></span>
+          </div>
+          <!-- 預覽表格 -->
+          <div class="overflow-auto max-h-52 rounded-lg border border-gray-200 mb-4">
+            <table class="w-full text-xs">
+              <thead class="bg-gray-50 sticky top-0">
+                <tr class="border-b border-gray-200">
+                  <th class="px-3 py-2 text-left text-gray-600 font-medium w-8">#</th>
+                  <th class="px-3 py-2 text-left text-gray-600 font-medium">姓名</th>
+                  <th class="px-3 py-2 text-left text-gray-600 font-medium">帳號</th>
+                  <th class="px-3 py-2 text-left text-gray-600 font-medium">密碼</th>
+                </tr>
+              </thead>
+              <tbody id="csv-preview-tbody" class="divide-y divide-gray-100"></tbody>
+            </table>
+          </div>
+          <div id="csv-preview-skip-hint" class="hidden text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mb-3 flex items-center gap-1.5">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span id="csv-skip-text"></span>
+          </div>
+          <div class="flex justify-between items-center gap-2">
+            <button onclick="backToSelect()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition-colors flex items-center gap-1">
+              <i class="fas fa-arrow-left text-xs"></i> 重新選擇
+            </button>
+            <div class="flex gap-2">
+              <button onclick="closeCsvModal()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition-colors">取消</button>
+              <button id="csvSubmitBtn" onclick="submitCSVImport()"
+                class="px-5 py-2 bg-orange-500 text-white rounded-lg text-sm font-bold hover:bg-orange-600 transition-colors flex items-center gap-2">
+                <i class="fas fa-upload"></i>確認匯入
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 4: 匯入進度 -->
+        <div id="csv-step-importing" class="hidden p-5">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-8 h-8 rounded-full border-3 border-orange-200 border-t-orange-500 animate-spin flex-shrink-0" style="border-width:3px"></div>
+            <div>
+              <p class="font-semibold text-gray-800 text-sm">正在匯入帳號...</p>
+              <p id="csv-import-status-text" class="text-xs text-gray-500">準備中</p>
+            </div>
+          </div>
+          <!-- 進度條 -->
+          <div class="bg-gray-100 rounded-full h-3 overflow-hidden mb-2">
+            <div id="csv-progress-bar" class="h-3 bg-gradient-to-r from-orange-400 to-orange-500 rounded-full transition-all duration-300" style="width:0%"></div>
+          </div>
+          <div class="flex justify-between text-xs text-gray-500 mb-4">
+            <span id="csv-progress-done">0 筆已處理</span>
+            <span id="csv-progress-total">共 0 筆</span>
+          </div>
+          <!-- 即時 log -->
+          <div id="csv-import-log" class="bg-gray-50 rounded-lg border border-gray-200 p-3 max-h-36 overflow-y-auto text-xs space-y-0.5 font-mono"></div>
+        </div>
+
+        <!-- Step 5: 完成結果 -->
+        <div id="csv-step-done" class="hidden p-5">
+          <div id="csv-done-header" class="flex items-center gap-3 mb-4">
+            <div id="csv-done-icon" class="w-12 h-12 rounded-full flex items-center justify-center text-xl flex-shrink-0"></div>
+            <div>
+              <p id="csv-done-title" class="font-bold text-gray-800"></p>
+              <p id="csv-done-subtitle" class="text-xs text-gray-500"></p>
+            </div>
+          </div>
+          <!-- 統計卡片 -->
+          <div class="grid grid-cols-3 gap-3 mb-4">
+            <div class="bg-green-50 border border-green-100 rounded-xl p-3 text-center">
+              <div id="csv-done-success" class="text-2xl font-bold text-green-600">0</div>
+              <div class="text-xs text-green-600 mt-0.5">✅ 成功</div>
+            </div>
+            <div class="bg-yellow-50 border border-yellow-100 rounded-xl p-3 text-center">
+              <div id="csv-done-skip" class="text-2xl font-bold text-yellow-600">0</div>
+              <div class="text-xs text-yellow-600 mt-0.5">⏭️ 已存在</div>
+            </div>
+            <div class="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
+              <div id="csv-done-fail" class="text-2xl font-bold text-red-600">0</div>
+              <div class="text-xs text-red-600 mt-0.5">❌ 失敗</div>
+            </div>
+          </div>
+          <!-- 錯誤詳細列表 -->
+          <div id="csv-error-list" class="hidden bg-red-50 border border-red-200 rounded-lg p-3 max-h-32 overflow-y-auto text-xs mb-4">
+            <p class="font-semibold text-red-700 mb-1">失敗詳情：</p>
+            <ul id="csv-error-items" class="space-y-0.5 text-red-600"></ul>
+          </div>
+          <div class="flex justify-end gap-2">
+            <button onclick="closeCsvModal()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition-colors">關閉</button>
+            <button onclick="location.reload()" class="px-5 py-2 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700 transition-colors flex items-center gap-2">
+              <i class="fas fa-sync-alt"></i>重新整理頁面
+            </button>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -11594,8 +11711,37 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
 
 
         let csvDataToImport = [];
+        let csvSkippedCount = 0;
 
-    // Load XLSX library dynamically if not present
+    // ── Step 控制 ──────────────────────────────────
+    function showCsvStep(step) {
+      ['select','parsing','preview','importing','done'].forEach(s => {
+        document.getElementById('csv-step-' + s).classList.add('hidden');
+      });
+      document.getElementById('csv-step-' + step).classList.remove('hidden');
+    }
+    function closeCsvModal() {
+      document.getElementById('csvImportModal').classList.add('hidden');
+      // 重置狀態
+      setTimeout(() => {
+        showCsvStep('select');
+        csvDataToImport = [];
+        csvSkippedCount = 0;
+        document.getElementById('csvFileInput').value = '';
+        document.getElementById('csv-filename-display').classList.add('hidden');
+        document.getElementById('csvNextBtn').disabled = true;
+      }, 200);
+    }
+    function backToSelect() {
+      showCsvStep('select');
+      csvDataToImport = [];
+      csvSkippedCount = 0;
+      document.getElementById('csvFileInput').value = '';
+      document.getElementById('csv-filename-display').classList.add('hidden');
+      document.getElementById('csvNextBtn').disabled = true;
+    }
+
+    // ── XLSX 載入 ──────────────────────────────────
     async function loadXLSX() {
       if (typeof XLSX !== 'undefined') return true;
       return new Promise((resolve) => {
@@ -11603,212 +11749,256 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
         script.src = '/static/xlsx.full.min.js';
         script.onload = () => resolve(true);
         script.onerror = () => {
-          // fallback
-          script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
-          script.onload = () => resolve(true);
-          script.onerror = () => resolve(false);
-          document.head.appendChild(script);
+          const s2 = document.createElement('script');
+          s2.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+          s2.onload = () => resolve(true);
+          s2.onerror = () => resolve(false);
+          document.head.appendChild(s2);
         };
         document.head.appendChild(script);
       });
     }
 
-    async function exportBatchTemplate() {
-      const loaded = await loadXLSX();
-      if (!loaded) {
-        alert('無法載入 Excel 處理套件，請檢查網路連線。');
-        return;
-      }
-      
-      const members = ${JSON.stringify(noAccount.results)};
-      
-      const wsData = [
-        ['member_id', '學員姓名', 'username', 'password']
-      ];
-      
-      members.forEach(m => {
-        wsData.push([m.id, m.chinese_name, '', '']);
-      });
-      
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "批次登錄表");
-      XLSX.writeFile(wb, "批次帳號密碼登錄表.xlsx");
-    }
-
-    document.getElementById('csvFileInput').addEventListener('change', async function(e) {
+    // ── 檔案選擇 ──────────────────────────────────
+    document.getElementById('csvFileInput').addEventListener('change', function(e) {
       const file = e.target.files[0];
       if (!file) return;
-      
+      document.getElementById('csv-filename-text').textContent = file.name;
+      document.getElementById('csv-filename-display').classList.remove('hidden');
+      document.getElementById('csvNextBtn').disabled = false;
+    });
+
+    // ── 下一步：解析預覽 ──────────────────────────
+    async function goToPreview() {
+      const fileInput = document.getElementById('csvFileInput');
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      showCsvStep('parsing');
+      document.getElementById('csv-parsing-filename').textContent = file.name;
+
       const ext = file.name.split('.').pop().toLowerCase();
-      
+
       const processData = (dataArray) => {
         if (dataArray.length < 2) {
-          alert('格式錯誤或無資料');
+          showCsvStep('select');
+          alert('格式錯誤或無資料，請確認檔案內容');
           return;
         }
-        
+
         const headers = dataArray[0].map(h => String(h).trim().replace(/^"|"$/g, ''));
-        const idIdx = headers.indexOf('member_id');
+        const idIdx   = headers.indexOf('member_id');
         const userIdx = headers.findIndex(h => h === 'username' || h === '登入帳號' || h === '帳號');
-        const pwIdx = headers.findIndex(h => h === 'password' || h === '密碼');
+        const pwIdx   = headers.findIndex(h => h === 'password'  || h === '密碼');
         const nameIdx = headers.findIndex(h => h === '姓名' || h === 'name' || h === 'chinese_name');
-        
-        // 必須有帳號欄和密碼欄
+
         if (userIdx === -1 || pwIdx === -1) {
+          showCsvStep('select');
           alert('找不到必要欄位！\\n需要包含「登入帳號」(或 username) 和「密碼」(或 password)');
           return;
         }
-        // 必須有 member_id 或 姓名
         if (idIdx === -1 && nameIdx === -1) {
+          showCsvStep('select');
           alert('找不到成員識別欄位！\\n需要包含「姓名」或「member_id」');
           return;
         }
 
         csvDataToImport = [];
-        let previewHtml = '<table class="w-full text-left"><thead><tr class="border-b"><th class="pr-2">成員</th><th class="pr-2">帳號</th><th>密碼</th></tr></thead><tbody>';
-        
+        csvSkippedCount = 0;
+        const skippedRows = [];
+
         for (let i = 1; i < dataArray.length; i++) {
           const cols = dataArray[i];
           if (!cols || cols.length < 2) continue;
           const username = cols[userIdx] !== undefined ? String(cols[userIdx]).trim() : '';
-          const password = cols[pwIdx] !== undefined ? String(cols[pwIdx]).trim() : '';
-          if (!username || !password) continue;
-          
-          const record: any = { username, password };
-          
-          if (idIdx !== -1 && cols[idIdx]) {
-            record.member_id = String(cols[idIdx]).trim();
-          }
-          if (nameIdx !== -1 && cols[nameIdx]) {
-            record.name = String(cols[nameIdx]).trim();
-          }
-          
-          // 至少要有 member_id 或 name 其中一個
-          if (!record.member_id && !record.name) continue;
-          
+          const password = cols[pwIdx]   !== undefined ? String(cols[pwIdx]).trim()   : '';
+          const name     = nameIdx !== -1 && cols[nameIdx] ? String(cols[nameIdx]).trim() : '';
+          const memberId = idIdx   !== -1 && cols[idIdx]   ? String(cols[idIdx]).trim()   : '';
+
+          if (!username || !password) { skippedRows.push('第' + (i+1) + '列（缺少帳號或密碼）'); csvSkippedCount++; continue; }
+          if (!memberId && !name)     { skippedRows.push('第' + (i+1) + '列（缺少姓名或ID）');    csvSkippedCount++; continue; }
+
+          const record = { username, password };
+          if (memberId) record.member_id = memberId;
+          if (name)     record.name = name;
           csvDataToImport.push(record);
-          const displayId = record.name || record.member_id;
-          if (i <= 5) {
-            previewHtml += '<tr><td class="pr-2">' + displayId + '</td><td class="pr-2">' + record.username + '</td><td>***</td></tr>';
-          }
         }
-        if (csvDataToImport.length > 5) {
-          previewHtml += '<tr><td colspan="3" class="text-gray-400">...共 ' + csvDataToImport.length + ' 筆資料</td></tr>';
-        }
-        previewHtml += '</tbody></table>';
-        
+
         if (csvDataToImport.length === 0) {
+          showCsvStep('select');
           alert('未讀取到任何有效資料，請確認欄位格式正確。');
           return;
         }
-        
-        const previewEl = document.getElementById('csvPreview');
-        previewEl.innerHTML = previewHtml;
-        previewEl.classList.remove('hidden');
-        document.getElementById('csvSubmitBtn').disabled = false;
+
+        // 渲染預覽
+        const tbody = document.getElementById('csv-preview-tbody');
+        const previewRows = csvDataToImport.slice(0, 8);
+        tbody.innerHTML = previewRows.map((r, idx) =>
+          '<tr class="hover:bg-gray-50">' +
+          '<td class="px-3 py-1.5 text-gray-400">' + (idx+1) + '</td>' +
+          '<td class="px-3 py-1.5 text-gray-700 font-medium">' + (r.name || r.member_id) + '</td>' +
+          '<td class="px-3 py-1.5 font-mono text-blue-700">' + r.username + '</td>' +
+          '<td class="px-3 py-1.5 text-gray-400">••••••</td>' +
+          '</tr>'
+        ).join('') + (csvDataToImport.length > 8
+          ? '<tr><td colspan="4" class="px-3 py-2 text-center text-gray-400 italic">...還有 ' + (csvDataToImport.length - 8) + ' 筆</td></tr>'
+          : '');
+
+        document.getElementById('csv-preview-count').textContent = '共 ' + csvDataToImport.length + ' 筆';
+
+        if (csvSkippedCount > 0) {
+          document.getElementById('csv-preview-skip-hint').classList.remove('hidden');
+          document.getElementById('csv-skip-text').textContent =
+            '有 ' + csvSkippedCount + ' 列因缺少必要資料而略過（' + skippedRows.slice(0,3).join('、') + (skippedRows.length > 3 ? '...' : '') + '）';
+        }
+
+        showCsvStep('preview');
       };
 
       if (ext === 'xlsx' || ext === 'xls') {
         const loaded = await loadXLSX();
-        if (!loaded) {
-          alert('無法載入 Excel 處理套件，請檢查網路連線。');
-          return;
-        }
+        if (!loaded) { showCsvStep('select'); alert('無法載入 Excel 處理套件，請檢查網路連線。'); return; }
         const reader = new FileReader();
-        reader.onload = function(e) {
-          const data = new Uint8Array(e.target.result);
-          const workbook = XLSX.read(data, {type: 'array'});
-          const firstSheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
-          const json = XLSX.utils.sheet_to_json(worksheet, {header: 1, defval: ''});
-          // Remove empty rows at the end
-          const cleanedJson = json.filter(row => row.some(cell => String(cell).trim() !== ''));
-          processData(cleanedJson);
+        reader.onload = function(ev) {
+          const data = new Uint8Array(ev.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const ws = workbook.Sheets[workbook.SheetNames[0]];
+          const json = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+          const cleaned = json.filter(row => row.some(cell => String(cell).trim() !== ''));
+          processData(cleaned);
         };
         reader.readAsArrayBuffer(file);
       } else {
         const reader = new FileReader();
-        reader.onload = function(e) {
-          const text = e.target.result;
-          const lines = text.split('\n').map(l => l.trim()).filter(l => l);
-          const dataArray = lines.map(line => line.split(',').map(c => c.trim().replace(/^"|"$/g, '')));
-          processData(dataArray);
+        reader.onload = function(ev) {
+          const lines = ev.target.result.split('\\n').map(l => l.trim()).filter(l => l);
+          processData(lines.map(line => line.split(',').map(c => c.trim().replace(/^"|"$/g, ''))));
         };
         reader.readAsText(file);
       }
-    });
+    }
 
-    
+    // ── 下載範本 ──────────────────────────────────
     async function downloadDynamicTemplate() {
       const loaded = await loadXLSX();
-      if (!loaded) {
-        alert('無法載入 Excel 處理套件，請檢查網路連線。');
-        return;
-      }
-      
+      if (!loaded) { alert('無法載入 Excel 處理套件，請檢查網路連線。'); return; }
       const members = ${JSON.stringify(noAccount.results)};
-      
-      const wsData = [
-        ['member_id', '姓名 (僅供參考)', 'username', 'password']
-      ];
-      
-      members.forEach(m => {
-        wsData.push([m.id, m.chinese_name, '', '']);
-      });
-      
-      if (members.length === 0) {
-        alert('目前所有有效成員都已開通帳號。將下載空白範本。');
-        wsData.push(['(填寫ID)', '(填寫姓名)', '', '']);
-      }
-      
+      const wsData = [['member_id', '姓名 (僅供參考)', 'username', 'password']];
+      members.forEach(m => wsData.push([m.id, m.chinese_name, '', '']));
+      if (members.length === 0) wsData.push(['(填寫ID)', '(填寫姓名)', '', '']);
       const ws = XLSX.utils.aoa_to_sheet(wsData);
       ws['!cols'] = [{ wch: 12 }, { wch: 18 }, { wch: 20 }, { wch: 15 }];
-      
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Accounts");
-      XLSX.writeFile(wb, "未開通會員帳號清單_匯入範本.xlsx");
+      XLSX.utils.book_append_sheet(wb, ws, 'Accounts');
+      XLSX.writeFile(wb, '未開通會員帳號清單_匯入範本.xlsx');
     }
+    async function exportBatchTemplate() { await downloadDynamicTemplate(); }
 
+    // ── 執行匯入（逐批送出，有進度條）──────────────
     async function submitCSVImport() {
       if (csvDataToImport.length === 0) return;
-      
-      const btn = document.getElementById('csvSubmitBtn');
-      const msg = document.getElementById('csvMsg');
-      btn.disabled = true;
-      btn.textContent = '匯入中...';
-      msg.className = 'text-sm font-medium text-blue-600 block mb-4';
-      msg.textContent = '正在處理資料，請稍候...';
-      
-      try {
-        const res = await fetch('/api/admin/member-accounts/batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accounts: csvDataToImport })
-        });
-        const result = await res.json();
-        
-        if (result.success) {
-          msg.className = 'text-sm font-medium text-green-600 block mb-4';
-          let txt = '成功匯入 ' + result.successCount + ' 筆帳號。';
-          if (result.errorCount > 0) {
-            txt += '<br><span class="text-red-500">有 ' + result.errorCount + ' 筆失敗：<br>' + result.errors.join('<br>') + '</span>';
-          }
-          msg.innerHTML = txt;
-          setTimeout(() => location.reload(), 3000);
-        } else {
-          msg.className = 'text-sm font-medium text-red-600 block mb-4';
-          msg.textContent = '匯入失敗: ' + (result.error || '未知錯誤');
-          btn.disabled = false;
-          btn.textContent = '確認匯入';
-        }
-      } catch (err) {
-        msg.className = 'text-sm font-medium text-red-600 block mb-4';
-        msg.textContent = '網路錯誤: ' + err.message;
-        btn.disabled = false;
-        btn.textContent = '確認匯入';
+
+      showCsvStep('importing');
+      const total = csvDataToImport.length;
+      document.getElementById('csv-progress-total').textContent = '共 ' + total + ' 筆';
+
+      const BATCH = 20; // 每批送出筆數
+      let successCount = 0, skipCount = 0, failCount = 0;
+      const failErrors = [];
+      const log = document.getElementById('csv-import-log');
+
+      function addLog(text, color) {
+        const p = document.createElement('p');
+        p.className = 'text-' + color + '-600';
+        p.textContent = text;
+        log.appendChild(p);
+        log.scrollTop = log.scrollHeight;
       }
-    }
+      function updateProgress(done) {
+        const pct = Math.round((done / total) * 100);
+        document.getElementById('csv-progress-bar').style.width = pct + '%';
+        document.getElementById('csv-progress-done').textContent = done + ' 筆已處理';
+        document.getElementById('csv-import-status-text').textContent =
+          '已處理 ' + done + ' / ' + total + ' 筆（' + pct + '%）';
+      }
+
+      addLog('開始匯入 ' + total + ' 筆資料...', 'gray');
+
+      for (let i = 0; i < total; i += BATCH) {
+        const chunk = csvDataToImport.slice(i, i + BATCH);
+        try {
+          const res = await fetch('/api/admin/member-accounts/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accounts: chunk })
+          });
+          const result = await res.json();
+          if (result.success) {
+            successCount += result.successCount;
+            // 區分「已存在」和「真正失敗」
+            result.errors.forEach(e => {
+              if (e.includes('帳號已存在')) { skipCount++; }
+              else { failCount++; failErrors.push(e); }
+            });
+            if (result.successCount > 0)
+              addLog('✅ 第 ' + (i+1) + '～' + Math.min(i+BATCH, total) + ' 筆：成功 ' + result.successCount + ' 筆', 'green');
+            if (result.errors.length > 0) {
+              const skipN = result.errors.filter(e => e.includes('帳號已存在')).length;
+              const failN = result.errors.length - skipN;
+              if (skipN > 0) addLog('⏭️  已存在 ' + skipN + ' 筆（略過）', 'yellow');
+              if (failN > 0) addLog('❌ 失敗 ' + failN + ' 筆', 'red');
+            }
+          } else {
+            failCount += chunk.length;
+            addLog('❌ 批次錯誤: ' + (result.error || '未知'), 'red');
+          }
+        } catch (err) {
+          failCount += chunk.length;
+          addLog('❌ 網路錯誤: ' + err.message, 'red');
+        }
+        updateProgress(Math.min(i + BATCH, total));
+        // 短暫暫停讓 UI 更新
+        await new Promise(r => setTimeout(r, 80));
+      }
+
+      addLog('匯入完成！', 'gray');
+
+      // 顯示完成畫面
+      setTimeout(() => {
+        document.getElementById('csv-done-success').textContent = successCount;
+        document.getElementById('csv-done-skip').textContent = skipCount;
+        document.getElementById('csv-done-fail').textContent = failCount;
+
+        const icon = document.getElementById('csv-done-icon');
+        const title = document.getElementById('csv-done-title');
+        const subtitle = document.getElementById('csv-done-subtitle');
+
+        if (failCount === 0 && successCount > 0) {
+          icon.className = 'w-12 h-12 rounded-full bg-green-100 flex items-center justify-center text-xl flex-shrink-0';
+          icon.textContent = '🎉';
+          title.textContent = '匯入完成！';
+          subtitle.textContent = '成功建立 ' + successCount + ' 個帳號' + (skipCount > 0 ? '，' + skipCount + ' 個已略過' : '');
+        } else if (successCount === 0 && skipCount > 0) {
+          icon.className = 'w-12 h-12 rounded-full bg-yellow-100 flex items-center justify-center text-xl flex-shrink-0';
+          icon.textContent = '⏭️';
+          title.textContent = '所有帳號均已存在';
+          subtitle.textContent = '共 ' + skipCount + ' 個帳號已建立過，無需重複匯入';
+        } else {
+          icon.className = 'w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-xl flex-shrink-0';
+          icon.textContent = '⚠️';
+          title.textContent = '匯入完成（有部分問題）';
+          subtitle.textContent = '成功 ' + successCount + ' 筆，略過 ' + skipCount + ' 筆，失敗 ' + failCount + ' 筆';
+        }
+
+        if (failErrors.length > 0) {
+          document.getElementById('csv-error-list').classList.remove('hidden');
+          document.getElementById('csv-error-items').innerHTML =
+            failErrors.map(e => '<li>' + e + '</li>').join('');
+        }
+
+        showCsvStep('done');
+      }, 300);
+    }  // end submitCSVImport
 
     async function createAccount() {
       const msg = document.getElementById('newAccMsg')
