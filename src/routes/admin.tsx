@@ -4847,10 +4847,16 @@ adminRoutes.get('/coaches/settings', authMiddleware, async (c) => {
           <div class="text-sm font-medium text-gray-800">${it.description}</div>
           ${it.required_count > 1 ? `<div class="text-xs text-gray-400 mt-0.5">需完成 ${it.required_count} 次</div>` : ''}
         </div>
-        <button onclick="deleteChecklistItem('${it.id}', '${it.description.replace(/'/g,"\\'")}', '${stage}')"
-          class="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all text-xs px-1.5 py-1 rounded">
-          <i class="fas fa-trash"></i>
-        </button>
+        <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
+          <button onclick="openEditModal('${it.id}', ${JSON.stringify(it.stage)}, ${JSON.stringify(it.description)}, ${it.required_count})"
+            class="text-blue-400 hover:text-blue-600 hover:bg-blue-50 text-xs px-1.5 py-1 rounded transition-colors" title="編輯">
+            <i class="fas fa-pen"></i>
+          </button>
+          <button onclick="deleteChecklistItem('${it.id}', ${JSON.stringify(it.description)}, '${stage}')"
+            class="text-red-400 hover:text-red-600 hover:bg-red-50 text-xs px-1.5 py-1 rounded transition-colors" title="刪除">
+            <i class="fas fa-trash"></i>
+          </button>
+        </div>
       </div>
     `).join('')
 
@@ -4943,6 +4949,48 @@ adminRoutes.get('/coaches/settings', authMiddleware, async (c) => {
       ${columns}
     </div>
 
+    <!-- 編輯 Modal -->
+    <div id="editItemModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 flex">
+      <div class="bg-white rounded-2xl w-full max-w-md mx-4 shadow-xl overflow-hidden">
+        <div class="bg-blue-600 px-5 py-3.5 flex justify-between items-center text-white">
+          <h3 class="font-bold flex items-center gap-2"><i class="fas fa-pen"></i> 編輯檢核項目</h3>
+          <button onclick="closeEditModal()" class="hover:text-blue-200 transition-colors"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="p-5 space-y-4">
+          <input type="hidden" id="edit-item-id">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">階段</label>
+            <select id="edit-item-stage" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="預備教練">預備教練</option>
+              <option value="見習教練">見習教練</option>
+              <option value="助理教練">助理教練</option>
+              <option value="指導教練">指導教練</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">項目描述</label>
+            <textarea id="edit-item-desc" rows="3"
+              class="w-full border rounded-lg px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-blue-300 focus:outline-none"
+              placeholder="請輸入項目描述"></textarea>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">需完成次數</label>
+            <input id="edit-item-count" type="number" min="1" value="1"
+              class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 focus:outline-none">
+          </div>
+          <div id="edit-item-msg"></div>
+          <div class="flex justify-end gap-2 pt-1">
+            <button onclick="closeEditModal()"
+              class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition-colors">取消</button>
+            <button onclick="saveEditItem()"
+              class="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center gap-2">
+              <i class="fas fa-save"></i>儲存變更
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script>
     async function addChecklistItem() {
       const stage = document.getElementById('new-item-stage').value
@@ -4972,6 +5020,39 @@ adminRoutes.get('/coaches/settings', authMiddleware, async (c) => {
       const r = await res.json()
       if (r.success) { location.reload() }
       else { alert('刪除失敗：' + (r.error||'')) }
+    }
+
+    function openEditModal(id, stage, desc, count) {
+      document.getElementById('edit-item-id').value = id;
+      document.getElementById('edit-item-stage').value = stage;
+      document.getElementById('edit-item-desc').value = desc;
+      document.getElementById('edit-item-count').value = count;
+      document.getElementById('edit-item-msg').innerHTML = '';
+      document.getElementById('editItemModal').classList.remove('hidden');
+    }
+    function closeEditModal() {
+      document.getElementById('editItemModal').classList.add('hidden');
+    }
+    async function saveEditItem() {
+      const id    = document.getElementById('edit-item-id').value;
+      const stage = document.getElementById('edit-item-stage').value;
+      const desc  = document.getElementById('edit-item-desc').value.trim();
+      const count = parseInt(document.getElementById('edit-item-count').value) || 1;
+      const msg   = document.getElementById('edit-item-msg');
+      if (!desc) { msg.innerHTML = '<p class="text-red-500 text-sm">請輸入項目描述</p>'; return; }
+      msg.innerHTML = '<p class="text-gray-400 text-sm">儲存中...</p>';
+      const res = await fetch('/api/coach/checklist-items/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage, description: desc, required_count: count })
+      });
+      const r = await res.json();
+      if (r.success) {
+        msg.innerHTML = '<p class="text-green-600 text-sm">✅ 已儲存</p>';
+        setTimeout(() => location.reload(), 600);
+      } else {
+        msg.innerHTML = '<p class="text-red-500 text-sm">失敗：' + (r.error||'未知錯誤') + '</p>';
+      }
     }
     </script>
   `))

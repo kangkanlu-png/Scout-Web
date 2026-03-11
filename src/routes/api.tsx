@@ -1460,6 +1460,20 @@ apiRoutes.delete('/coach/checklist-items/:id', async (c) => {
   return c.json({ success: true })
 })
 
+// 更新檢核項目
+apiRoutes.put('/coach/checklist-items/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const { stage, description, required_count } = await c.req.json() as any
+  if (!description) return c.json({ error: '項目描述不得為空' }, 400)
+  await db.prepare(`
+    UPDATE coach_checklist_items
+    SET stage = ?, description = ?, required_count = ?
+    WHERE id = ?
+  `).bind(stage, description, required_count || 1, id).run()
+  return c.json({ success: true })
+})
+
 // ==================== 統計 API ====================
 
 apiRoutes.get('/stats', async (c) => {
