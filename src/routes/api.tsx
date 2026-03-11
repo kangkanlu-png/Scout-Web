@@ -2409,7 +2409,7 @@ apiRoutes.post('/admin/member-accounts/batch', async (c) => {
         continue;
       }
       
-      const hash = await sha256(acc.password);
+      const hash = await sha256(String(acc.password));
       const id = `acc-${Date.now()}-${Math.random().toString(36).substring(2,7)}`;
       await db.prepare(`
         INSERT INTO member_accounts (id, member_id, username, password_hash, is_active)
@@ -2479,6 +2479,70 @@ apiRoutes.put('/admin/member-accounts/:id/status', async (c) => {
   const id = c.req.param('id')
   const body = await c.req.json()
   await db.prepare(`UPDATE member_accounts SET is_active = ? WHERE id = ?`).bind(body.is_active ? 1 : 0, id).run()
+  return c.json({ success: true })
+})
+
+// =====================================================================
+// 後台管理員帳號 API (Admin Accounts)
+// =====================================================================
+
+// GET /api/admin/admins - 取得所有管理員帳號
+apiRoutes.get('/admin/admins', async (c) => {
+  const db = c.env.DB
+  const admins = await db.prepare('SELECT id, username, created_at FROM admins ORDER BY created_at DESC').all()
+  return c.json({ success: true, admins: admins.results })
+})
+
+// POST /api/admin/admins - 新增管理員帳號
+apiRoutes.post('/admin/admins', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  const { username, password } = body
+  if (!username || !password) return c.json({ success: false, error: '帳號與密碼為必填' }, 400)
+  if (password.length < 6) return c.json({ success: false, error: '密碼至少 6 字元' }, 400)
+  const hash = await (async () => {
+    const msgBuffer = new TextEncoder().encode(password)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  })()
+  try {
+    const result = await db.prepare(
+      `INSERT INTO admins (username, password_hash, created_at) VALUES (?, ?, datetime('now','localtime'))`
+    ).bind(username.trim(), hash).run()
+    return c.json({ success: true, id: result.meta.last_row_id })
+  } catch (e: any) {
+    if (e.message?.includes('UNIQUE')) return c.json({ success: false, error: '帳號已存在' }, 409)
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// PUT /api/admin/admins/:id/reset-password - 重設管理員密碼
+apiRoutes.put('/admin/admins/:id/reset-password', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { password } = body
+  if (!password || password.length < 6) return c.json({ success: false, error: '密碼至少 6 字元' }, 400)
+  const hash = await (async () => {
+    const msgBuffer = new TextEncoder().encode(password)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  })()
+  await db.prepare(`UPDATE admins SET password_hash = ? WHERE id = ?`).bind(hash, id).run()
+  return c.json({ success: true })
+})
+
+// DELETE /api/admin/admins/:id - 刪除管理員帳號
+apiRoutes.delete('/admin/admins/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  // 保護預設 admin 帳號
+  const admin = await db.prepare(`SELECT username FROM admins WHERE id = ?`).bind(id).first()
+  if (!admin) return c.json({ success: false, error: '帳號不存在' }, 404)
+  if ((admin as any).username === 'admin') return c.json({ success: false, error: '不可刪除預設 admin 帳號' }, 403)
+  await db.prepare(`DELETE FROM admins WHERE id = ?`).bind(id).run()
   return c.json({ success: true })
 })
 

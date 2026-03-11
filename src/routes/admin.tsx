@@ -11437,15 +11437,15 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
         </div>
         <div class="p-5">
           <p class="text-sm text-gray-600 mb-2">
-            請上傳包含以下欄位的 Excel/CSV 檔案（包含標題列）：<br>
-            <code class="bg-gray-100 px-1 py-0.5 rounded text-xs text-purple-700">member_id,username,password</code>
+            請上傳包含以下欄位的 Excel/CSV 檔案（包含標題列）：
           </p>
+          <div class="mb-3 text-xs bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-1">
+            <p class="font-semibold text-gray-700">✅ 支援兩種格式：</p>
+            <p>格式一：<code class="bg-white px-1 py-0.5 rounded text-purple-700 border">姓名, 登入帳號, 密碼</code> <span class="text-gray-500">（自動比對成員）</span></p>
+            <p>格式二：<code class="bg-white px-1 py-0.5 rounded text-purple-700 border">member_id, username, password</code></p>
+          </div>
           <div class="mb-4">
             <button onclick="downloadDynamicTemplate()" class="text-xs text-blue-600 hover:underline font-medium flex items-center gap-1"><i class="fas fa-download"></i>📥 下載 Excel 範本（包含所有未開通帳號成員）</button>
-          </div>
-          <div class="mb-4 text-xs text-gray-500 bg-blue-50 p-3 rounded-lg border border-blue-100">
-            <p class="font-bold text-blue-700 mb-1">提示：如何取得 member_id？</p>
-            可以在「成員管理」列表查看，或是使用尚未建立帳號名單中的 ID。
           </div>
           
           <input type="file" id="csvFileInput" accept=".csv,.xlsx,.xls" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 mb-4"/>
@@ -11650,36 +11650,58 @@ adminRoutes.get('/member-accounts', authMiddleware, async (c) => {
         
         const headers = dataArray[0].map(h => String(h).trim().replace(/^"|"$/g, ''));
         const idIdx = headers.indexOf('member_id');
-        const userIdx = headers.indexOf('username');
-        const pwIdx = headers.indexOf('password');
+        const userIdx = headers.findIndex(h => h === 'username' || h === '登入帳號' || h === '帳號');
+        const pwIdx = headers.findIndex(h => h === 'password' || h === '密碼');
+        const nameIdx = headers.findIndex(h => h === '姓名' || h === 'name' || h === 'chinese_name');
         
-        if (idIdx === -1 || userIdx === -1 || pwIdx === -1) {
-          alert('找不到必要的欄位，請確保包含 member_id, username, password');
+        // 必須有帳號欄和密碼欄
+        if (userIdx === -1 || pwIdx === -1) {
+          alert('找不到必要欄位！\\n需要包含「登入帳號」(或 username) 和「密碼」(或 password)');
+          return;
+        }
+        // 必須有 member_id 或 姓名
+        if (idIdx === -1 && nameIdx === -1) {
+          alert('找不到成員識別欄位！\\n需要包含「姓名」或「member_id」');
           return;
         }
 
         csvDataToImport = [];
-        let previewHtml = '<table class="w-full text-left"><thead><tr class="border-b"><th>ID</th><th>帳號</th><th>密碼</th></tr></thead><tbody>';
+        let previewHtml = '<table class="w-full text-left"><thead><tr class="border-b"><th class="pr-2">成員</th><th class="pr-2">帳號</th><th>密碼</th></tr></thead><tbody>';
         
         for (let i = 1; i < dataArray.length; i++) {
           const cols = dataArray[i];
-          if (!cols || cols.length < 3) continue;
-          if (!cols[idIdx] || !cols[userIdx] || !cols[pwIdx]) continue;
+          if (!cols || cols.length < 2) continue;
+          const username = cols[userIdx] !== undefined ? String(cols[userIdx]).trim() : '';
+          const password = cols[pwIdx] !== undefined ? String(cols[pwIdx]).trim() : '';
+          if (!username || !password) continue;
           
-          const record = {
-            member_id: String(cols[idIdx]).trim(),
-            username: String(cols[userIdx]).trim(),
-            password: String(cols[pwIdx]).trim()
-          };
+          const record: any = { username, password };
+          
+          if (idIdx !== -1 && cols[idIdx]) {
+            record.member_id = String(cols[idIdx]).trim();
+          }
+          if (nameIdx !== -1 && cols[nameIdx]) {
+            record.name = String(cols[nameIdx]).trim();
+          }
+          
+          // 至少要有 member_id 或 name 其中一個
+          if (!record.member_id && !record.name) continue;
+          
           csvDataToImport.push(record);
+          const displayId = record.name || record.member_id;
           if (i <= 5) {
-            previewHtml += '<tr><td>' + record.member_id + '</td><td>' + record.username + '</td><td>***</td></tr>';
+            previewHtml += '<tr><td class="pr-2">' + displayId + '</td><td class="pr-2">' + record.username + '</td><td>***</td></tr>';
           }
         }
         if (csvDataToImport.length > 5) {
           previewHtml += '<tr><td colspan="3" class="text-gray-400">...共 ' + csvDataToImport.length + ' 筆資料</td></tr>';
         }
         previewHtml += '</tbody></table>';
+        
+        if (csvDataToImport.length === 0) {
+          alert('未讀取到任何有效資料，請確認欄位格式正確。');
+          return;
+        }
         
         const previewEl = document.getElementById('csvPreview');
         previewEl.innerHTML = previewHtml;
