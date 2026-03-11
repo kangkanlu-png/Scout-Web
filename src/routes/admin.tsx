@@ -166,7 +166,7 @@ adminRoutes.get('/', authMiddleware, async (c) => {
           <span class="text-2xl">📅</span>
           <span class="text-sm text-teal-700 font-medium">出席管理</span>
         </a>
-        <a href="/admin/progress" class="flex flex-col items-center gap-2 p-4 bg-yellow-50 hover:bg-yellow-100 rounded-xl transition-colors">
+        <a href="/admin/advancement/requirements" class="flex flex-col items-center gap-2 p-4 bg-yellow-50 hover:bg-yellow-100 rounded-xl transition-colors">
           <span class="text-2xl">🏅</span>
           <span class="text-sm text-yellow-700 font-medium">進程榮譽</span>
         </a>
@@ -1875,7 +1875,7 @@ function adminLayout(title: string, content: string) {
       <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
         <a href="/admin/advancement" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '進程管理中心' ? 'bg-green-700' : 'text-green-200'}">📊 總覽與審核</a>
         <a href="/admin/advancement/badges" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '專科章設定' ? 'bg-green-700' : 'text-green-200'}">📛 專科章設定</a>
-        <a href="/admin/progress" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '進程標準設定' ? 'bg-green-700' : 'text-green-200'}">📏 標準設定</a>
+        <a href="/admin/advancement/requirements" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '進程標準設定' ? 'bg-green-700' : 'text-green-200'}">📏 標準設定</a>
         <a href="/admin/group-honors" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '榮譽榜管理' ? 'bg-green-700' : 'text-green-200'}">🏆 榮譽榜管理</a>
       </div>
       <a href="/admin/member-accounts" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('帳號') ? 'bg-green-700' : ''}">
