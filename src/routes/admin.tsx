@@ -4848,11 +4848,20 @@ adminRoutes.get('/coaches/settings', authMiddleware, async (c) => {
           ${it.required_count > 1 ? `<div class="text-xs text-gray-400 mt-0.5">需完成 ${it.required_count} 次</div>` : ''}
         </div>
         <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
-          <button onclick="openEditModal('${it.id}', ${JSON.stringify(it.stage)}, ${JSON.stringify(it.description)}, ${it.required_count})"
+          <button
+            data-edit-id="${it.id}"
+            data-edit-stage="${it.stage.replace(/"/g, '&quot;')}"
+            data-edit-desc="${it.description.replace(/"/g, '&quot;').replace(/'/g, '&#39;')}"
+            data-edit-count="${it.required_count}"
+            onclick="openEditModal(this)"
             class="text-blue-400 hover:text-blue-600 hover:bg-blue-50 text-xs px-1.5 py-1 rounded transition-colors" title="編輯">
             <i class="fas fa-pen"></i>
           </button>
-          <button onclick="deleteChecklistItem('${it.id}', ${JSON.stringify(it.description)}, '${stage}')"
+          <button
+            data-del-id="${it.id}"
+            data-del-desc="${it.description.replace(/"/g, '&quot;').replace(/'/g, '&#39;')}"
+            data-del-stage="${stage}"
+            onclick="deleteChecklistItem(this)"
             class="text-red-400 hover:text-red-600 hover:bg-red-50 text-xs px-1.5 py-1 rounded transition-colors" title="刪除">
             <i class="fas fa-trash"></i>
           </button>
@@ -5014,15 +5023,22 @@ adminRoutes.get('/coaches/settings', authMiddleware, async (c) => {
       }
     }
 
-    async function deleteChecklistItem(id, desc, stage) {
-      if (!confirm(\`確定刪除「\${stage}」階段的項目：\n「\${desc}」？\`)) return
+    async function deleteChecklistItem(btn) {
+      const id    = btn.dataset.delId;
+      const desc  = btn.dataset.delDesc;
+      const stage = btn.dataset.delStage;
+      if (!confirm('確定刪除「' + stage + '」階段的項目：\n「' + desc + '」？')) return
       const res = await fetch('/api/coach/checklist-items/' + id, { method: 'DELETE' })
       const r = await res.json()
       if (r.success) { location.reload() }
       else { alert('刪除失敗：' + (r.error||'')) }
     }
 
-    function openEditModal(id, stage, desc, count) {
+    function openEditModal(btn) {
+      const id    = btn.dataset.editId;
+      const stage = btn.dataset.editStage;
+      const desc  = btn.dataset.editDesc;
+      const count = btn.dataset.editCount;
       document.getElementById('edit-item-id').value = id;
       document.getElementById('edit-item-stage').value = stage;
       document.getElementById('edit-item-desc').value = desc;
