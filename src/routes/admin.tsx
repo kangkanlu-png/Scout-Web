@@ -11359,16 +11359,19 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       else showMsg('newFormMsg', '失敗：' + r.error, 'red');
     }
 
+    // ===== 共用工具函數 =====
+    function toKey(rank) { return rank.split(' ').join('_'); }
+
     // ===== 各階段內嵌快速新增 =====
     function showInlineAdd(rank) {
-      const key = rank.replace(/\\s/g,'_');
+      const key = toKey(rank);
       const el = document.getElementById('inline-add-' + key);
       el.classList.remove('hidden');
       document.getElementById('ia_title_' + key).focus();
     }
 
     async function submitInlineAdd(rank) {
-      const key = rank.replace(/\\s/g,'_');
+      const key = toKey(rank);
       const title = document.getElementById('ia_title_' + key).value.trim();
       if (!title) { alert('請填寫標準標題'); return; }
       const data = {
@@ -11465,33 +11468,27 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
         closeRenameStage(); return;
       }
       msg.innerHTML = '<p class="text-sm text-gray-400"><i class="fas fa-spinner fa-spin mr-1"></i>更新中...</p>';
-      // 取得此階段所有標準項目 id
-      const res0 = await fetch('/api/admin/advancement-requirements?section=' + encodeURIComponent(SECTION) + '&version=' + encodeURIComponent(CURRENT_VERSION));
-      const d0 = await res0.json();
-      const ids = (d0.data || []).filter(r => r.rank_to === _renameOldRank).map(r => r.id);
-      if (ids.length === 0) { msg.innerHTML = '<p class="text-sm text-red-500">找不到此階段的標準項目</p>'; return; }
-      // 批次更新所有同階段的 rank_to
-      let ok = 0, fail = 0;
-      for (const id of ids) {
-        const r = await fetch('/api/admin/advancement-requirements/' + id, {
-          method: 'PUT', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ title: d0.data.find(x=>x.id===id).title,
-            description: d0.data.find(x=>x.id===id).description,
-            required_count: d0.data.find(x=>x.id===id).required_count,
-            unit: d0.data.find(x=>x.id===id).unit,
-            is_mandatory: d0.data.find(x=>x.id===id).is_mandatory,
-            display_order: d0.data.find(x=>x.id===id).display_order,
-            requirement_type: d0.data.find(x=>x.id===id).requirement_type,
-            is_active: true, version_year: CURRENT_VERSION,
-            rank_to: newName, rank_from: rankFrom })
-        }).then(r=>r.json());
-        if (r.success) ok++; else fail++;
-      }
-      if (fail === 0) {
-        msg.innerHTML = '<p class="text-sm text-green-600">✅ 已更新 ' + ok + ' 項，重新載入中...</p>';
-        setTimeout(() => location.reload(), 600);
-      } else {
-        msg.innerHTML = '<p class="text-sm text-red-500">部分更新失敗（' + ok + ' 成功，' + fail + ' 失敗）</p>';
+      try {
+        const res = await fetch('/api/admin/advancement-requirements/rename-stage', {
+          method: 'PUT',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            old_rank_to: _renameOldRank,
+            new_rank_to: newName,
+            new_rank_from: rankFrom,
+            section: SECTION,
+            version_year: CURRENT_VERSION
+          })
+        });
+        const r = await res.json();
+        if (r.success) {
+          msg.innerHTML = '<p class="text-sm text-green-600">✅ 已更新，重新載入中...</p>';
+          setTimeout(() => location.reload(), 600);
+        } else {
+          msg.innerHTML = '<p class="text-sm text-red-500">更新失敗：' + (r.error||'未知錯誤') + '</p>';
+        }
+      } catch(e) {
+        msg.innerHTML = '<p class="text-sm text-red-500">網路錯誤：' + e.message + '</p>';
       }
     }
 
@@ -11525,7 +11522,7 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       const ids = (d0.data || []).filter(r => r.rank_to === stage).map(r => r.id);
       if (ids.length === 0) {
         // 沒有項目，直接移除 DOM 卡片
-        const card = document.getElementById('stage-' + stage.replace(/\s/g,'_'));
+        const card = document.getElementById('stage-' + toKey(stage));
         if (card) card.remove();
         return;
       }

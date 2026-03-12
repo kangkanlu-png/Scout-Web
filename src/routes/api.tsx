@@ -2323,6 +2323,21 @@ apiRoutes.put('/admin/advancement-requirements/reorder-stages', async (c) => {
 })
 
 // 新增晉升條件 (支援版本)
+// 批次重新命名階段（rank_to + rank_from）
+apiRoutes.put('/admin/advancement-requirements/rename-stage', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  const { old_rank_to, new_rank_to, new_rank_from, section, version_year } = body
+  if (!old_rank_to || !new_rank_to || !section || !version_year) {
+    return c.json({ success: false, error: '缺少必填欄位' }, 400)
+  }
+  // 批次更新同 section + version_year + rank_to 的所有項目
+  const result = await db.prepare(
+    `UPDATE advancement_requirements SET rank_to = ?, rank_from = ? WHERE rank_to = ? AND section = ? AND version_year = ? AND is_active = 1`
+  ).bind(new_rank_to, new_rank_from ?? '', old_rank_to, section, version_year).run()
+  return c.json({ success: true, updated: result.meta?.changes ?? 0 })
+})
+
 apiRoutes.post('/admin/advancement-requirements', async (c) => {
   const db = c.env.DB
   const body = await c.req.json()
