@@ -10840,16 +10840,10 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       .edit-form { display:none; }
       .edit-form.active { display:block; }
       .stage-header { background: linear-gradient(135deg, #f0fdf4, #dcfce7); }
-      /* 拖曳相關樣式 */
-      .drag-handle { cursor: grab; }
-      .drag-handle:active { cursor: grabbing; }
-      .sortable-ghost { opacity: 0.4; background: #d1fae5 !important; border: 2px dashed #10b981 !important; }
-      .sortable-chosen { box-shadow: 0 8px 24px rgba(0,0,0,.18) !important; }
-      .sortable-drag { opacity: 0.9; }
-      #stages-container.drag-active .req-card { border: 1px dashed #d1d5db; }
-      .drag-hint { display: none; }
-      #stages-container:has(.req-card) ~ .drag-hint,
-      #stages-container .drag-hint { display: none; }
+      /* 上下移動按鈕 */
+      .move-btn { transition: all .15s; }
+      .move-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+      .move-btn:not(:disabled):hover { transform: scale(1.1); }
     </style>
 
     <!-- 頁面標題區 -->
@@ -11048,9 +11042,16 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       <!-- 階段標題列 -->
       <div class="stage-header px-5 py-4 flex items-center justify-between border-b border-green-100">
         <div class="flex items-center gap-3">
-          <!-- 拖曳把手 -->
-          <div class="drag-handle w-7 h-7 flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-100 rounded-lg transition-colors" title="拖曳來調整階段順序">
-            <i class="fas fa-grip-vertical"></i>
+          <!-- 上下移動按鈕 -->
+          <div class="flex flex-col gap-0.5">
+            <button class="move-btn w-6 h-6 flex items-center justify-center text-gray-400 hover:text-green-700 hover:bg-green-100 rounded transition-colors"
+              onclick="moveStage('${targetRank}', -1)" title="往前一階" ${allTargets.indexOf(targetRank) === 0 ? 'disabled' : ''}>
+              <i class="fas fa-chevron-up text-xs"></i>
+            </button>
+            <button class="move-btn w-6 h-6 flex items-center justify-center text-gray-400 hover:text-green-700 hover:bg-green-100 rounded transition-colors"
+              onclick="moveStage('${targetRank}', 1)" title="往後一階" ${allTargets.indexOf(targetRank) === allTargets.length - 1 ? 'disabled' : ''}>
+              <i class="fas fa-chevron-down text-xs"></i>
+            </button>
           </div>
           <div class="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white text-xs font-bold shadow-sm stage-badge-num">
             ${allTargets.indexOf(targetRank) + 1}
@@ -11520,70 +11521,70 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       if (e.target === this) closeEdit();
     });
 
-    // ===== 拖曳排序（SortableJS）=====
-    function initSortable() {
+    // ===== 上下移動階段 =====
+    async function moveStage(rankTo, direction) {
       const container = document.getElementById('stages-container');
-      if (!container || typeof Sortable === 'undefined') return;
-      Sortable.create(container, {
-        animation: 180,
-        handle: '.drag-handle',
-        ghostClass: 'sortable-ghost',
-        chosenClass: 'sortable-chosen',
-        dragClass: 'sortable-drag',
-        onStart: function() {
-          container.classList.add('drag-active');
-        },
-        onEnd: async function(evt) {
-          container.classList.remove('drag-active');
-          if (evt.oldIndex === evt.newIndex) return;
-          // 重新計算順序
-          const cards = container.querySelectorAll('.req-card[data-rank-to]');
-          const stages = [];
-          cards.forEach(function(card, idx) {
-            stages.push({
-              rank_to: card.getAttribute('data-rank-to'),
-              section: SECTION,
-              version_year: CURRENT_VERSION,
-              stage_order: idx + 1
-            });
-            // 更新序號顯示
-            const badge = card.querySelector('.stage-badge-num');
-            if (badge) badge.textContent = idx + 1;
-          });
-          // 顯示儲存中
-          const bar = document.getElementById('drag-status-bar');
-          const txt = document.getElementById('drag-status-text');
-          bar.classList.remove('hidden');
-          bar.classList.add('flex');
-          txt.textContent = '儲存順序中...';
-          try {
-            const res = await fetch('/api/admin/advancement-requirements/reorder-stages', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ stages })
-            });
-            const data = await res.json();
-            if (data.success) {
-              txt.textContent = '✅ 順序已儲存';
-              bar.className = 'flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 mb-3 text-sm text-green-700';
-            } else {
-              txt.textContent = '❌ 儲存失敗：' + (data.error || '未知錯誤');
-              bar.className = 'flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 mb-3 text-sm text-red-700';
-            }
-          } catch(e) {
-            txt.textContent = '❌ 網路錯誤：' + e.message;
-            bar.className = 'flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 mb-3 text-sm text-red-700';
-          }
-          // 2秒後隱藏
-          setTimeout(() => {
-            bar.classList.add('hidden');
-            bar.classList.remove('flex');
-          }, 2000);
-        }
+      const cards = Array.from(container.querySelectorAll('.req-card[data-rank-to]'));
+      const idx = cards.findIndex(c => c.getAttribute('data-rank-to') === rankTo);
+      const swapIdx = idx + direction;
+      if (swapIdx < 0 || swapIdx >= cards.length) return;
+
+      // DOM 交換
+      if (direction === -1) {
+        container.insertBefore(cards[idx], cards[swapIdx]);
+      } else {
+        container.insertBefore(cards[swapIdx], cards[idx]);
+      }
+
+      // 更新序號與按鈕狀態
+      const newCards = Array.from(container.querySelectorAll('.req-card[data-rank-to]'));
+      newCards.forEach(function(card, i) {
+        const badge = card.querySelector('.stage-badge-num');
+        if (badge) badge.textContent = i + 1;
+        const btns = card.querySelectorAll('.move-btn');
+        if (btns[0]) btns[0].disabled = (i === 0);
+        if (btns[1]) btns[1].disabled = (i === newCards.length - 1);
       });
+
+      // 顯示儲存中狀態列
+      const bar = document.getElementById('drag-status-bar');
+      const txt = document.getElementById('drag-status-text');
+      bar.className = 'flex items-center gap-2 bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-2.5 mb-3 text-sm text-yellow-700';
+      txt.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>儲存順序中...';
+
+      // 建立 stages 陣列送 API
+      const stages = newCards.map(function(card, i) {
+        return {
+          rank_to: card.getAttribute('data-rank-to'),
+          section: SECTION,
+          version_year: CURRENT_VERSION,
+          stage_order: i + 1
+        };
+      });
+
+      try {
+        const res = await fetch('/api/admin/advancement-requirements/reorder-stages', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stages })
+        });
+        const data = await res.json();
+        if (data.success) {
+          bar.className = 'flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 mb-3 text-sm text-green-700';
+          txt.innerHTML = '<i class="fas fa-check mr-1"></i>順序已儲存';
+        } else {
+          bar.className = 'flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 mb-3 text-sm text-red-700';
+          txt.innerHTML = '<i class="fas fa-times mr-1"></i>儲存失敗：' + (data.error || '未知錯誤');
+        }
+      } catch(e) {
+        bar.className = 'flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 mb-3 text-sm text-red-700';
+        txt.innerHTML = '<i class="fas fa-times mr-1"></i>網路錯誤：' + e.message;
+      }
+      setTimeout(function() {
+        bar.className = 'hidden';
+      }, 2000);
     }
     </script>
-    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" onload="initSortable()"></script>
   `))
 })
 
