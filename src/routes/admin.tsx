@@ -10840,6 +10840,16 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       .edit-form { display:none; }
       .edit-form.active { display:block; }
       .stage-header { background: linear-gradient(135deg, #f0fdf4, #dcfce7); }
+      /* 拖曳相關樣式 */
+      .drag-handle { cursor: grab; }
+      .drag-handle:active { cursor: grabbing; }
+      .sortable-ghost { opacity: 0.4; background: #d1fae5 !important; border: 2px dashed #10b981 !important; }
+      .sortable-chosen { box-shadow: 0 8px 24px rgba(0,0,0,.18) !important; }
+      .sortable-drag { opacity: 0.9; }
+      #stages-container.drag-active .req-card { border: 1px dashed #d1d5db; }
+      .drag-hint { display: none; }
+      #stages-container:has(.req-card) ~ .drag-hint,
+      #stages-container .drag-hint { display: none; }
     </style>
 
     <!-- 頁面標題區 -->
@@ -11020,20 +11030,29 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       </div>
     </div>
 
+    <!-- 拖曳提示條 -->
+    <div id="drag-status-bar" class="hidden items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 mb-3 text-sm text-green-700">
+      <i class="fas fa-spinner fa-spin"></i><span id="drag-status-text">儲存順序中...</span>
+    </div>
+
     <!-- 進程標準列表（按階段分組） -->
     ${allTargets.length === 0 ? `
     <div class="bg-white rounded-2xl p-12 text-center">
       <div class="text-6xl mb-4">📋</div>
       <h3 class="text-lg font-semibold text-gray-700 mb-2">尚未設定進程標準</h3>
       <p class="text-gray-400 mb-4">點擊右上角「新增標準」開始設定 ${sectionFilter} 的升級條件</p>
-    </div>` : allTargets.map(targetRank => {
+    </div>` : `<div id="stages-container">` + allTargets.map(targetRank => {
       const reqs = groupsByTarget[targetRank] || []
       return `
-    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 mb-4 overflow-hidden req-card" id="stage-${targetRank.replace(/\s/g,'_')}">
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 mb-4 overflow-hidden req-card" data-rank-to="${targetRank.replace(/"/g,'&quot;')}" id="stage-${targetRank.replace(/\s/g,'_')}">
       <!-- 階段標題列 -->
       <div class="stage-header px-5 py-4 flex items-center justify-between border-b border-green-100">
         <div class="flex items-center gap-3">
-          <div class="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white text-xs font-bold shadow-sm">
+          <!-- 拖曳把手 -->
+          <div class="drag-handle w-7 h-7 flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-100 rounded-lg transition-colors" title="拖曳來調整階段順序">
+            <i class="fas fa-grip-vertical"></i>
+          </div>
+          <div class="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white text-xs font-bold shadow-sm stage-badge-num">
             ${allTargets.indexOf(targetRank) + 1}
           </div>
           <div>
@@ -11110,7 +11129,7 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
         </div>` : reqs.map((r: any) => renderReqRow(r, reqTypeMap)).join('')}
       </div>
     </div>`
-    }).join('')}
+    }).join('') + `</div>`}
 
     <!-- 編輯 Modal -->
     <div id="editModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -11500,7 +11519,71 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
     document.getElementById('editModal').addEventListener('click', function(e) {
       if (e.target === this) closeEdit();
     });
+
+    // ===== 拖曳排序（SortableJS）=====
+    function initSortable() {
+      const container = document.getElementById('stages-container');
+      if (!container || typeof Sortable === 'undefined') return;
+      Sortable.create(container, {
+        animation: 180,
+        handle: '.drag-handle',
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        dragClass: 'sortable-drag',
+        onStart: function() {
+          container.classList.add('drag-active');
+        },
+        onEnd: async function(evt) {
+          container.classList.remove('drag-active');
+          if (evt.oldIndex === evt.newIndex) return;
+          // 重新計算順序
+          const cards = container.querySelectorAll('.req-card[data-rank-to]');
+          const stages = [];
+          cards.forEach(function(card, idx) {
+            stages.push({
+              rank_to: card.getAttribute('data-rank-to'),
+              section: SECTION,
+              version_year: CURRENT_VERSION,
+              stage_order: idx + 1
+            });
+            // 更新序號顯示
+            const badge = card.querySelector('.stage-badge-num');
+            if (badge) badge.textContent = idx + 1;
+          });
+          // 顯示儲存中
+          const bar = document.getElementById('drag-status-bar');
+          const txt = document.getElementById('drag-status-text');
+          bar.classList.remove('hidden');
+          bar.classList.add('flex');
+          txt.textContent = '儲存順序中...';
+          try {
+            const res = await fetch('/api/admin/advancement-requirements/reorder-stages', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ stages })
+            });
+            const data = await res.json();
+            if (data.success) {
+              txt.textContent = '✅ 順序已儲存';
+              bar.className = 'flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 mb-3 text-sm text-green-700';
+            } else {
+              txt.textContent = '❌ 儲存失敗：' + (data.error || '未知錯誤');
+              bar.className = 'flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 mb-3 text-sm text-red-700';
+            }
+          } catch(e) {
+            txt.textContent = '❌ 網路錯誤：' + e.message;
+            bar.className = 'flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 mb-3 text-sm text-red-700';
+          }
+          // 2秒後隱藏
+          setTimeout(() => {
+            bar.classList.add('hidden');
+            bar.classList.remove('flex');
+          }, 2000);
+        }
+      });
+    }
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" onload="initSortable()"></script>
   `))
 })
 

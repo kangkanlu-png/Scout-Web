@@ -2297,9 +2297,29 @@ apiRoutes.get('/admin/advancement-requirements', async (c) => {
   if (section) { query += ` AND section = ?`; params.push(section) }
   if (version) { query += ` AND version_year = ?`; params.push(version) }
   
-  query += ` ORDER BY version_year DESC, section, rank_from, display_order`
+  query += ` ORDER BY version_year DESC, section, stage_order, rank_from, display_order`
   const result = await db.prepare(query).bind(...params).all()
   return c.json({ success: true, data: result.results })
+})
+
+// 更新階段排序（拖曳排序）
+apiRoutes.put('/admin/advancement-requirements/reorder-stages', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  // stages: [{ rank_to, section, version_year, stage_order }, ...]
+  const { stages } = body
+  if (!stages || !Array.isArray(stages) || stages.length === 0) {
+    return c.json({ success: false, error: '缺少 stages 資料' }, 400)
+  }
+  // 批次更新每個 rank_to 的 stage_order
+  for (const s of stages) {
+    const { rank_to, section, version_year, stage_order } = s
+    if (!rank_to || !section || !version_year || stage_order === undefined) continue
+    await db.prepare(
+      `UPDATE advancement_requirements SET stage_order = ? WHERE rank_to = ? AND section = ? AND version_year = ? AND is_active = 1`
+    ).bind(stage_order, rank_to, section, version_year).run()
+  }
+  return c.json({ success: true, updated: stages.length })
 })
 
 // 新增晉升條件 (支援版本)
