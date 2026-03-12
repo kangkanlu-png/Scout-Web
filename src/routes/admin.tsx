@@ -11049,6 +11049,13 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
             class="text-gray-400 hover:text-blue-600 text-xs px-2.5 py-1.5 rounded-lg hover:bg-blue-50 transition-colors flex items-center gap-1 border border-transparent hover:border-blue-200" title="重新命名此階段">
             <i class="fas fa-pencil-alt"></i><span class="hidden sm:inline">重新命名</span>
           </button>
+          <button
+            data-del-stage="${targetRank.replace(/"/g,'&quot;')}"
+            data-del-count="${reqs.length}"
+            onclick="deleteStageAll(this)"
+            class="text-gray-400 hover:text-red-600 text-xs px-2.5 py-1.5 rounded-lg hover:bg-red-50 transition-colors flex items-center gap-1 border border-transparent hover:border-red-200" title="刪除整個階段">
+            <i class="fas fa-trash-alt"></i><span class="hidden sm:inline">刪除階段</span>
+          </button>
           <button onclick="showInlineAdd('${targetRank}')"
             class="text-green-600 hover:text-green-800 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-green-50 transition-colors flex items-center gap-1 border border-green-200">
             <i class="fas fa-plus"></i>新增
@@ -11335,7 +11342,19 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       else alert('新增失敗：' + r.error);
     }
 
-    // ===== 編輯 Modal =====
+    // ===== 編輯 Modal（data-attribute 版）=====
+    function openEditBtn(btn) {
+      document.getElementById('edit_id').value        = btn.dataset.reqId;
+      document.getElementById('edit_title').value     = btn.dataset.reqTitle;
+      document.getElementById('edit_desc').value      = btn.dataset.reqDesc || '';
+      document.getElementById('edit_type').value      = btn.dataset.reqType;
+      document.getElementById('edit_count').value     = btn.dataset.reqCount;
+      document.getElementById('edit_unit').value      = btn.dataset.reqUnit;
+      document.getElementById('edit_mandatory').checked = btn.dataset.reqMandatory === '1';
+      document.getElementById('editMsg').innerHTML    = '';
+      document.getElementById('editModal').classList.remove('hidden');
+    }
+    // 向下相容舊呼叫
     function openEdit(id, title, desc, type, count, unit, mandatory) {
       document.getElementById('edit_id').value = id;
       document.getElementById('edit_title').value = title;
@@ -11428,15 +11447,47 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       }
     }
 
-    // ===== 刪除 =====
+    // ===== 刪除單一標準（data-attribute 版）=====
+    function deleteReqBtn(btn) {
+      const id = btn.dataset.delId;
+      const title = btn.dataset.delTitle;
+      deleteReq(id, title);
+    }
     async function deleteReq(id, title) {
-      if (!confirm('確定要刪除「' + title + '」？\\n此操作無法復原')) return;
+      if (!confirm('確定要刪除「' + title + '」？\n此操作無法復原')) return;
       const res = await fetch('/api/admin/advancement-requirements/' + id, { method:'DELETE' });
       const r = await res.json();
       if (r.success) {
         const row = document.getElementById('req-' + id);
         if (row) row.remove();
       } else alert('刪除失敗：' + r.error);
+    }
+
+    // ===== 刪除整個階段（所有該 rank_to 的標準）=====
+    async function deleteStageAll(btn) {
+      const stage = btn.dataset.delStage;
+      const count = parseInt(btn.dataset.delCount) || 0;
+      const msg = count > 0
+        ? '確定要刪除「' + stage + '」整個階段及其 ' + count + ' 項標準？\n此操作無法復原'
+        : '確定要刪除「' + stage + '」階段？（此階段目前無標準項目）';
+      if (!confirm(msg)) return;
+      // 取得該版本該 section 此 rank_to 所有 id
+      const res0 = await fetch('/api/admin/advancement-requirements?section=' + encodeURIComponent(SECTION) + '&version=' + encodeURIComponent(CURRENT_VERSION));
+      const d0 = await res0.json();
+      const ids = (d0.data || []).filter(r => r.rank_to === stage).map(r => r.id);
+      if (ids.length === 0) {
+        // 沒有項目，直接移除 DOM 卡片
+        const card = document.getElementById('stage-' + stage.replace(/\s/g,'_'));
+        if (card) card.remove();
+        return;
+      }
+      let ok = 0;
+      for (const id of ids) {
+        const r = await fetch('/api/admin/advancement-requirements/' + id, { method: 'DELETE' }).then(r=>r.json());
+        if (r.success) ok++;
+      }
+      if (ok === ids.length) location.reload();
+      else alert('部分刪除失敗（' + ok + '/' + ids.length + '）');
     }
 
     // ===== 工具函數 =====
@@ -11588,6 +11639,8 @@ adminRoutes.get('/advancement/:id', authMiddleware, async (c) => {
 function renderReqRow(r: any, reqTypeMap: Record<string, { label: string; icon: string }>) {
   const typeInfo = reqTypeMap[r.requirement_type] || { label: r.requirement_type, icon: '⭐' }
   const countText = r.required_count > 1 ? `${r.required_count} ${r.unit}` : `1 ${r.unit}`
+  // 使用 data-* 屬性避免 JSON.stringify 在 onclick 中的雙引號衝突
+  const esc = (s: string) => String(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;')
   return `
   <div class="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 border-b border-gray-50 last:border-0 group" id="req-${r.id}">
     <div class="flex items-center gap-3 min-w-0 flex-1">
@@ -11601,14 +11654,25 @@ function renderReqRow(r: any, reqTypeMap: Record<string, { label: string; icon: 
         ${r.description ? `<div class="text-xs text-gray-400 mt-0.5 truncate max-w-sm">${r.description}</div>` : ''}
       </div>
     </div>
-    <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-3">
-      <button onclick="openEdit('${r.id}', ${JSON.stringify(r.title)}, ${JSON.stringify(r.description || '')}, '${r.requirement_type}', ${r.required_count}, '${r.unit}', ${r.is_mandatory})"
-        class="text-blue-500 hover:text-blue-700 text-xs px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors font-medium">
-        編輯
+    <div class="flex items-center gap-2 flex-shrink-0 ml-3">
+      <button
+        data-req-id="${r.id}"
+        data-req-title="${esc(r.title)}"
+        data-req-desc="${esc(r.description || '')}"
+        data-req-type="${r.requirement_type}"
+        data-req-count="${r.required_count}"
+        data-req-unit="${esc(r.unit)}"
+        data-req-mandatory="${r.is_mandatory ? '1' : '0'}"
+        onclick="openEditBtn(this)"
+        class="inline-flex items-center gap-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-sm transition-colors opacity-0 group-hover:opacity-100">
+        <i class="fas fa-pen text-xs"></i> 編輯
       </button>
-      <button onclick="deleteReq('${r.id}', ${JSON.stringify(r.title)})"
-        class="text-red-400 hover:text-red-600 text-xs px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors font-medium">
-        刪除
+      <button
+        data-del-id="${r.id}"
+        data-del-title="${esc(r.title)}"
+        onclick="deleteReqBtn(this)"
+        class="inline-flex items-center gap-1 bg-red-500 hover:bg-red-600 text-white text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-sm transition-colors opacity-0 group-hover:opacity-100">
+        <i class="fas fa-trash text-xs"></i> 刪除
       </button>
     </div>
   </div>`
