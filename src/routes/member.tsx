@@ -560,17 +560,30 @@ memberRoutes.get('/progress', memberAuthMiddleware, async (c) => {
   const member = await db.prepare(`SELECT * FROM members WHERE id = ?`).bind(memberId).first() as any
   if (!member) return c.redirect('/member/login')
 
+  // 取得目前學年設定（用來對應正確版本的晉升條件）
+  const yearSetting = await db.prepare(`SELECT value FROM site_settings WHERE key='current_year_label'`).first() as any
+  const currentYear = yearSetting?.value || '115'
+
   // 取得所有進度記錄
   const progressRecords = await db.prepare(`
     SELECT * FROM progress_records WHERE member_id = ? ORDER BY awarded_at DESC
   `).bind(memberId).all()
 
-  // 取得本組全部啟用的晉升條件（按 rank_to 分組，顯示「升到哪個階段需要做什麼」）
+  // 取得本組對應學年的晉升條件（只抓 current_year 版本，避免多版本重複）
+  // 若當年度無資料，fallback 到最新版本
+  const reqCheck = await db.prepare(`
+    SELECT COUNT(*) as cnt FROM advancement_requirements
+    WHERE section = ? AND is_active = 1 AND version_year = ?
+  `).bind(member.section, currentYear).first() as any
+
+  const versionToUse = (reqCheck?.cnt > 0) ? currentYear :
+    ((await db.prepare(`SELECT version_year FROM advancement_requirements WHERE section = ? AND is_active = 1 ORDER BY version_year DESC LIMIT 1`).bind(member.section).first() as any)?.version_year || currentYear)
+
   const requirements = await db.prepare(`
     SELECT * FROM advancement_requirements
-    WHERE section = ? AND is_active = 1
+    WHERE section = ? AND is_active = 1 AND version_year = ?
     ORDER BY rank_from, display_order, id
-  `).bind(member.section).all()
+  `).bind(member.section, versionToUse).all()
 
   // 取得個人晉升進度回報
   const advProgress = await db.prepare(`

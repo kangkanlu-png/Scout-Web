@@ -3954,7 +3954,11 @@ adminRoutes.get('/attendance/:id', authMiddleware, async (c) => {
 adminRoutes.get('/progress', authMiddleware, async (c) => {
   const db = c.env.DB
   const sectionFilter = c.req.query('section') || '童軍'
-  const versionFilter = c.req.query('version') || '113' // 預設 113 學年
+  // 預設使用最新學年，不寫死 113
+  const latestVerRow = await db.prepare(
+    `SELECT version_year FROM advancement_requirements WHERE section = ? AND is_active = 1 ORDER BY version_year DESC LIMIT 1`
+  ).bind(sectionFilter).first() as any
+  const versionFilter = c.req.query('version') || latestVerRow?.version_year || '115'
 
   // 取得該版本的所有條件
   const requirements = await db.prepare(`
