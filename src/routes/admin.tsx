@@ -10762,12 +10762,12 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
   // 如果沒指定版本，使用最新版本或全部
   const currentVersion = versionFilter || (versions.length > 0 ? versions[0] : '')
 
-  // 取得該組別所有啟用條件（按 rank_to 分組顯示，仿截圖設計）
+  // 取得該組別所有啟用條件（按 stage_order 排序，stage_order=999 時回落到 rank_from）
   const requirements = await db.prepare(`
     SELECT * FROM advancement_requirements
     WHERE section = ? AND is_active = 1
     ${currentVersion ? 'AND version_year = ?' : ''}
-    ORDER BY rank_from, display_order, id
+    ORDER BY stage_order, rank_from, display_order, id
   `).bind(sectionFilter, ...(currentVersion ? [currentVersion] : [])).all()
 
   // 按 rank_to（目標階級）分組 — 顯示「要到達這個階段需要做什麼」
@@ -10814,9 +10814,37 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
   const rankFromMap: Record<string,string> = {}
   rankPairsDefault.forEach(p => { rankFromMap[p.rank] = p.from })
 
-  // 所有目標階段（已有條件 + 預設，按正確順序排列）
+  // 從 DB 取得各 rank_to 的 stage_order（用第一筆記錄的 stage_order）
+  const stageOrderMap: Record<string, number> = {}
+  requirements.results.forEach((r: any) => {
+    if (!(r.rank_to in stageOrderMap)) stageOrderMap[r.rank_to] = r.stage_order ?? 999
+  })
+
+  // 所有目標階段：優先以 stage_order 排序；stage_order=999 時，預設順序的放前面，其餘依字母
   const extraTargets = Object.keys(groupsByTarget).filter(t => !targetRanks.includes(t))
-  const allTargets = [...targetRanks, ...extraTargets]
+  const allTargetsRaw = [...targetRanks, ...extraTargets]
+  const allTargets = allTargetsRaw.slice().sort((a, b) => {
+    const oa = stageOrderMap[a] ?? 999
+    const ob = stageOrderMap[b] ?? 999
+    if (oa !== ob) return oa - ob
+    // stage_order 相同時，維持 targetRanks 預設順序
+    const ia = targetRanks.indexOf(a)
+    const ib = targetRanks.indexOf(b)
+    if (ia !== -1 && ib !== -1) return ia - ib
+    if (ia !== -1) return -1
+    if (ib !== -1) return 1
+    return a.localeCompare(b)
+  })
+
+  // 如果所有 stage_order 都是 999（尚未設定），自動寫入初始順序
+  const allDefault = allTargets.every(t => (stageOrderMap[t] ?? 999) === 999)
+  if (allDefault && allTargets.length > 0 && currentVersion) {
+    const updateStmts = allTargets.map((t, i) =>
+      db.prepare(`UPDATE advancement_requirements SET stage_order = ? WHERE rank_to = ? AND section = ? AND version_year = ? AND is_active = 1`)
+        .bind(i + 1, t, sectionFilter, currentVersion).run()
+    )
+    await Promise.all(updateStmts)
+  }
 
   const reqTypeOptions = [
     { value: 'attendance', label: '出席', icon: '📅' },
@@ -11529,11 +11557,21 @@ adminRoutes.get('/advancement/requirements', authMiddleware, async (c) => {
       const swapIdx = idx + direction;
       if (swapIdx < 0 || swapIdx >= cards.length) return;
 
-      // DOM 交換
+      // DOM 交換（穩健版本）
+      const cardA = cards[idx];
+      const cardB = cards[swapIdx];
+      const afterB = cardB.nextSibling;
       if (direction === -1) {
-        container.insertBefore(cards[idx], cards[swapIdx]);
+        // 往上：把 cardA 插到 cardB 之前
+        container.insertBefore(cardA, cardB);
       } else {
-        container.insertBefore(cards[swapIdx], cards[idx]);
+        // 往下：先把 cardB 插到 cardA 之前，再把 cardA 插到 afterB 之前
+        container.insertBefore(cardB, cardA);
+        if (afterB) {
+          container.insertBefore(cardA, afterB);
+        } else {
+          container.appendChild(cardA);
+        }
       }
 
       // 更新序號與按鈕狀態
