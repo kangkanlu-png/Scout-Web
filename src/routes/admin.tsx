@@ -796,6 +796,7 @@ adminRoutes.get('/groups', authMiddleware, async (c) => {
       <td class="py-3 px-4 text-sm text-gray-500">${g.grade_range || '-'}</td>
       <td class="py-3 px-4 text-sm">
         <span class="px-2 py-0.5 rounded-full text-xs ${g.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">${g.is_active ? '顯示中' : '已隱藏'}</span>
+        <button onclick="toggleGroupActive(${g.id}, ${g.is_active ? 0 : 1})" class="text-${g.is_active ? 'orange' : 'green'}-600 hover:underline text-xs ml-2">${g.is_active ? '暫時關閉' : '重新開放'}</button>
       </td>
       <td class="py-3 px-4">
         <a href="/admin/groups/${g.id}/semesters" class="text-green-600 hover:text-green-800 text-sm font-medium mr-3">📂 學期/相片</a>
@@ -892,6 +893,14 @@ adminRoutes.get('/groups', authMiddleware, async (c) => {
         };
         const res = await fetch('/api/groups/' + id, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
         if (res.ok) location.reload(); else alert('更新失敗');
+      }
+      async function toggleGroupActive(id, newStatus) {
+        const res = await fetch('/api/groups/' + id + '/toggle-active', { 
+          method: 'PUT', 
+          headers: {'Content-Type':'application/json'}, 
+          body: JSON.stringify({ is_active: newStatus }) 
+        });
+        if (res.ok) location.reload(); else alert('切換狀態失敗');
       }
       async function deleteGroup(id) {
         if (!confirm('確定要刪除此分組嗎？')) return;

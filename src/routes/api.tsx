@@ -373,6 +373,14 @@ apiRoutes.post('/groups', async (c) => {
   return c.json({ success: true, id: result.meta.last_row_id })
 })
 
+apiRoutes.put('/groups/:id/toggle-active', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  await db.prepare('UPDATE scout_groups SET is_active = ? WHERE id = ?').bind(body.is_active, id).run()
+  return c.json({ success: true })
+})
+
 apiRoutes.put('/groups/:id', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')

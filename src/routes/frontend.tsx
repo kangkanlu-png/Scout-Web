@@ -2575,7 +2575,12 @@ function renderGroupPage(group: any, semesters: any[], settings: Record<string, 
       { label: '歷屆名單', path: 'alumni', icon: '👥' },
     ],
   }
-  const subPages = subPageDefs[group.slug] || []
+  const subPages = subPageDefs[group.slug] || [
+    { label: group.name + '組織', path: 'org', icon: '🏛️' },
+    { label: '現任幹部', path: 'cadres', icon: '⭐' },
+    { label: '歷屆幹部', path: 'past-cadres', icon: '📜' },
+    { label: '歷屆名單', path: 'alumni', icon: '👥' },
+  ]
   const subPageButtons = subPages.map(p => `
     <a href="/group/${group.slug}/${p.path}"
       class="flex items-center justify-center gap-3 w-full bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-bold text-lg py-4 px-6 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5">
