@@ -378,7 +378,7 @@ adminRoutes.get('/activities', authMiddleware, async (c) => {
       async function closeAndHighlight(id) {
         if (!confirm('確定要結案此活動並將其移至「精彩活動」展示嗎？\\n(系統將自動關閉報名功能並設定為精彩活動)')) return;
         try {
-          const res = await fetch('/api/admin/activities/' + id + '/close-and-highlight', { method: 'POST' });
+          const res = await fetch('/api/activities/' + id + '/close-and-highlight', { method: 'POST' });
           if (res.ok) {
             alert('已成功結案並移至精彩活動！');
             location.reload();
@@ -393,7 +393,7 @@ adminRoutes.get('/activities', authMiddleware, async (c) => {
       async function deleteActivity(id) {
         if (!confirm('確定要刪除此活動嗎？這項操作無法復原。')) return;
         try {
-          const res = await fetch('/api/admin/activities/' + id, { method: 'DELETE' });
+          const res = await fetch('/api/activities/' + id, { method: 'DELETE' });
           if (res.ok) {
             location.reload();
           } else {
@@ -621,7 +621,7 @@ adminRoutes.get('/activities/:id/images', authMiddleware, async (c) => {
         
         let success = 0;
         for (const url of urls) {
-          const res = await fetch('/api/admin/activities/' + activityId + '/images', {
+          const res = await fetch('/api/activities/' + activityId + '/images', {
             method: 'POST',
             headers: {'Content-Type':'application/json'},
             body: JSON.stringify({ image_url: url, caption: caption || null, display_order: startOrder++ })
