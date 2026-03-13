@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { generateRoverMapHtml, mapScript, countryCoords, countryFlags, googleMapsQuery } from './map-data'
 
 type Bindings = {
   DB: D1Database
@@ -2291,12 +2292,14 @@ frontendRoutes.get('/group/:slug', async (c) => {
     GROUP BY gs.id
     ORDER BY gs.display_order ASC, gs.semester DESC
   `).bind(group.id).all()
+  
+  const subpages = await db.prepare('SELECT * FROM group_subpages WHERE group_id = ? AND is_active = 1 ORDER BY display_order ASC').bind(group.id).all()
 
   const settingsRows = await db.prepare(`SELECT key, value FROM site_settings`).all()
   const settings: Record<string, string> = {}
   settingsRows.results.forEach((row: any) => { settings[row.key] = row.value })
 
-  return c.html(renderGroupPage(group, semesters.results, settings))
+  return c.html(renderGroupPage(group, semesters.results, settings, subpages.results))
 })
 
 // ===================== 分組子頁面路由（必須在 :semester 路由之前）=====================
@@ -2544,7 +2547,7 @@ function pageFooter(settings: Record<string, string>) {
 }
 
 // ===================== 分組首頁 =====================
-function renderGroupPage(group: any, semesters: any[], settings: Record<string, string>) {
+function renderGroupPage(group: any, semesters: any[], settings: Record<string, string>, subPagesFromDb: any[] = []) {
   const groupIcon: Record<string, string> = {
     'scout-troop': '🏕️',
     'senior-scout': '⛺',
@@ -2553,38 +2556,16 @@ function renderGroupPage(group: any, semesters: any[], settings: Record<string, 
   }
   const icon = groupIcon[group.slug] || '⚜️'
 
-  // 子頁面按鈕（仿原始網站風格）
-  const subPageDefs: Record<string, { label: string; path: string; icon: string }[]> = {
-    'scout-troop': [
-      { label: '童軍團組織', path: 'org', icon: '🏛️' },
-      { label: '現任幹部', path: 'cadres', icon: '⭐' },
-      { label: '歷屆幹部', path: 'past-cadres', icon: '📜' },
-      { label: '歷屆名單', path: 'alumni', icon: '👥' },
-    ],
-    'senior-scout': [
-      { label: '行義團組織架構', path: 'org', icon: '🏛️' },
-      { label: '教練團', path: 'coaches-list', icon: '🧢' },
-      { label: '行義團現任幹部', path: 'cadres', icon: '⭐' },
-      { label: '行義團歷屆幹部', path: 'past-cadres', icon: '📜' },
-      { label: '行義團歷屆名單', path: 'alumni', icon: '👥' },
-    ],
-    'rover-scout': [
-      { label: '羅浮群組織', path: 'org', icon: '🏛️' },
-      { label: '現任幹部', path: 'cadres', icon: '⭐' },
-      { label: '歷屆幹部', path: 'past-cadres', icon: '📜' },
-      { label: '歷屆名單', path: 'alumni', icon: '👥' },
-    ],
-  }
-  const subPages = subPageDefs[group.slug] || [
-    { label: group.name + '組織', path: 'org', icon: '🏛️' },
-    { label: '現任幹部', path: 'cadres', icon: '⭐' },
-    { label: '歷屆幹部', path: 'past-cadres', icon: '📜' },
-    { label: '歷屆名單', path: 'alumni', icon: '👥' },
-  ]
+  const subPages = subPagesFromDb.length > 0 ? subPagesFromDb : [
+    { label: group.name + '組織', path: 'org', icon: '🏛️', is_custom: 0 },
+    { label: '現任幹部', path: 'cadres', icon: '⭐', is_custom: 0 },
+    { label: '歷屆幹部', path: 'past-cadres', icon: '📜', is_custom: 0 },
+    { label: '歷屆名單', path: 'alumni', icon: '👥', is_custom: 0 },
+  ];
   const subPageButtons = subPages.map(p => `
-    <a href="/group/${group.slug}/${p.path}"
+    <a href="${p.is_custom ? p.custom_link : '/group/' + group.slug + '/' + p.path}"
       class="flex items-center justify-center gap-3 w-full bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-bold text-lg py-4 px-6 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5">
-      <span class="text-2xl">${p.icon}</span>
+      <span class="text-2xl">${p.icon || '📄'}</span>
       <span>${p.label}</span>
     </a>
   `).join('')
@@ -3922,3 +3903,76 @@ frontendRoutes.get('/about/leaders', async (c) => {
 </body></html>`)
 })
 
+
+
+// ===================== 羅浮群全球分佈頁面 (前端) =====================
+frontendRoutes.get('/rover-map', async (c) => {
+  const db = c.env.DB
+  
+  // 獲取網站設定
+  const settingsRecords = await db.prepare('SELECT key, value FROM site_settings').all()
+  const siteSettings: Record<string, string> = {}
+  ;(settingsRecords.results as any[]).forEach((r: any) => {
+    siteSettings[r.key] = r.value
+  })
+
+  const sectionColors: Record<string, string> = {
+    '童軍': '#22c55e', '行義童軍': '#3b82f6', '羅浮童軍': '#a855f7', '服務員': '#f59e0b'
+  }
+
+  const roverMembers = await db.prepare(`
+    SELECT chinese_name, country, university
+    FROM members
+    WHERE UPPER(membership_status) = 'ACTIVE' AND section = '羅浮童軍'
+    ORDER BY country, chinese_name
+  `).all()
+
+  const roverCountryMap: Record<string, {count: number, members: string[]}> = {}
+  ;(roverMembers.results as any[]).forEach((r: any) => {
+    const country = r.country || '台灣'
+    if (!roverCountryMap[country]) roverCountryMap[country] = { count: 0, members: [] }
+    roverCountryMap[country].count++
+    const uni = (r.university && r.university !== 'null' && r.university.trim()) ? ` (${r.university})` : ''
+    roverCountryMap[country].members.push(r.chinese_name + uni)
+  })
+  const roverCountries = Object.keys(roverCountryMap).sort((a,b) => roverCountryMap[b].count - roverCountryMap[a].count)
+
+  const roverMapHtml = generateRoverMapHtml(roverCountries, roverCountryMap, sectionColors)
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="zh-TW">
+    ${pageHead('羅浮群全球分佈圖', siteSettings)}
+    <body class="bg-gray-50 flex flex-col min-h-screen font-sans">
+      ${navBar()}
+      
+      <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+        <!-- 麵包屑導航 -->
+        <nav class="mb-6 flex items-center text-sm text-gray-500">
+          <a href="/" class="hover:text-green-600 transition-colors">首頁</a>
+          <span class="mx-2">/</span>
+          <a href="/group/rover-scout" class="hover:text-green-600 transition-colors">羅浮童軍群</a>
+          <span class="mx-2">/</span>
+          <span class="text-gray-900 font-medium">羅浮分佈圖</span>
+        </nav>
+
+        <div class="bg-white p-6 rounded-xl shadow-sm">
+          ${roverMapHtml}
+        </div>
+      </main>
+
+      ${footer(siteSettings)}
+
+      <script>
+        const ROVER_COUNTRY_MAP = ${JSON.stringify(roverCountryMap)};
+        const COUNTRY_FLAGS = ${JSON.stringify(countryFlags)};
+        const GOOGLE_MAPS_QUERY = ${JSON.stringify(googleMapsQuery)};
+        
+        ${mapScript}
+      </script>
+    </body>
+    </html>
+  `
+
+  return c.html(html)
+})

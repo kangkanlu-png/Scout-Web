@@ -9,6 +9,45 @@ type Bindings = {
 
 export const apiRoutes = new Hono<{ Bindings: Bindings }>()
 
+apiRoutes.post('/group-subpages', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json()
+  const { group_id, label, path, icon, display_order, is_custom, custom_link } = body
+  const result = await db.prepare(`
+    INSERT INTO group_subpages (group_id, label, path, icon, display_order, is_custom, custom_link)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(group_id, label, path || '', icon || '📄', display_order || 0, is_custom ? 1 : 0, custom_link || null).run()
+  return c.json({ success: true })
+})
+
+apiRoutes.put('/group-subpages/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { label, path, icon, display_order, is_custom, custom_link, is_active } = body
+  await db.prepare(`
+    UPDATE group_subpages SET label=?, path=?, icon=?, display_order=?, is_custom=?, custom_link=?, is_active=?
+    WHERE id=?
+  `).bind(label, path || '', icon || '📄', display_order || 0, is_custom ? 1 : 0, custom_link || null, is_active ? 1 : 0, id).run()
+  return c.json({ success: true })
+})
+
+apiRoutes.put('/group-subpages/:id/toggle-active', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  await db.prepare('UPDATE group_subpages SET is_active = ? WHERE id = ?').bind(body.is_active, id).run()
+  return c.json({ success: true })
+})
+
+apiRoutes.delete('/group-subpages/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  await db.prepare('DELETE FROM group_subpages WHERE id=?').bind(id).run()
+  return c.json({ success: true })
+})
+
+
 // GET /api/auth/check-admin — 檢查是否有管理員 session（供前台 navbar 使用）
 apiRoutes.get('/auth/check-admin', (c) => {
   const session = getCookie(c, 'admin_session')

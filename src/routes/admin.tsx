@@ -5385,6 +5385,22 @@ adminRoutes.get('/groups/:id/subpages', authMiddleware, async (c) => {
   const alumniCount = await db.prepare(`SELECT COUNT(*) as cnt FROM group_alumni WHERE group_id=?`).bind(id).first() as any
   const org = await db.prepare(`SELECT id FROM group_org_chart WHERE group_id=?`).bind(id).first() as any
 
+  const subpages = await db.prepare('SELECT * FROM group_subpages WHERE group_id=? ORDER BY display_order ASC').bind(id).all()
+  const subpagesRows = subpages.results.map((sp: any) => `
+    <tr class="border-b hover:bg-gray-50">
+      <td class="py-2 px-4">${sp.icon} ${sp.label}</td>
+      <td class="py-2 px-4 text-gray-500 text-sm">${sp.is_custom ? sp.custom_link : '/group/' + group.slug + '/' + sp.path}</td>
+      <td class="py-2 px-4 text-sm">
+        <span class="px-2 py-0.5 rounded-full text-xs ${sp.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">${sp.is_active ? '顯示中' : '已隱藏'}</span>
+        <button onclick="toggleSubpageActive(${sp.id}, ${sp.is_active ? 0 : 1})" class="text-${sp.is_active ? 'orange' : 'green'}-600 hover:underline text-xs ml-2">${sp.is_active ? '暫時關閉' : '重新開放'}</button>
+      </td>
+      <td class="py-2 px-4 text-sm text-gray-500">${sp.display_order}</td>
+      <td class="py-2 px-4 text-sm">
+        ${sp.is_custom ? `<button onclick="deleteSubpage(${sp.id})" class="text-red-500 hover:text-red-700 font-medium">刪除</button>` : '<span class="text-gray-400">系統內建</span>'}
+      </td>
+    </tr>
+  `).join('')
+
   return c.html(adminLayout(`${group.name} - 子頁面管理`, `
     <div class="mb-6">
       <div class="flex items-center gap-3 mb-2">
@@ -5429,11 +5445,98 @@ adminRoutes.get('/groups/:id/subpages', authMiddleware, async (c) => {
       </div>
     </div>
 
-    <div class="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-700">
+    <div class="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-700 mb-6">
       💡 <strong>提示：</strong>設定完成後，可在前台 
       <a href="/group/${group.slug}" target="_blank" class="underline">/group/${group.slug}</a> 
       查看結果
     </div>
+
+    <!-- 前台子頁面按鈕管理 -->
+    <div class="bg-white rounded-xl shadow overflow-hidden">
+      <div class="flex justify-between items-center p-4 border-b">
+        <h3 class="text-lg font-bold text-gray-800">前台子頁面按鈕管理</h3>
+        <button onclick="document.getElementById('add-subpage-modal').classList.remove('hidden')" class="bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium">➕ 新增自訂子頁面</button>
+      </div>
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b">
+          <tr>
+            <th class="py-2 px-4 text-left text-gray-600">按鈕名稱</th>
+            <th class="py-2 px-4 text-left text-gray-600">連結路徑</th>
+            <th class="py-2 px-4 text-left text-gray-600">狀態</th>
+            <th class="py-2 px-4 text-left text-gray-600">排序</th>
+            <th class="py-2 px-4 text-left text-gray-600">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${subpagesRows}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 新增自訂子頁面彈窗 -->
+    <div id="add-subpage-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
+        <h3 class="text-lg font-bold mb-4">新增自訂子頁面</h3>
+        <form id="add-subpage-form" class="space-y-4">
+          <input type="hidden" id="add-sp-group_id" value="${id}">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">按鈕圖示 (Emoji)</label>
+            <input type="text" id="add-sp-icon" class="w-full border rounded-lg px-3 py-2 text-sm" value="📄" placeholder="例如: 🌍 或 📄">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">按鈕名稱 *</label>
+            <input type="text" id="add-sp-label" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="例如: 羅浮分佈圖" required>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">自訂連結路徑 *</label>
+            <input type="text" id="add-sp-custom_link" class="w-full border rounded-lg px-3 py-2 text-sm font-mono" placeholder="例如: /rover-map" required>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">排序 (數字越小越前面)</label>
+            <input type="number" id="add-sp-display_order" class="w-full border rounded-lg px-3 py-2 text-sm" value="10">
+          </div>
+          <div class="flex justify-end gap-3 mt-6">
+            <button type="button" onclick="document.getElementById('add-subpage-modal').classList.add('hidden')" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg text-sm font-medium">取消</button>
+            <button type="button" onclick="saveSubpage()" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">儲存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      async function toggleSubpageActive(id, newStatus) {
+        const res = await fetch('/api/group-subpages/' + id + '/toggle-active', { 
+          method: 'PUT', 
+          headers: {'Content-Type':'application/json'}, 
+          body: JSON.stringify({ is_active: newStatus }) 
+        });
+        if (res.ok) location.reload(); else alert('切換狀態失敗');
+      }
+
+      async function deleteSubpage(id) {
+        if (!confirm('確定要刪除此自訂子頁面嗎？')) return;
+        const res = await fetch('/api/group-subpages/' + id, { method: 'DELETE' });
+        if (res.ok) location.reload(); else alert('刪除失敗');
+      }
+
+      async function saveSubpage() {
+        const data = {
+          group_id: document.getElementById('add-sp-group_id').value,
+          label: document.getElementById('add-sp-label').value,
+          icon: document.getElementById('add-sp-icon').value || '📄',
+          is_custom: true,
+          custom_link: document.getElementById('add-sp-custom_link').value,
+          display_order: parseInt(document.getElementById('add-sp-display_order').value) || 10
+        };
+        if (!data.label || !data.custom_link) { alert('名稱與連結為必填'); return; }
+        const res = await fetch('/api/group-subpages', { 
+          method: 'POST', 
+          headers: {'Content-Type':'application/json'}, 
+          body: JSON.stringify(data) 
+        });
+        if (res.ok) location.reload(); else alert('新增失敗');
+      }
+    </script>
   `))
 })
 
