@@ -529,6 +529,83 @@ adminRoutes.get('/activities/:id/registrations', authMiddleware, async (c) => {
   `))
 })
 
+// ===================== 認識童軍設定 =====================
+adminRoutes.get('/about-scout', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings WHERE key = 'about_scout_content'`).all()
+  const content = settingsRows.results.length > 0 ? settingsRows.results[0].value : ''
+
+  return c.html(adminLayout('認識童軍設定', `
+    <h2 class="text-xl font-bold text-gray-800 mb-6">📖 認識童軍頁面內容設定</h2>
+    <div class="bg-white rounded-xl shadow p-6">
+      <form id="about-scout-form" class="space-y-5">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">頁面內容（支援 HTML 語法）</label>
+          <textarea name="about_scout_content" rows="20" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 font-mono">${content || ''}</textarea>
+          <p class="text-xs text-gray-500 mt-2">提示：您可以使用 HTML 標籤（如 &lt;h2&gt;、&lt;p&gt;、&lt;b&gt; 等）來排版內容。也可以包含圖片 &lt;img src="..."&gt; 或連結 &lt;a href="..."&gt;。</p>
+        </div>
+        <div id="save-msg" class="hidden bg-green-50 text-green-700 border border-green-200 rounded-lg px-4 py-3 text-sm">✅ 設定已儲存！</div>
+        <div class="flex gap-4">
+          <button type="submit" class="bg-green-700 hover:bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium">儲存設定</button>
+          <a href="/about/scout" target="_blank" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-lg text-sm font-medium">在新分頁預覽</a>
+        </div>
+      </form>
+    </div>
+    <script>
+      document.getElementById('about-scout-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const data = {};
+        for (const [k, v] of formData.entries()) data[k] = v;
+        const res = await fetch('/api/settings', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+        if (res.ok) {
+          document.getElementById('save-msg').classList.remove('hidden');
+          setTimeout(() => document.getElementById('save-msg').classList.add('hidden'), 3000);
+        } else alert('儲存失敗');
+      });
+    </script>
+  `))
+})
+
+// ===================== 服務員介紹設定 =====================
+adminRoutes.get('/about-leaders', authMiddleware, async (c) => {
+  const db = c.env.DB
+  const settingsRows = await db.prepare(`SELECT key, value FROM site_settings WHERE key = 'about_leaders_content'`).all()
+  const content = settingsRows.results.length > 0 ? settingsRows.results[0].value : ''
+
+  return c.html(adminLayout('服務員介紹設定', `
+    <h2 class="text-xl font-bold text-gray-800 mb-6">👮 服務員介紹頁面內容設定</h2>
+    <div class="bg-white rounded-xl shadow p-6">
+      <form id="about-leaders-form" class="space-y-5">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">頁面內容（支援 HTML 語法）</label>
+          <textarea name="about_leaders_content" rows="20" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 font-mono">${content || ''}</textarea>
+          <p class="text-xs text-gray-500 mt-2">提示：您可以使用 HTML 標籤（如 &lt;h2&gt;、&lt;p&gt;、&lt;b&gt; 等）來排版內容。也可以包含圖片 &lt;img src="..."&gt; 或連結 &lt;a href="..."&gt;。</p>
+        </div>
+        <div id="save-msg" class="hidden bg-green-50 text-green-700 border border-green-200 rounded-lg px-4 py-3 text-sm">✅ 設定已儲存！</div>
+        <div class="flex gap-4">
+          <button type="submit" class="bg-green-700 hover:bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium">儲存設定</button>
+          <a href="/about/leaders" target="_blank" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-lg text-sm font-medium">在新分頁預覽</a>
+        </div>
+      </form>
+    </div>
+    <script>
+      document.getElementById('about-leaders-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const data = {};
+        for (const [k, v] of formData.entries()) data[k] = v;
+        const res = await fetch('/api/settings', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+        if (res.ok) {
+          document.getElementById('save-msg').classList.remove('hidden');
+          setTimeout(() => document.getElementById('save-msg').classList.add('hidden'), 3000);
+        } else alert('儲存失敗');
+      });
+    </script>
+  `))
+})
+
+
 // 管理活動圖片
 adminRoutes.get('/activities/:id/images', authMiddleware, async (c) => {
   const db = c.env.DB
@@ -1855,13 +1932,20 @@ function adminLayout(title: string, content: string) {
         <span>🏠</span> 儀表板
       </a>
 
-      <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-2 mt-1">網站內容</div>
+      <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-2 mt-1">網站內容管理</div>
       <a href="/admin/activities" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('活動') ? 'bg-green-700' : ''}">
         <span>📋</span> 活動/公告管理
       </a>
-      <a href="/admin/groups" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '童軍頁面管理' ? 'bg-green-700' : ''}">
-        <span>👥</span> 童軍頁面管理
+      <a href="/admin/settings" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${['童軍頁面管理', '認識童軍設定', '服務員介紹設定', '相關網頁管理', '網站設定'].includes(title) ? 'bg-green-700' : ''}">
+        <span>⚙️</span> 網頁內容設定
       </a>
+      <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
+        <a href="/admin/settings" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '網站設定' ? 'bg-green-700' : 'text-green-200'}">🏠 首頁/一般設定</a>
+        <a href="/admin/groups" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '童軍頁面管理' ? 'bg-green-700' : 'text-green-200'}">👥 童軍分組頁面</a>
+        <a href="/admin/about-scout" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '認識童軍設定' ? 'bg-green-700' : 'text-green-200'}">📖 認識童軍</a>
+        <a href="/admin/about-leaders" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '服務員介紹設定' ? 'bg-green-700' : 'text-green-200'}">👮 服務員介紹</a>
+        <a href="/admin/links" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title === '相關網頁管理' ? 'bg-green-700' : 'text-green-200'}">🔗 相關網站</a>
+      </div>
 
       <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-2 mt-1">人員管理</div>
       <a href="/admin/members" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('成員') ? 'bg-green-700' : ''}">
@@ -1904,12 +1988,7 @@ function adminLayout(title: string, content: string) {
       <a href="/admin/rover-map" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('羅浮分佈') ? 'bg-green-700' : ''}">
         <span>🌍</span> 羅浮分佈圖
       </a>
-      <a href="/admin/settings" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '網站設定' ? 'bg-green-700' : ''}">
-        <span>⚙️</span> 網站設定
-      </a>
-      <a href="/admin/links" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '相關網頁管理' ? 'bg-green-700' : ''}">
-        <span>🔗</span> 相關網頁
-      </a>
+
     </nav>
     <div class="p-3 border-t border-green-700 flex gap-1">
       <a href="/" target="_blank" class="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs text-green-300 hover:text-white hover:bg-green-700 rounded-lg transition-colors">

@@ -2549,6 +2549,7 @@ function renderGroupPage(group: any, semesters: any[], settings: Record<string, 
     'scout-troop': '🏕️',
     'senior-scout': '⛺',
     'rover-scout': '🧭',
+    'cub-scout': '🐺',
   }
   const icon = groupIcon[group.slug] || '⚜️'
 
@@ -2806,6 +2807,7 @@ function renderHomePage(activities: any[], groups: any[], settings: Record<strin
     'scout-troop': '🏕️',
     'senior-scout': '⛺',
     'rover-scout': '🧭',
+    'cub-scout': '🐺',
   }
   const groupsHtml = groups.map((g: any) => {
     const icon = groupIcon[g.slug] || '⚜️'
@@ -2971,6 +2973,7 @@ function renderSubPage(group: any, pageType: string, data: any, settings: Record
     'scout-troop': '🏕️',
     'senior-scout': '⛺',
     'rover-scout': '🧭',
+    'cub-scout': '🐺',
   }
   const icon = groupIcon[group.slug] || '⚜️'
 
