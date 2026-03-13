@@ -20,7 +20,7 @@ async function sha256(message: string): Promise<string> {
 async function authMiddleware(c: any, next: any) {
   const session = getCookie(c, 'admin_session')
   if (!session || session !== 'authenticated') {
-    return next()
+    return c.redirect('/admin/login')
   }
   await next()
 }
@@ -94,7 +94,7 @@ adminRoutes.post('/login', async (c) => {
 
 adminRoutes.get('/logout', (c) => {
   deleteCookie(c, 'admin_session', { path: '/' })
-  return next()
+  return c.redirect('/admin/login')
 })
 
 // ===================== 後台首頁儀表板 =====================
