@@ -180,7 +180,7 @@ adminRoutes.get('/', authMiddleware, async (c) => {
         </a>
         <a href="/admin/groups" class="flex flex-col items-center gap-2 p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors">
           <span class="text-2xl">👥</span>
-          <span class="text-sm text-purple-700 font-medium">管理分組</span>
+          <span class="text-sm text-purple-700 font-medium">童軍頁面管理</span>
         </a>
         <a href="/admin/announcements" class="flex flex-col items-center gap-2 p-4 bg-amber-50 hover:bg-amber-100 rounded-xl transition-colors">
           <span class="text-2xl">📢</span>
@@ -729,9 +729,9 @@ adminRoutes.get('/groups', authMiddleware, async (c) => {
     </tr>
   `).join('')
 
-  return c.html(adminLayout('分組管理', `
+  return c.html(adminLayout('童軍頁面管理', `
     <div class="flex justify-between items-center mb-6">
-      <h2 class="text-xl font-bold text-gray-800">童軍分組管理</h2>
+      <h2 class="text-xl font-bold text-gray-800">童軍頁面管理</h2>
       <button onclick="document.getElementById('add-modal').classList.remove('hidden')" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">➕ 新增分組</button>
     </div>
     <div class="bg-white rounded-xl shadow overflow-hidden">
@@ -1859,14 +1859,9 @@ function adminLayout(title: string, content: string) {
       <a href="/admin/activities" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('活動') ? 'bg-green-700' : ''}">
         <span>📋</span> 活動/公告管理
       </a>
-      <a href="/admin/groups" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '分組管理' ? 'bg-green-700' : ''}">
-        <span>👥</span> 童軍分組
+      <a href="/admin/groups" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title === '童軍頁面管理' ? 'bg-green-700' : ''}">
+        <span>👥</span> 童軍頁面管理
       </a>
-      <div class="ml-2 pl-3 border-l-2 border-green-600 space-y-0.5">
-        <a href="/admin/groups/1/subpages" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('童軍團') ? 'bg-green-700' : 'text-green-200'}">🏕️ 童軍團</a>
-        <a href="/admin/groups/2/subpages" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('行義') ? 'bg-green-700' : 'text-green-200'}">⛺ 行義童軍團</a>
-        <a href="/admin/groups/3/subpages" onclick="closeDrawer()" class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs ${title.includes('羅浮') ? 'bg-green-700' : 'text-green-200'}">🧭 羅浮童軍群</a>
-      </div>
 
       <div class="text-xs text-green-400 font-semibold uppercase tracking-wider px-3 py-2 mt-1">人員管理</div>
       <a href="/admin/members" onclick="closeDrawer()" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-green-700 transition-colors text-sm ${title.includes('成員') ? 'bg-green-700' : ''}">
@@ -5301,7 +5296,7 @@ adminRoutes.get('/groups/:id/subpages', authMiddleware, async (c) => {
   return c.html(adminLayout(`${group.name} - 子頁面管理`, `
     <div class="mb-6">
       <div class="flex items-center gap-3 mb-2">
-        <a href="/admin/groups" class="text-gray-500 hover:text-gray-700 text-sm">← 返回分組管理</a>
+        <a href="/admin/groups" class="text-gray-500 hover:text-gray-700 text-sm">← 返回童軍頁面管理</a>
       </div>
       <h2 class="text-xl font-bold text-gray-800">${group.name} · 子頁面管理</h2>
       <p class="text-gray-500 text-sm mt-1">管理組織架構、幹部名單、歷屆成員資料</p>
