@@ -389,6 +389,20 @@ adminRoutes.get('/activities', authMiddleware, async (c) => {
           alert('連線錯誤');
         }
       }
+    
+      async function deleteActivity(id) {
+        if (!confirm('確定要刪除此活動嗎？這項操作無法復原。')) return;
+        try {
+          const res = await fetch('/api/admin/activities/' + id, { method: 'DELETE' });
+          if (res.ok) {
+            location.reload();
+          } else {
+            alert('刪除失敗');
+          }
+        } catch (e) {
+          alert('連線錯誤');
+        }
+      }
     </script>`))
 })
 
