@@ -820,6 +820,10 @@ adminRoutes.get('/groups', authMiddleware, async (c) => {
             <th class="py-3 px-4 text-left text-gray-600">年級範圍</th>
             <th class="py-3 px-4 text-left text-gray-600">狀態</th>
             <th class="py-3 px-4 text-left text-gray-600">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="5" class="py-4 text-center text-gray-500">尚無分組</td></tr>'}
         </tbody>
       </table>
     </div>
